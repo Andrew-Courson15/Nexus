@@ -11,6 +11,7 @@ os.environ.pop("NEXUS_DATABASE_URL", None)
 os.environ["NEXUS_ALLOWED_HOSTS"] = "testserver,localhost,127.0.0.1"
 os.environ["NEXUS_AI_PROVIDER"] = "local"
 os.environ["NEXUS_TRANSCRIPTION_PROVIDER"] = "placeholder"
+os.environ["NEXUS_PROCESSING_MODE"] = "sync"
 
 from fastapi.testclient import TestClient  # noqa: E402
 from sqlalchemy import text  # noqa: E402

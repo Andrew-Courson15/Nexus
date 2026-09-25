@@ -61,6 +61,30 @@ function options(values, selected, blank) {
     values.map((v) => `<option value="${esc(v)}"${v === selected ? " selected" : ""}>${esc(label(v))}</option>`).join("");
 }
 
+/* ------------------------------------------------------------- processing */
+const ACTIVE = ["queued", "transcribing", "analyzing"];
+const isBusy = (e) => ACTIVE.includes(e.processing_status);
+const busyLabel = (st) => ({ queued: "waiting to be organized…", transcribing: "transcribing…", analyzing: "organizing…" })[st] || "";
+
+/**
+ * Poll an entry until its background work finishes, then call onDone(entry).
+ * Stops by itself when `node` leaves the page (the user navigated away).
+ */
+function watchEntry(id, node, onDone, onProgress) {
+  let last = null;
+  const tick = async () => {
+    if (!node.isConnected) return;
+    let e;
+    try { e = await api(`/api/entries/${id}`); } catch { return setTimeout(tick, 4000); }
+    if (!node.isConnected) return;
+    if (isBusy(e)) {
+      if (e.processing_status !== last) { last = e.processing_status; onProgress?.(e); }
+      setTimeout(tick, 2000);
+    } else onDone(e);
+  };
+  setTimeout(tick, 1500);
+}
+
 /* ------------------------------------------------------------- components */
 function tagsHTML(tags, removable = false) {
   return tags
@@ -78,6 +102,7 @@ function cardHTML(e, extra = "") {
       <span class="pill type">${esc(label(e.entry_type))}</span>
       <span class="pill status-${esc(e.status)}">${esc(e.status)}</span>
       ${audio ? `<span class="pill">voice</span>` : ""}
+      ${isBusy(e) ? `<span class="pill busy">${esc(busyLabel(e.processing_status))}</span>` : ""}
       <span class="spacer"></span><span>${fmtDate(e.created_at)}</span>
     </div>
     <h3>${esc(e.title)}</h3>
@@ -261,8 +286,13 @@ async function viewHome(el) {
   };
   const cap = mountCapture($("#cap", el), {
     onCaptured: (entry) => {
-      $("#just", el).innerHTML = `<h2>Just captured</h2><div class="grid">${cardHTML(entry)}</div>`;
+      const just = $("#just", el);
+      just.innerHTML = `<h2>Just captured</h2><div class="grid">${cardHTML(entry)}</div>`;
       loadRecent();
+      if (isBusy(entry)) {
+        const show = (e) => { just.innerHTML = `<h2>Just captured</h2><div class="grid">${cardHTML(e)}</div>`; };
+        watchEntry(entry.id, just, (e) => { show(e); loadRecent(); }, show);
+      }
     },
   });
   cap.focus();
@@ -415,22 +445,30 @@ async function viewSearch(el, _id, query) {
       x.snippet ? `<p class="snippet">${snippet(x.snippet)}</p>` : "")).join("")}</div>` : `<p class="empty">Nothing found for “${esc(q)}”.</p>`}`;
 }
 
+function health(h) {
+  if (!h) return "";
+  return `<p class="health ${h.ok ? "ok" : "bad"}"><span class="dot"></span>${esc(h.detail)}</p>`;
+}
+
 async function viewSettings(el) {
   const s = await getSettings(true);
   const ai = s.ai_provider;
   el.innerHTML = `<div class="view-head"><div><h1>Settings</h1>
     <p class="lede">NEXUS is configured through the <code>.env</code> file next to <code>run.py</code>. Restart after changing it. API keys stay in the environment and are never stored in the database.</p></div></div>
     <div class="grid">
-      <div class="panel"><h3>AI provider</h3><dl class="kv">
+      <div class="panel"><h3>AI provider</h3>${health(ai.health)}<dl class="kv">
         <dt>Active</dt><dd>${esc(ai.name)}</dd>
         <dt>Sends data off this machine</dt><dd>${ai.external == null ? "—" : ai.external ? "Yes" : "No"}</dd>
+        ${ai.health?.installed ? `<dt>Installed models</dt><dd>${esc(ai.health.installed.join(", ") || "none")}</dd>` : ""}
         <dt>Available</dt><dd>${esc(ai.available.join(", "))}</dd></dl>
-        ${ai.error ? `<p class="small" style="color:var(--danger)">${esc(ai.error)}</p>` : ""}
-        <p class="small muted">Set <code>NEXUS_AI_PROVIDER</code>.</p></div>
-      <div class="panel"><h3>Transcription</h3><dl class="kv">
+        <p class="small muted">Set <code>NEXUS_AI_PROVIDER</code> and <code>NEXUS_OLLAMA_MODEL</code>.</p></div>
+      <div class="panel"><h3>Transcription</h3>${health(s.transcription_provider.health)}<dl class="kv">
         <dt>Active</dt><dd>${esc(s.transcription_provider.name)}</dd>
         <dt>Available</dt><dd>${esc(s.transcription_provider.available.join(", "))}</dd></dl>
-        <p class="small muted">Set <code>NEXUS_TRANSCRIPTION_PROVIDER</code>. The placeholder keeps audio and leaves transcripts empty.</p></div>
+        <p class="small muted">Set <code>NEXUS_TRANSCRIPTION_PROVIDER</code> and <code>NEXUS_WHISPER_MODEL</code>.</p></div>
+      <div class="panel"><h3>Background work</h3><dl class="kv">
+        <dt>Mode</dt><dd>${esc(s.processing.mode)}</dd><dt>In progress</dt><dd>${s.processing.active} entr${s.processing.active === 1 ? "y" : "ies"}</dd></dl>
+        <p class="small muted">Captures are saved instantly; transcription and organizing happen afterwards, one at a time.</p></div>
       <div class="panel"><h3>Search</h3><dl class="kv">
         <dt>Mode</dt><dd>${esc(s.search.mode)}</dd><dt>Semantic search</dt><dd>${s.search.semantic_enabled ? "On" : "Not yet (falls back to text)"}</dd></dl></div>
       <div class="panel"><h3>Storage</h3><dl class="kv">
@@ -461,12 +499,29 @@ async function viewEntry(el, id) {
     ? prov("user", "User material", `<div class="body">${esc(e.original_text)}</div>`, "exactly as you captured it · never modified")
     : prov("unknown", "User material", `<div class="body">No words were written with this ${esc(label(e.source_type))} capture. The original file above is the user material.</div>`);
 
+  const canTranscribe = e.source_type === "voice" && e.attachments.some((a) => a.kind === "audio") && !isBusy(e);
   const transcriptBlock = e.source_type === "voice"
     ? (e.transcript
-      ? prov("ai", "Transcript", `<div class="body" id="transcript-text">${esc(e.transcript)}</div>`,
+      ? prov(m.transcript_source === "user" ? "user" : "ai", "Transcript", `<div class="body" id="transcript-text">${esc(e.transcript)}</div>
+          <div class="row" style="margin-top:8px"><button class="btn ghost small" data-act="edit-transcript">Correct transcript</button>
+          ${canTranscribe && m.transcript_source !== "user" ? `<button class="btn ghost small" data-act="transcribe">Transcribe again</button>` : ""}</div>`,
           m.transcript_source === "user" ? "corrected by you" : `machine-generated from your recording (${transcriptInfo?.provider || "unknown"})`)
-      : prov("unknown", "Transcript · unknown", `<div class="body">${esc(transcriptInfo?.message || "No transcript exists yet.")}</div>`))
+      : prov("unknown", "Transcript · unknown", `<div class="body">${esc(transcriptInfo?.message || (isBusy(e) ? "Transcription is on its way…" : "No transcript exists yet."))}</div>
+          ${canTranscribe ? `<div class="row" style="margin-top:8px"><button class="btn small" data-act="transcribe">Transcribe now</button></div>` : ""}`))
     : "";
+
+  const v = m.visual;
+  const visualRows = v ? [["Looks like", v.possible_type && label(v.possible_type)], ["Subjects", v.visual_subjects],
+    ["Characters", v.characters], ["Objects", v.objects], ["Setting", v.setting], ["Style", v.style], ["Colours", v.colors]] : [];
+  const visualBlock = v ? (visualRows.some(([, x]) => x && x.length)
+    ? prov("ai", "AI interpretation · image", `<dl class="kv">${visualRows.map(([k, x]) =>
+        `<dt>${k}</dt><dd>${x && x.length ? esc(Array.isArray(x) ? x.join(", ") : x) : `<span class="muted">unknown</span>`}</dd>`).join("")}</dl>`,
+        "what the model saw — not what you said")
+    : prov("unknown", "Image · unknown", `<div class="body">The picture's content hasn't been analysed.</div>`)) : "";
+
+  const busyBanner = isBusy(e) ? `<div class="busy-banner" id="busy"><span class="spinner"></span>
+    <div><strong>NEXUS is ${esc(busyLabel(e.processing_status))}</strong><br>
+    <span class="small muted">Your original is already saved. This page updates by itself when the local AI finishes.</span></div></div>` : "";
 
   const analysisBlocks = e.analyzed_at ? `
     ${prov("ai", "AI summary", `<div class="body">${esc(e.ai_summary || "—")}</div>`, `${e.ai_provider} · ${fmtDateTime(e.analyzed_at)}`)}
@@ -479,13 +534,16 @@ async function viewEntry(el, id) {
       "possibilities, not facts")}
     ${m.uncertainties?.length || m.analysis_error ? prov("unknown", "Unknown / uncertain",
       list([...(m.analysis_error ? [m.analysis_error] : []), ...(m.uncertainties || [])])) : ""}
+    ${visualBlock}
     ${m.method ? `<p class="small muted">Method: ${esc(m.method)}</p>` : ""}`
+    : isBusy(e) ? ""
     : prov("unknown", "Not analysed", `<div class="body">${esc(m.analysis_error || "The AI organizer hasn't looked at this entry yet.")}</div>`);
 
   const inProjects = new Set(e.projects.map((p) => p.id));
   el.innerHTML = `<p class="row"><a href="javascript:history.back()" class="muted small">← Back</a><span class="spacer"></span>${LEGEND}</p>
   <div class="detail"><div>
     <div class="meta"><span>${esc(label(e.source_type))} capture</span><span>·</span><span>${fmtDateTime(e.created_at)}</span></div>
+    ${busyBanner}
     <h1 class="detail-title" id="title">${esc(e.title)}</h1>
     <div class="row">
       ${srcBadge(e.title_source)}<span class="small muted">title</span>
@@ -503,8 +561,8 @@ async function viewEntry(el, id) {
       "additions you've written later")}
     ${transcriptBlock}
     ${analysisBlocks}
-    <div class="row"><button class="btn" data-act="analyze">Re-run AI organizer</button>
-      <span class="small muted">Regenerates AI data only. Your words, title and type choices are kept.</span></div>
+    ${isBusy(e) ? "" : `<div class="row"><button class="btn" data-act="analyze">Re-run AI organizer</button>
+      <span class="small muted">Regenerates AI data only. Your words, title and type choices are kept.</span></div>`}
   </div>
 
   <aside class="side">
@@ -565,11 +623,30 @@ async function viewEntry(el, id) {
     $("textarea", view).focus();
     $("[data-act=save-notes]", view).onclick = () => put({ user_notes: $("textarea", view).value }, "Notes saved.");
   };
-  $("[data-act=analyze]", el).onclick = async (ev) => {
+  $("[data-act=analyze]", el)?.addEventListener("click", async (ev) => {
     ev.target.disabled = true;
-    try { await api(`/api/entries/${id}/analyze`, { method: "POST" }); toast("AI organizer re-ran."); render(); }
+    try { await api(`/api/entries/${id}/analyze`, { method: "POST" }); toast("Organizing again…"); render(); }
     catch (err) { toast(err.message, true); ev.target.disabled = false; }
-  };
+  });
+  $$("[data-act=transcribe]", el).forEach((b) => (b.onclick = async () => {
+    b.disabled = true;
+    try { await api(`/api/entries/${id}/transcribe`, { method: "POST" }); toast("Transcribing…"); render(); }
+    catch (err) { toast(err.message, true); b.disabled = false; }
+  }));
+  $("[data-act=edit-transcript]", el)?.addEventListener("click", () => {
+    const view = $("#transcript-text", el);
+    view.innerHTML = `<textarea rows="6" aria-label="Transcript">${esc(e.transcript || "")}</textarea>
+      <div class="row" style="margin-top:8px"><button class="btn primary small" data-act="save-transcript">SAVE TRANSCRIPT</button>
+      <span class="small muted">The recording itself is never changed.</span></div>`;
+    $("textarea", view).focus();
+    $("[data-act=save-transcript]", view).onclick = () => put({ transcript: $("textarea", view).value }, "Transcript corrected.");
+  });
+  if (isBusy(e)) {
+    const route = location.hash;
+    const banner = $("#busy", el);
+    watchEntry(e.id, banner, () => { if (location.hash === route) render(); },
+      (x) => { const t = $("strong", banner); if (t) t.textContent = `NEXUS is ${busyLabel(x.processing_status)}`; });
+  }
   const currentTags = e.tags.map((t) => t.name);
   $$("[data-remove-tag]", el).forEach((b) => (b.onclick = () =>
     put({ tags: currentTags.filter((t) => t !== b.dataset.removeTag) }, "Tag removed.")));

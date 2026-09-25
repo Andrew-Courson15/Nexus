@@ -71,7 +71,8 @@ class Organizer:
         entry.ai_interpretation = result.interpretation
         entry.ai_inference = result.inference
         entry.confidence = result.confidence
-        entry.ai_provider = provider.name
+        used_by = result.provider_name or provider.name
+        entry.ai_provider = used_by
         entry.analyzed_at = utcnow()
 
         meta.pop("analysis_error", None)
@@ -88,6 +89,8 @@ class Organizer:
         )
         if result.visual is not None:
             meta["visual"] = result.visual
+        else:
+            meta.pop("visual", None)
         entry.ai_metadata = meta
 
         replace_ai_tags(self.db, entry, result.tags)
@@ -97,9 +100,9 @@ class Organizer:
                 f"\nMay connect to {len(rels)} existing entr{'y' if len(rels) == 1 else 'ies'} "
                 "(see AI-suggested relationships)."
             )
-        record_revision(self.db, entry, f"AI analysis ({provider.name})")
+        record_revision(self.db, entry, f"AI analysis ({used_by})")
         index_entry(self.db, entry)
-        return OrganizeOutcome(True, provider.name, rels)
+        return OrganizeOutcome(True, used_by, rels)
 
     def _potential_projects(self, entry: CreativeEntry, concepts: list[str], keywords: list[str]) -> list[dict]:
         """Projects whose name/description share vocabulary with the entry. Suggestions only."""

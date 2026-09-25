@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.config import get_settings
 from app.database import get_db
 from app.models import (
+    ACTIVE_PROCESSING,
     CreativeEntry,
     EntryStatus,
     EntryTag,
@@ -31,15 +32,20 @@ def read_settings(db: Session = Depends(get_db)):
     s = get_settings()
     try:
         provider = ai.get_ai_provider()
-        provider_info = {"name": provider.name, "external": provider.external, "error": None}
+        provider_info = {"name": provider.name, "external": provider.external, "error": None,
+                         "health": provider.health()}
     except ai.AIProviderError as exc:
-        provider_info = {"name": s.ai_provider, "external": None, "error": str(exc)}
-    t = transcription.TranscriptionService().provider
+        provider_info = {"name": s.ai_provider, "external": None, "error": str(exc),
+                         "health": {"ok": False, "detail": str(exc)}}
+    t = transcription.get_transcription_provider()
     active = CreativeEntry.deleted_at.is_(None)
     return {
         "ai_provider": {**provider_info, "configured": s.ai_provider, "available": sorted(ai.PROVIDERS)},
-        "transcription_provider": {"name": t.name, "external": t.external,
+        "transcription_provider": {"name": t.name, "external": t.external, "health": t.health(),
                                    "available": sorted(transcription.PROVIDERS)},
+        "processing": {"mode": s.processing_mode,
+                       "active": db.scalar(select(func.count()).where(
+                           active, CreativeEntry.processing_status.in_(ACTIVE_PROCESSING))) or 0},
         "search": {"mode": "fts5" if fts_available() else "like", "semantic_enabled": False},
         "storage": {"data_dir": str(s.data_dir), "database": s.database_url.split("://")[0],
                     "max_upload_mb": s.max_upload_mb},

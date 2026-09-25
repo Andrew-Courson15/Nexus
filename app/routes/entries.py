@@ -35,7 +35,7 @@ from app.schemas import (
     relationship_out,
 )
 from app.services.history import add_tag, record_revision, set_user_tags
-from app.services.organizer import Organizer
+from app.services.processing import enqueue
 from app.services.relationships import relationships_for
 from app.services.search import index_entry, remove_from_index
 
@@ -89,8 +89,7 @@ def create_entry(payload: EntryCreate, db: Session = Depends(get_db)):
     db.commit()  # the original is safe before any AI work happens
 
     if payload.analyze:
-        Organizer(db).organize(entry)
-        db.commit()
+        enqueue(db, entry, transcribe=False)
     return entry_detail(load_entry(db, entry.id))
 
 
@@ -215,13 +214,35 @@ def restore_entry(entry_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/entries/{entry_id}/analyze", response_model=EntryDetail)
-def analyze_entry(entry_id: int, db: Session = Depends(get_db)):
+def analyze_entry(entry_id: int, response: Response, db: Session = Depends(get_db)):
+    """Re-run the AI organizer. Queued in the background unless processing mode is sync."""
     entry = load_entry(db, entry_id)
-    outcome = Organizer(db).organize(entry)
-    db.commit()
-    if not outcome.ok:
-        raise HTTPException(502, outcome.error or "AI analysis failed")
-    return entry_detail(load_entry(db, entry_id))
+    enqueue(db, entry, transcribe=False)
+    entry = load_entry(db, entry_id)
+    if entry.processing_status == "failed":
+        raise HTTPException(502, (entry.ai_metadata or {}).get("analysis_error") or "AI analysis failed")
+    if entry.processing_status in ("queued", "analyzing"):
+        response.status_code = 202
+    return entry_detail(entry)
+
+
+@router.post("/entries/{entry_id}/transcribe", response_model=EntryDetail)
+def transcribe_entry(entry_id: int, response: Response, force: bool = False, db: Session = Depends(get_db)):
+    """(Re)transcribe a voice entry, then re-run the organizer on the new transcript.
+
+    A transcript you corrected by hand is only replaced with `force=true`
+    (the corrected version stays in the revision history either way).
+    """
+    entry = load_entry(db, entry_id)
+    if entry.source_type != "voice" or not any(a.kind == "audio" for a in entry.attachments):
+        raise HTTPException(400, "This entry has no recording to transcribe")
+    if entry.transcript and (entry.ai_metadata or {}).get("transcript_source") == "user" and not force:
+        raise HTTPException(409, "You corrected this transcript by hand. Use force=true to replace it.")
+    enqueue(db, entry, force_transcribe=True)
+    entry = load_entry(db, entry_id)
+    if entry.processing_status in ("queued", "transcribing", "analyzing"):
+        response.status_code = 202
+    return entry_detail(entry)
 
 
 @router.get("/entries/{entry_id}/revisions", response_model=list[RevisionOut])

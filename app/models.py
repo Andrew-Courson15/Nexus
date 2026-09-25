@@ -143,6 +143,8 @@ class Origin(str, Enum):
 
 # Statuses shown in the Idea Incubator.
 INCUBATOR_STATUSES = (EntryStatus.raw.value, EntryStatus.exploring.value)
+# Processing states that mean "work still to do".
+ACTIVE_PROCESSING = ("queued", "transcribing", "analyzing")
 UNFINISHED_STATUSES = (
     EntryStatus.raw.value,
     EntryStatus.exploring.value,
@@ -189,6 +191,8 @@ class CreativeEntry(Base):
     analyzed_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
     confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
     user_confirmed: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Background work: None | queued | transcribing | analyzing | done | failed
+    processing_status: Mapped[str | None] = mapped_column(String(20), nullable=True)
 
     source_type: Mapped[str] = mapped_column(String(30), default=SourceType.text.value, index=True)
     # Path of the raw file relative to the data directory (if any).

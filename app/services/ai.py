@@ -10,15 +10,17 @@ store, and always stores it as AI-generated (derived) data.
 
 Available providers
 -------------------
-local        Offline heuristic organizer (default). Sends nothing anywhere.
-openai       Reserved. Not implemented in v1.
-anthropic    Reserved. Not implemented in v1.
-local_model  Reserved (e.g. Ollama / llama.cpp). Not implemented in v1.
+ollama       A language model running on this computer through Ollama
+             (default). Falls back to `local` if Ollama isn't reachable.
+local        Offline heuristic organizer. No model needed.
+openai       Reserved. Not implemented yet.
+anthropic    Reserved. Not implemented yet.
 """
 from __future__ import annotations
 
 import re
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -40,11 +42,14 @@ class EntryContext:
     source_type: str = "text"
     attachments: list[dict[str, Any]] = field(default_factory=list)
     concepts: list[str] | None = None  # previously extracted, if known
+    summary: str = ""                  # previous AI summary, if any
+    title_is_user: bool = False
 
     @classmethod
     def from_entry(cls, entry: Any) -> EntryContext:
         """Build a context from a CreativeEntry-like object (duck-typed, no DB import)."""
         meta = getattr(entry, "ai_metadata", None) or {}
+        data_dir = get_settings().data_dir
         return cls(
             id=entry.id,
             title=entry.title or "",
@@ -54,10 +59,13 @@ class EntryContext:
             entry_type=entry.entry_type,
             source_type=entry.source_type,
             attachments=[
-                {"kind": a.kind, "original_filename": a.original_filename, "mime_type": a.mime_type}
+                {"kind": a.kind, "original_filename": a.original_filename, "mime_type": a.mime_type,
+                 "path": str(data_dir / a.stored_path)}
                 for a in getattr(entry, "attachments", [])
             ],
             concepts=meta.get("concepts"),
+            summary=entry.ai_summary or "",
+            title_is_user=getattr(entry, "title_source", "ai") == "user",
         )
 
     @property
@@ -81,6 +89,7 @@ class AnalysisResult:
     uncertainties: list[str]
     visual: dict[str, Any] | None = None
     method: str = ""
+    provider_name: str | None = None  # set when a fallback provider did the work
 
 
 @dataclass
@@ -114,6 +123,10 @@ class AIProvider(ABC):
     @abstractmethod
     def answer_question(self, question: str, context: list[EntryContext]) -> str: ...
 
+    def health(self) -> dict[str, Any]:
+        """Quick readiness check for the Settings page. Must be fast."""
+        return {"ok": True, "detail": "Ready."}
+
 
 # --------------------------------------------------------------------------- #
 # Default provider: offline heuristics
@@ -128,6 +141,9 @@ class LocalHeuristicProvider(AIProvider):
 
     name = "local-heuristic-v1"
     external = False
+
+    def health(self) -> dict[str, Any]:
+        return {"ok": True, "detail": "Offline keyword heuristics. No model needed."}
 
     _SPLIT_CLAUSE = re.compile(r",|;|\s+but\s+|\s+-\s+|\s+—\s+|:")
 
@@ -290,11 +306,13 @@ class LocalHeuristicProvider(AIProvider):
 
     # -- relationships ---------------------------------------------------------
     def find_relationships(
-        self, entry: EntryContext, existing_entries: list[EntryContext]
+        self, entry: EntryContext, existing_entries: list[EntryContext], threshold: float | None = None,
+        limit: int = 10,
     ) -> list[RelationshipSuggestion]:
-        threshold = get_settings().relationship_threshold
+        if threshold is None:
+            threshold = get_settings().relationship_threshold
         text = entry.analysis_text
-        a_concepts = set(entry.concepts if entry.concepts is not None else T.concepts_for(text))
+        a_concepts = set(entry.concepts or []) | set(T.concepts_for(text))
         a_kw = set(T.keywords(text))
         if not a_concepts and not a_kw:
             return []
@@ -303,7 +321,7 @@ class LocalHeuristicProvider(AIProvider):
             if other.id is None or other.id == entry.id:
                 continue
             o_text = other.analysis_text
-            b_concepts = set(other.concepts if other.concepts is not None else T.concepts_for(o_text))
+            b_concepts = set(other.concepts or []) | set(T.concepts_for(o_text))
             b_kw = set(T.keywords(o_text))
             shared_c = a_concepts & b_concepts
             shared_k = a_kw & b_kw
@@ -326,7 +344,7 @@ class LocalHeuristicProvider(AIProvider):
                 )
             )
         out.sort(key=lambda s: -s.confidence)
-        return out[:10]
+        return out[:limit]
 
     # -- questions -------------------------------------------------------------
     def answer_question(self, question: str, context: list[EntryContext]) -> str:
@@ -342,7 +360,7 @@ class LocalHeuristicProvider(AIProvider):
 
 
 # --------------------------------------------------------------------------- #
-# Reserved providers (interfaces only in v1)
+# Reserved providers (interfaces only for now)
 # --------------------------------------------------------------------------- #
 class _NotImplementedProvider(AIProvider):
     external = True
@@ -351,7 +369,7 @@ class _NotImplementedProvider(AIProvider):
     def _fail(self):
         raise AIProviderError(
             f"The '{self.name}' AI provider is reserved for a future version and is not implemented yet. "
-            "Set NEXUS_AI_PROVIDER=local to use the built-in offline organizer."
+            "Set NEXUS_AI_PROVIDER=ollama (local model) or local (offline heuristics)."
         )
 
     def analyze_entry(self, entry):
@@ -366,6 +384,9 @@ class _NotImplementedProvider(AIProvider):
     def answer_question(self, question, context):
         self._fail()
 
+    def health(self):
+        return {"ok": False, "detail": f"'{self.name}' is not implemented yet."}
+
 
 class OpenAIProvider(_NotImplementedProvider):
     name = "openai"
@@ -377,25 +398,25 @@ class AnthropicProvider(_NotImplementedProvider):
     env_key = "ANTHROPIC_API_KEY"
 
 
-class LocalModelProvider(_NotImplementedProvider):
-    """Future: a model running on this machine (Ollama, llama.cpp, ...)."""
+def _ollama() -> AIProvider:
+    from app.services.ollama import OllamaProvider  # local import: avoids a cycle
 
-    name = "local_model"
-    external = False
+    return OllamaProvider()
 
 
-PROVIDERS: dict[str, type[AIProvider]] = {
+PROVIDERS: dict[str, Callable[[], AIProvider]] = {
+    "ollama": _ollama,
+    "local_model": _ollama,
     "local": LocalHeuristicProvider,
     "heuristic": LocalHeuristicProvider,
     "openai": OpenAIProvider,
     "anthropic": AnthropicProvider,
-    "local_model": LocalModelProvider,
 }
 
 
 def get_ai_provider(name: str | None = None) -> AIProvider:
-    key = (name or get_settings().ai_provider or "local").lower()
-    cls = PROVIDERS.get(key)
-    if cls is None:
+    key = (name or get_settings().ai_provider or "ollama").lower()
+    factory = PROVIDERS.get(key)
+    if factory is None:
         raise AIProviderError(f"Unknown AI provider '{key}'. Options: {', '.join(sorted(PROVIDERS))}.")
-    return cls()
+    return factory()

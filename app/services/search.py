@@ -70,11 +70,27 @@ def index_entry(db: Session, entry: CreativeEntry) -> None:
         "ai_summary": entry.ai_summary or "",
         "ai_interpretation": entry.ai_interpretation or "",
         "tags": " ".join(et.tag.name for et in entry.entry_tags),
-        "concepts": " ".join(meta.get("concepts", []) + meta.get("themes", []) + [entry.entry_type.replace("_", " ")]),
+        "concepts": " ".join(
+            meta.get("concepts", []) + meta.get("themes", []) + [entry.entry_type.replace("_", " ")]
+            + _visual_terms(meta.get("visual"))
+        ),
     }
     cols = ", ".join(_FTS_COLUMNS)
     params = ", ".join(":" + c for c in _FTS_COLUMNS)
     db.execute(text(f"INSERT INTO {FTS_TABLE} (rowid, {cols}) VALUES (:id, {params})"), values)
+
+
+def _visual_terms(visual: dict | None) -> list[str]:
+    """What the AI saw in an image, so 'sketches with monsters' can find pictures."""
+    if not visual:
+        return []
+    out: list[str] = []
+    for key in ("visual_subjects", "characters", "objects", "colors"):
+        out += [str(v) for v in visual.get(key) or []]
+    for key in ("style", "setting"):
+        if visual.get(key):
+            out.append(str(visual[key]))
+    return out
 
 
 def remove_from_index(db: Session, entry_id: int) -> None:

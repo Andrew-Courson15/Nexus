@@ -142,6 +142,7 @@ class EntrySummary(BaseModel):
     projects: list[ProjectRef]
     attachments: list[AttachmentOut]
     excerpt: str | None
+    processing_status: str | None
 
 
 class EntryDetail(EntrySummary):
@@ -257,6 +258,7 @@ def _summary_fields(e: CreativeEntry) -> dict[str, Any]:
         projects=[ProjectRef(id=p.id, name=p.name) for p in e.projects],
         attachments=_attachments(e),
         excerpt=_excerpt(e),
+        processing_status=e.processing_status,
     )
 
 

@@ -14,33 +14,78 @@ AI layer around it:
 | **AI INFERENCE** | Things the AI thinks *may* be true | `ai_inference`, themes, potential projects, suggested relationships, patterns |
 | **UNKNOWN** | Not established yet | empty fields, `ai_metadata.uncertainties` |
 
-This is milestone 1: it runs entirely on your computer, and by default it never sends anything anywhere.
+Everything runs on your own computer. The AI is a language model running locally through
+[Ollama](https://ollama.com), and voice notes are transcribed locally with Whisper. By default
+nothing is sent anywhere.
 
 ---
 
-## Setup
+## Setup on a Mac (recommended)
 
-Requires **Python 3.10+**.
+**Install these once:**
+- **Python 3.10 or newer.** The easiest way is `brew install python@3.12` (Homebrew: https://brew.sh).
+  The `python3` that ships with macOS is too old.
+- **Ollama**, from https://ollama.com/download. Open it once; afterwards it runs from the menu bar.
+
+**Then, in Terminal:**
 
 ```bash
-git clone <this repo> nexus
+git clone -b claude/nexus-ai-os-rhh5si https://github.com/Andrew-Courson15/Nexus.git nexus
 cd nexus
+./scripts/setup_mac.sh
+```
 
-python3 -m venv .venv
-source .venv/bin/activate          # Windows: .venv\Scripts\activate
+The script is safe to run again. If something is missing, it tells you exactly what. It does the following:
+1. Creates a private Python environment (`.venv`).
+2. Installs NEXUS and local Whisper.
+3. Creates your `.env` settings file.
+4. Downloads the local model `gemma3:12b` (about 8 GB) through Ollama.
+5. Downloads the Whisper speech model (about 0.5 GB).
 
-pip install -r requirements.txt
-cp .env.example .env               # optional: the defaults work as they are
+These downloads happen once. After that, NEXUS works offline.
 
+**Start NEXUS whenever you want to use it:**
+
+```bash
+cd nexus
+source .venv/bin/activate
 python run.py
 ```
 
-Open **http://localhost:8000** in your browser.
+Open **http://localhost:8000**. The **Settings** page shows a green dot when Ollama and Whisper are ready.
+
+**What to expect:**
+- **Captures save instantly.** Transcription and organizing happen in the background, and the
+  entry updates by itself when they finish.
+- **Speed.** On an M4 with 24 GB, organizing an entry with `gemma3:12b` should take somewhere
+  between several seconds and about a minute, depending on length. The first one after a start is
+  slower while the model loads. For faster, lighter results, set `NEXUS_OLLAMA_MODEL=gemma3:4b` in `.env`.
+- **If Ollama isn't running,** captures still work. They are organized by the simple offline
+  heuristics and marked as such. Use **Re-run AI organizer** later.
+
+### Manual setup (any OS)
+
+```bash
+python3 -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
+pip install -r requirements.txt -r requirements-local.txt
+cp .env.example .env
+ollama pull gemma3:12b
+python run.py
+```
 
 - The database (`data/nexus.db`) and upload folders are created on first start.
-- To run on another port, set `NEXUS_PORT` in `.env`.
-- Development auto-reload: `python run.py --reload`.
-- Interactive API docs: http://localhost:8000/docs
+- Development auto-reload: `python run.py --reload`. API docs: http://localhost:8000/docs
+
+### Optional: use the Windows PC as the AI machine
+
+A desktop with an NVIDIA RTX 3060 generates text faster than a laptop. To let the Mac use the PC's Ollama:
+
+1. Install Ollama on the PC.
+2. Set the Windows environment variable `OLLAMA_HOST=0.0.0.0`, then restart Ollama.
+3. On the PC, run `ollama pull gemma3:12b`. This needs a 3060 with 12 GB of video memory; the 8 GB version should use `gemma3:4b`.
+4. In the Mac's `.env`, set `NEXUS_OLLAMA_URL=http://<the PC's local IP>:11434`.
+
+Ollama has **no password**, so only do this on your own home network, never on public Wi-Fi.
 
 ### Run the tests
 
@@ -48,7 +93,7 @@ Open **http://localhost:8000** in your browser.
 python -m pytest
 ```
 
-Tests use a temporary data folder and never touch your real archive.
+Tests use a temporary data folder and a fake Ollama. They never touch your real archive or download models.
 
 ### Voice recording note
 
@@ -95,9 +140,18 @@ Browsers only allow microphone access on `localhost` or HTTPS. Open NEXUS at
 | `NEXUS_DATA_DIR` | `./data` | Uploads + default SQLite location |
 | `NEXUS_DATABASE_URL` | `sqlite:///<data>/nexus.db` | Any SQLAlchemy URL |
 | `NEXUS_MAX_UPLOAD_MB` | `100` | Upload size limit |
-| `NEXUS_AI_PROVIDER` | `local` | `local` (offline heuristics). Reserved names: `openai`, `anthropic`, `local_model` |
+| `NEXUS_AI_PROVIDER` | `ollama` | `ollama` (local model), `local` (offline heuristics only). Reserved: `openai`, `anthropic` |
+| `NEXUS_OLLAMA_URL` | `http://127.0.0.1:11434` | Where Ollama runs |
+| `NEXUS_OLLAMA_MODEL` | `gemma3:12b` | Model for organizing. It also reads images if it supports vision |
+| `NEXUS_OLLAMA_VISION_MODEL` | empty | Separate model for images (empty means use the main model) |
+| `NEXUS_OLLAMA_TIMEOUT` | `300` | Seconds to wait for one answer |
+| `NEXUS_OLLAMA_KEEP_ALIVE` | `10m` | How long Ollama keeps the model loaded after use |
 | `NEXUS_RELATIONSHIP_THRESHOLD` | `0.25` | Minimum confidence for storing a suggested relationship |
-| `NEXUS_TRANSCRIPTION_PROVIDER` | `placeholder` | Reserved names: `whisper_local`, `openai_whisper` |
+| `NEXUS_TRANSCRIPTION_PROVIDER` | `whisper_local` | `whisper_local`, `placeholder`. Reserved: `openai_whisper` |
+| `NEXUS_WHISPER_MODEL` | `small` | `tiny`, `base`, `small`, `medium`, `large-v3`, `turbo` (bigger is more accurate but slower) |
+| `NEXUS_WHISPER_LANGUAGE` | empty | Empty means auto-detect. Or set a code such as `en` |
+| `NEXUS_WHISPER_DEVICE` / `_COMPUTE_TYPE` | `auto` / `auto` | CPU on Mac; CUDA is used automatically on NVIDIA |
+| `NEXUS_PROCESSING_MODE` | `background` | `background` (captures return instantly) or `sync` |
 | `OPENAI_API_KEY`, `ANTHROPIC_API_KEY` | empty | Read from the environment only. Never stored in the database. |
 
 ---
@@ -107,7 +161,8 @@ Browsers only allow microphone access on `localhost` or HTTPS. Open NEXUS at
 - NEXUS binds to `127.0.0.1` and **has no login**. Do not expose it to a network or the internet.
   `run.py` warns you if the host isn't a loopback address.
 - Requests with unexpected `Host` headers are rejected, which protects against DNS-rebinding attacks from web pages.
-- No external AI service is contacted unless you explicitly configure one (none are implemented yet).
+- The AI and transcription run on your machine. NEXUS only talks to the Ollama address you configure, and never through a proxy. No cloud AI service is contacted (none are implemented).
+- Whisper downloads its speech model once from Hugging Face on first use. No audio is sent anywhere.
 - Uploaded files are saved under random names inside `data/` and served with `nosniff` and a
   sandboxing CSP. Original filenames are only kept as metadata.
 - `.env` and everything in `data/` are git-ignored.
@@ -126,10 +181,12 @@ nexus/
 │   ├── schemas.py            Pydantic request/response models + serializers
 │   ├── services/
 │   │   ├── ai.py             AIProvider interface, LocalHeuristicProvider, reserved providers, registry
+│   │   ├── ollama.py         OllamaProvider: local LLM, structured output, images, fallback
+│   │   ├── processing.py     Background queue: transcribe → organize, crash recovery
 │   │   ├── organizer.py      Organizer: runs the provider, stores derived data safely
 │   │   ├── relationships.py  Relationship discovery + review
 │   │   ├── search.py         SQLite FTS5 search, query parsing, SemanticSearchService seam
-│   │   ├── transcription.py  TranscriptionService + providers (placeholder in v1)
+│   │   ├── transcription.py  TranscriptionService, local Whisper (faster-whisper), placeholder
 │   │   ├── history.py        Revision snapshots and tag helpers
 │   │   ├── insights.py       Evidence-backed pattern detection
 │   │   └── text.py           Keyword/concept/theme lexicons used by the local provider
@@ -143,8 +200,10 @@ nexus/
 ├── static/css/style.css      Styles (dark/light, responsive)
 ├── static/js/app.js          Vanilla JS app (router, views, recorder)
 ├── data/{uploads,audio,images,exports}/
-├── tests/                    pytest suite
-├── requirements.txt
+├── scripts/setup_mac.sh      One-step Mac setup
+├── tests/                    pytest suite (includes a fake Ollama)
+├── requirements.txt          NEXUS itself
+├── requirements-local.txt    Local Whisper
 ├── .env.example
 └── run.py
 ```
@@ -155,7 +214,7 @@ nexus/
 
 | Table | Purpose |
 |---|---|
-| `creative_entries` | One captured item. **Raw:** `original_text`. **User:** `title`/`entry_type` when their `*_source` is `user`, `status`, `user_notes`, `user_confirmed`. **Derived:** `transcript`, `ai_summary`, `ai_interpretation`, `ai_inference`, `ai_metadata` (JSON: concepts, themes, keywords, uncertainties, potential projects, visual metadata, transcription status, rejected tags), `ai_provider`, `analyzed_at`, `confidence`. Also `source_type`, `source_file`, reserved `embedding_id/model/created_at`, timestamps and `deleted_at` (soft delete). |
+| `creative_entries` | One captured item. **Raw:** `original_text`. **User:** `title`/`entry_type` when their `*_source` is `user`, `status`, `user_notes`, `user_confirmed`. **Derived:** `transcript`, `ai_summary`, `ai_interpretation`, `ai_inference`, `ai_metadata` (JSON: concepts, themes, keywords, uncertainties, potential projects, visual metadata, transcription status, rejected tags), `ai_provider` (which model actually did the work, including fallbacks), `analyzed_at`, `confidence`. `processing_status` (`queued`, `transcribing`, `analyzing`, `done`, `failed`). Also `source_type`, `source_file`, reserved `embedding_id/model/created_at`, timestamps and `deleted_at` (soft delete). |
 | `attachments` | The original file for each upload: `kind`, `original_filename`, `stored_path`, `mime_type`, `size_bytes`, `sha256`, `created_at`. |
 | `projects` | `name`, `description`, `project_type`, `status`, timestamps. |
 | `project_entries` | Many-to-many link between projects and entries. |
@@ -165,7 +224,8 @@ nexus/
 | `entry_search` | SQLite FTS5 index (porter stemming, BM25) over user and AI text. |
 
 Enumerations (entry types, statuses, source types, project types, relationship types) are
-stored as strings, which keeps them portable to PostgreSQL.
+stored as strings, which keeps them portable to PostgreSQL. New nullable columns are added to an
+existing database automatically at startup (`database.add_missing_columns`), so upgrading NEXUS keeps your archive.
 
 **The original is never lost:**
 - `PUT` rejects `original_text`.
@@ -197,8 +257,26 @@ class AIProvider(ABC):
   - stores relationships as *suggested*
   - snapshots a revision
   - updates the search index
-- **Default: `LocalHeuristicProvider`**. It works fully offline with keyword, concept and theme lexicons (`services/text.py`). It is a first pass rather than a language model: titles and summaries are built from your own first sentence, and its uncertainty is recorded.
-- `OpenAIProvider`, `AnthropicProvider` and `LocalModelProvider` are registered stubs. Selecting one records a clear "not implemented" error on each entry, and your capture is still saved.
+- **Default: `OllamaProvider`** (`services/ollama.py`) uses a language model on your machine:
+  - **Analysis:** it sends your words (plus notes and transcript, clearly labelled) with a strict
+    JSON schema. The reply is validated again: unknown types become `other`, confidences are
+    clamped, lists are cleaned, and the model is told to separate interpretation, inference
+    and uncertainty.
+  - **Images:** if the model supports vision (Ollama reports this), JPEG and PNG images are sent
+    and the description is stored in `ai_metadata.visual`. It is shown as "what the model saw"
+    and is searchable. Other formats (for example HEIC) are marked UNKNOWN.
+  - **Relationships:** a cheap keyword pre-filter picks up to 8 candidates, then the model judges
+    which are really related and why. Candidate ids the model invents are discarded.
+  - **Fallback:** if Ollama is down, the model is missing, or the reply is unusable, the offline
+    `LocalHeuristicProvider` does the work. The entry records why, and `ai_provider` says
+    `(fallback)`.
+- `LocalHeuristicProvider` works fully offline with keyword, concept and theme lexicons (`services/text.py`).
+- `OpenAIProvider` and `AnthropicProvider` are registered stubs.
+- **Background processing** (`services/processing.py`):
+  - A capture is committed first, then queued.
+  - A single worker thread transcribes (voice), then organizes, one entry at a time.
+  - The UI shows "organizing…" and updates by itself.
+  - Unfinished work resumes after a restart.
 
 **Adding a real provider:**
 1. Subclass `AIProvider`.
@@ -207,7 +285,10 @@ class AIProvider(ABC):
 4. Register it in `PROVIDERS`.
 5. Set `NEXUS_AI_PROVIDER`.
 
-Transcription follows the same pattern in `services/transcription.py`: `TranscriptionService.transcribe(audio_path)` delegates to a `TranscriptionProvider`. The v1 placeholder deliberately leaves the transcript empty (UNKNOWN) rather than inventing text.
+Transcription follows the same pattern in `services/transcription.py`: `TranscriptionService.transcribe(audio_path)` delegates to a `TranscriptionProvider`.
+- `LocalWhisperProvider` runs faster-whisper with voice-activity detection and auto language detection.
+- The transcript is stored separately from the audio and labelled "machine-generated". You can correct it; the recording never changes.
+- The placeholder provider never invents text.
 
 ---
 
@@ -221,7 +302,8 @@ Transcription follows the same pattern in `services/transcription.py`: `Transcri
 | PUT | `/api/entries/{id}` | Edit title/type/status/notes/transcript/tags/confirmation (not `original_text`) |
 | DELETE | `/api/entries/{id}` | Soft delete |
 | POST | `/api/entries/{id}/restore` | Restore from trash |
-| POST | `/api/entries/{id}/analyze` | Re-run the AI organizer |
+| POST | `/api/entries/{id}/analyze` | Re-run the AI organizer (returns 202 while queued) |
+| POST | `/api/entries/{id}/transcribe` | (Re)transcribe a voice entry, then re-organize (`force=true` to replace a hand-corrected transcript) |
 | GET | `/api/entries/{id}/revisions` | Revision history |
 | GET | `/api/entries/{id}/relationships` | Relationships (`include_rejected=true` to see rejected ones) |
 | POST | `/api/entries/{id}/relationships` | Create a relationship yourself |
@@ -239,14 +321,11 @@ Transcription follows the same pattern in `services/transcription.py`: `Transcri
 
 ## Not built yet
 
-- Real AI providers (OpenAI, Anthropic, a local LLM via Ollama or llama.cpp). Only the interfaces exist.
-- Real transcription (local Whisper or a cloud service).
-- Image analysis to fill `ai_metadata.visual`.
-- Embeddings and vector search behind `SemanticSearchService`, using the reserved `embedding_*` fields.
+- Embeddings and vector search behind `SemanticSearchService`, using the reserved `embedding_*` fields. Ollama embedding models make this local too. **(Next.)**
+- A trash view in the UI (the restore API already exists), plus diff and restore between revisions. **(Next.)**
+- Questions over the archive. `answer_question` works with Ollama, but there is no endpoint or UI yet.
 - Knowledge-graph entities beyond entries: people, places, themes and events.
-- Questions over the archive (`answer_question`). The method exists but has no endpoint or UI.
-- A trash view in the UI (the restore API already exists).
-- Diff and restore between revisions.
+- A relationship graph visualisation, and manual linking in the UI (the API exists).
 - Exports into `data/exports`.
-- Schema migrations with Alembic before the first schema change, and a PostgreSQL option.
-- Relationship graph visualisation and manual linking in the UI (the API exists).
+- Alembic migrations for non-additive schema changes, and a PostgreSQL option.
+- Cloud providers (OpenAI, Anthropic), for use only if you ever opt in.

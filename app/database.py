@@ -7,7 +7,8 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 
-from sqlalchemy import create_engine, event
+from sqlalchemy import MetaData, create_engine, event, inspect, text
+from sqlalchemy.engine import Connection
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 from app.config import get_settings
@@ -45,6 +46,29 @@ def get_db() -> Iterator[Session]:
         db.close()
 
 
+def add_missing_columns(conn: Connection, metadata: MetaData) -> list[str]:
+    """Minimal forward migration: add new nullable columns to existing tables.
+
+    Enough for additive changes between NEXUS versions. Anything more complex
+    (renames, type changes) should move to Alembic.
+    """
+    added = []
+    insp = inspect(conn)
+    for table in metadata.sorted_tables:
+        if not insp.has_table(table.name):
+            continue
+        existing = {c["name"] for c in insp.get_columns(table.name)}
+        for col in table.columns:
+            if col.name in existing:
+                continue
+            if not col.nullable:
+                raise RuntimeError(f"Cannot auto-add NOT NULL column {table.name}.{col.name}")
+            col_type = col.type.compile(dialect=conn.dialect)
+            conn.execute(text(f'ALTER TABLE "{table.name}" ADD COLUMN "{col.name}" {col_type}'))
+            added.append(f"{table.name}.{col.name}")
+    return added
+
+
 def init_db() -> None:
     """Create folders, tables and the full-text index (idempotent)."""
     from app import models  # noqa: F401  (register models on Base.metadata)
@@ -53,4 +77,5 @@ def init_db() -> None:
     settings.ensure_dirs()
     Base.metadata.create_all(bind=engine)
     with engine.begin() as conn:
+        add_missing_columns(conn, Base.metadata)
         ensure_search_index(conn)

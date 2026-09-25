@@ -20,9 +20,8 @@ from app.models import Attachment, CreativeEntry, EntryType, Origin, Project, So
 from app.routes.entries import load_entry
 from app.schemas import EntryDetail, entry_detail
 from app.services.history import record_revision
-from app.services.organizer import Organizer
+from app.services.processing import enqueue
 from app.services.search import index_entry
-from app.services.transcription import TranscriptionService
 
 router = APIRouter(prefix="/api/uploads", tags=["uploads"])
 
@@ -114,23 +113,12 @@ async def upload_file(
     db.add(entry)
     db.flush()
     record_revision(db, entry, f"Captured original {kind} upload")
-
-    if kind == "audio":
-        result = TranscriptionService().transcribe(path)
-        entry.transcript = result.text  # derived, stored separately from the audio
-        entry.ai_metadata = {**(entry.ai_metadata or {}), "transcription": {
-            "provider": result.provider, "status": result.status,
-            "language": result.language, "message": result.message,
-        }}
-        if result.text:
-            record_revision(db, entry, f"Transcribed ({result.provider})")
-
     index_entry(db, entry)
-    db.commit()
+    db.commit()  # the original file and entry are safe before any AI work
 
-    if analyze:
-        Organizer(db).organize(entry)
-        db.commit()
+    if analyze or kind == "audio":
+        # Transcription (voice) and organization run after the upload is saved.
+        enqueue(db, entry, transcribe=True, analyze=analyze)
     return entry_detail(load_entry(db, entry.id))
 
 
