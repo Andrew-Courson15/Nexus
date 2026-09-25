@@ -1,0 +1,301 @@
+"""Pydantic schemas (request validation and response shapes)."""
+from __future__ import annotations
+
+from datetime import datetime
+from typing import Any, Literal
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+from app.models import (
+    CreativeEntry,
+    EntryStatus,
+    EntryType,
+    Project,
+    ProjectStatus,
+    ProjectType,
+    Relationship,
+    RelationshipStatus,
+    RelationshipType,
+)
+
+# Explains the provenance labels to API consumers and the UI.
+PROVENANCE = {
+    "user_said": ["original_text", "user_notes", "attachments", "tags[source=user]", "*_source=user"],
+    "ai_interpretation": ["ai_summary", "ai_interpretation", "ai_metadata.concepts", "tags[source=ai]",
+                          "*_source=ai"],
+    "ai_inference": ["ai_inference", "ai_metadata.themes", "ai_metadata.potential_projects",
+                     "relationships[origin=ai,status=suggested]"],
+    "unknown": "Any field that is null/empty has not been established.",
+}
+
+
+# --------------------------------------------------------------------------- #
+# Requests
+# --------------------------------------------------------------------------- #
+class EntryCreate(BaseModel):
+    original_text: str = Field(..., max_length=200_000, description="Stored exactly as submitted.")
+    title: str | None = Field(None, max_length=300)
+    entry_type: EntryType | None = None
+    status: EntryStatus = EntryStatus.raw
+    source_type: Literal["text", "conversation", "import"] = "text"
+    tags: list[str] = Field(default_factory=list)
+    project_ids: list[int] = Field(default_factory=list)
+    analyze: bool = True
+
+    @field_validator("original_text")
+    @classmethod
+    def _not_blank(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("original_text cannot be empty")
+        return v  # intentionally NOT stripped: stored exactly as submitted
+
+
+class EntryUpdate(BaseModel):
+    """Editable fields. `original_text` is deliberately absent: raw material is immutable."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    title: str | None = Field(None, max_length=300)
+    entry_type: EntryType | None = None
+    status: EntryStatus | None = None
+    user_notes: str | None = Field(None, max_length=200_000)
+    transcript: str | None = Field(None, max_length=200_000)
+    tags: list[str] | None = None
+    user_confirmed: bool | None = None
+    change_description: str | None = Field(None, max_length=300)
+
+
+class RelationshipCreate(BaseModel):
+    target_entry_id: int
+    relationship_type: RelationshipType = RelationshipType.related_to
+
+
+class RelationshipReview(BaseModel):
+    status: RelationshipStatus
+
+
+class ProjectCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=300)
+    description: str | None = Field(None, max_length=20_000)
+    project_type: ProjectType = ProjectType.other
+    status: ProjectStatus = ProjectStatus.active
+
+
+class ProjectUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str | None = Field(None, min_length=1, max_length=300)
+    description: str | None = Field(None, max_length=20_000)
+    project_type: ProjectType | None = None
+    status: ProjectStatus | None = None
+
+
+class ProjectEntryAdd(BaseModel):
+    entry_id: int
+
+
+class SearchRequest(BaseModel):
+    query: str = Field("", max_length=500)
+    limit: int = Field(50, ge=1, le=200)
+    entry_types: list[EntryType] = Field(default_factory=list)
+    statuses: list[EntryStatus] = Field(default_factory=list)
+    date_from: datetime | None = None
+    date_to: datetime | None = None
+
+
+# --------------------------------------------------------------------------- #
+# Responses
+# --------------------------------------------------------------------------- #
+class TagOut(BaseModel):
+    name: str
+    source: str
+
+
+class ProjectRef(BaseModel):
+    id: int
+    name: str
+
+
+class AttachmentOut(BaseModel):
+    id: int
+    kind: str
+    original_filename: str
+    mime_type: str
+    size_bytes: int
+    sha256: str
+    created_at: datetime
+    url: str
+
+
+class EntrySummary(BaseModel):
+    id: int
+    title: str
+    title_source: str
+    entry_type: str
+    entry_type_source: str
+    status: str
+    source_type: str
+    created_at: datetime
+    updated_at: datetime
+    ai_summary: str | None
+    tags: list[TagOut]
+    projects: list[ProjectRef]
+    attachments: list[AttachmentOut]
+    excerpt: str | None
+
+
+class EntryDetail(EntrySummary):
+    original_text: str | None
+    user_notes: str | None
+    transcript: str | None
+    ai_interpretation: str | None
+    ai_inference: str | None
+    ai_metadata: dict[str, Any]
+    ai_provider: str | None
+    analyzed_at: datetime | None
+    confidence: float | None
+    user_confirmed: bool
+    source_file: str | None
+    embedding_id: str | None
+    embedding_model: str | None
+    embedding_created_at: datetime | None
+    revision_count: int
+    provenance: dict[str, Any] = PROVENANCE
+
+
+class EntryList(BaseModel):
+    items: list[EntrySummary]
+    total: int
+
+
+class RevisionOut(BaseModel):
+    id: int
+    version_number: int
+    change_description: str
+    created_at: datetime
+    content_snapshot: dict[str, Any]
+
+
+class EntryRef(BaseModel):
+    id: int
+    title: str
+    entry_type: str
+    status: str
+
+
+class RelationshipOut(BaseModel):
+    id: int
+    relationship_type: str
+    confidence: float | None
+    origin: str
+    status: str
+    rationale: str | None
+    created_at: datetime
+    direction: Literal["outgoing", "incoming"]
+    other: EntryRef
+    label: str
+
+
+class ProjectOut(BaseModel):
+    id: int
+    name: str
+    description: str | None
+    project_type: str
+    status: str
+    created_at: datetime
+    updated_at: datetime
+    entry_count: int
+
+
+class ProjectDetail(ProjectOut):
+    entries: list[EntrySummary]
+
+
+class SearchResult(BaseModel):
+    entry: EntrySummary
+    score: float
+    snippet: str | None
+
+
+class SearchResponse(BaseModel):
+    query: str
+    mode: str
+    semantic_enabled: bool
+    interpreted: dict[str, Any]
+    relaxed: bool
+    results: list[SearchResult]
+
+
+# --------------------------------------------------------------------------- #
+# ORM -> schema helpers
+# --------------------------------------------------------------------------- #
+def _attachments(e: CreativeEntry) -> list[AttachmentOut]:
+    return [
+        AttachmentOut(
+            id=a.id, kind=a.kind, original_filename=a.original_filename, mime_type=a.mime_type,
+            size_bytes=a.size_bytes, sha256=a.sha256, created_at=a.created_at, url=f"/api/uploads/{a.id}",
+        )
+        for a in e.attachments
+    ]
+
+
+def _excerpt(e: CreativeEntry) -> str | None:
+    src = e.original_text or e.user_notes
+    if not src:
+        return None
+    src = " ".join(src.split())
+    return src if len(src) <= 220 else src[:217].rsplit(" ", 1)[0] + "…"
+
+
+def _summary_fields(e: CreativeEntry) -> dict[str, Any]:
+    return dict(
+        id=e.id, title=e.title or "Untitled", title_source=e.title_source, entry_type=e.entry_type,
+        entry_type_source=e.entry_type_source, status=e.status, source_type=e.source_type,
+        created_at=e.created_at, updated_at=e.updated_at, ai_summary=e.ai_summary,
+        tags=sorted((TagOut(name=et.tag.name, source=et.source) for et in e.entry_tags),
+                    key=lambda t: (t.source != "user", t.name)),
+        projects=[ProjectRef(id=p.id, name=p.name) for p in e.projects],
+        attachments=_attachments(e),
+        excerpt=_excerpt(e),
+    )
+
+
+def entry_summary(e: CreativeEntry) -> EntrySummary:
+    return EntrySummary(**_summary_fields(e))
+
+
+def entry_detail(e: CreativeEntry) -> EntryDetail:
+    return EntryDetail(
+        **_summary_fields(e),
+        original_text=e.original_text, user_notes=e.user_notes, transcript=e.transcript,
+        ai_interpretation=e.ai_interpretation, ai_inference=e.ai_inference,
+        ai_metadata=e.ai_metadata or {}, ai_provider=e.ai_provider, analyzed_at=e.analyzed_at,
+        confidence=e.confidence, user_confirmed=e.user_confirmed, source_file=e.source_file,
+        embedding_id=e.embedding_id, embedding_model=e.embedding_model,
+        embedding_created_at=e.embedding_created_at, revision_count=len(e.revisions),
+    )
+
+
+def relationship_out(r: Relationship, entry_id: int) -> RelationshipOut:
+    outgoing = r.source_entry_id == entry_id
+    other = r.target_entry if outgoing else r.source_entry
+    if r.origin == "ai":
+        label = {"suggested": "AI suggested relationship", "accepted": "Confirmed by you (AI suggested)",
+                 "ignored": "AI suggestion — ignored", "rejected": "AI suggestion — rejected"}[r.status]
+    else:
+        label = "Created by you"
+    return RelationshipOut(
+        id=r.id, relationship_type=r.relationship_type, confidence=r.confidence, origin=r.origin,
+        status=r.status, rationale=r.rationale, created_at=r.created_at,
+        direction="outgoing" if outgoing else "incoming",
+        other=EntryRef(id=other.id, title=other.title or "Untitled", entry_type=other.entry_type,
+                       status=other.status),
+        label=label,
+    )
+
+
+def project_out(p: Project, entry_count: int) -> ProjectOut:
+    return ProjectOut(
+        id=p.id, name=p.name, description=p.description, project_type=p.project_type, status=p.status,
+        created_at=p.created_at, updated_at=p.updated_at, entry_count=entry_count,
+    )

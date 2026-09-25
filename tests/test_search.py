@@ -1,0 +1,55 @@
+from app.services.search import parse_query
+
+
+def cap(client, text, **kw):
+    r = client.post("/api/entries", json={"original_text": text, **kw})
+    assert r.status_code == 201
+    return r.json()
+
+
+def test_parse_natural_queries():
+    q = parse_query("unfinished comic ideas")
+    assert q.entry_types == ["comic"] and "raw" in q.statuses and q.terms == []
+    q = parse_query("ideas about alternate realities")
+    assert q.terms == ["alternate", "realities"] and not q.has_filters
+    q = parse_query("sketches with monsters")
+    assert q.entry_types == ["sketch"] and q.terms == ["monsters"]
+
+
+def test_full_text_search_with_stemming(client):
+    a = cap(client, "A villain who collects memories in glass jars.")
+    cap(client, "A recipe idea for lemon cake.")
+    res = client.post("/api/search", json={"query": "memory"}).json()
+    assert res["mode"] == "fts5"
+    assert [r["entry"]["id"] for r in res["results"]] == [a["id"]]
+    assert "\x01" in res["results"][0]["snippet"]  # highlight markers
+
+
+def test_villains_and_alternate_realities(client):
+    v = cap(client, "The villain is a tyrant queen.")
+    d = cap(client, "A parallel universe where cats rule.")
+    assert [r["entry"]["id"] for r in client.post("/api/search", json={"query": "villains"}).json()["results"]] == [v["id"]]
+    ids = [r["entry"]["id"] for r in client.post("/api/search", json={"query": "ideas about alternate realities"}).json()["results"]]
+    assert ids == [d["id"]]  # matched through the AI concept layer
+
+
+def test_unfinished_comic_ideas(client):
+    c1 = cap(client, "A comic about a detective crow.")
+    c2 = cap(client, "A comic about a haunted bakery.")
+    cap(client, "A movie about a lighthouse.")
+    client.put(f"/api/entries/{c2['id']}", json={"status": "completed"})
+    ids = [r["entry"]["id"] for r in client.post("/api/search", json={"query": "unfinished comic ideas"}).json()["results"]]
+    assert ids == [c1["id"]]
+
+
+def test_filters_relax_when_nothing_matches(client):
+    m = cap(client, "A monster made of subway maps.")
+    res = client.post("/api/search", json={"query": "sketches with monsters"}).json()
+    assert res["relaxed"] is True
+    assert [r["entry"]["id"] for r in res["results"]] == [m["id"]]
+
+
+def test_search_handles_fts_syntax_characters(client):
+    cap(client, "Quotes and stars.")
+    for q in ['"', "star*", "a OR", "NEAR(", "-x"]:
+        assert client.post("/api/search", json={"query": q}).status_code == 200

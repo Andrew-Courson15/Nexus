@@ -1,0 +1,636 @@
+/* NEXUS front end — vanilla JS, hash-routed single page. */
+"use strict";
+
+/* ------------------------------------------------------------------ utils */
+const $ = (sel, root = document) => root.querySelector(sel);
+const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
+const esc = (s) =>
+  String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+const label = (s) => String(s ?? "").replace(/_/g, " ");
+const fmtDate = (iso) =>
+  new Date(iso).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+const fmtDateTime = (iso) =>
+  new Date(iso).toLocaleString(undefined, { year: "numeric", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+const fmtSize = (n) => (n < 1024 ? `${n} B` : n < 1048576 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1048576).toFixed(1)} MB`);
+const pct = (x) => (x == null ? "—" : `${Math.round(x * 100)}%`);
+
+function store(key, value) {
+  try {
+    if (value === undefined) return localStorage.getItem(key);
+    if (value === null) localStorage.removeItem(key);
+    else localStorage.setItem(key, value);
+  } catch { /* storage unavailable: ignore */ }
+  return null;
+}
+
+let toastTimer;
+function toast(msg, isError = false) {
+  const t = $("#toast");
+  t.textContent = msg;
+  t.className = "toast show" + (isError ? " error" : "");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => (t.className = "toast"), isError ? 5000 : 2600);
+}
+
+async function api(path, opts = {}) {
+  const init = { ...opts, headers: { ...(opts.headers || {}) } };
+  if (opts.json !== undefined) {
+    init.body = JSON.stringify(opts.json);
+    init.headers["Content-Type"] = "application/json";
+    delete init.json;
+  }
+  const res = await fetch(path, init);
+  if (res.status === 204) return null;
+  const data = await res.json().catch(() => null);
+  if (!res.ok) {
+    let msg = data?.detail ?? res.statusText;
+    if (Array.isArray(msg)) msg = msg.map((d) => d.msg).join("; ");
+    throw new Error(msg);
+  }
+  return data;
+}
+
+let settingsCache = null;
+async function getSettings(force = false) {
+  if (!settingsCache || force) settingsCache = await api("/api/settings");
+  return settingsCache;
+}
+
+function options(values, selected, blank) {
+  return (blank !== undefined ? `<option value="">${esc(blank)}</option>` : "") +
+    values.map((v) => `<option value="${esc(v)}"${v === selected ? " selected" : ""}>${esc(label(v))}</option>`).join("");
+}
+
+/* ------------------------------------------------------------- components */
+function tagsHTML(tags, removable = false) {
+  return tags
+    .map((t) => `<span class="tag ${t.source}" title="${t.source === "ai" ? "AI-generated tag" : "Your tag"}">${esc(t.name)}${
+      removable ? `<button type="button" data-remove-tag="${esc(t.name)}" aria-label="Remove tag ${esc(t.name)}">×</button>` : ""}</span>`)
+    .join("");
+}
+
+function cardHTML(e, extra = "") {
+  const img = e.attachments.find((a) => a.kind === "image");
+  const audio = e.attachments.find((a) => a.kind === "audio");
+  return `<a class="card" href="#/entry/${e.id}">
+    ${img ? `<img class="thumb" src="${esc(img.url)}" alt="" loading="lazy">` : ""}
+    <div class="meta">
+      <span class="pill type">${esc(label(e.entry_type))}</span>
+      <span class="pill status-${esc(e.status)}">${esc(e.status)}</span>
+      ${audio ? `<span class="pill">voice</span>` : ""}
+      <span class="spacer"></span><span>${fmtDate(e.created_at)}</span>
+    </div>
+    <h3>${esc(e.title)}</h3>
+    ${e.ai_summary ? `<p class="summary" title="AI summary">${esc(e.ai_summary)}</p>`
+      : e.excerpt ? `<p class="summary">${esc(e.excerpt)}</p>` : ""}
+    ${extra}
+    ${e.tags.length ? `<div class="meta">${tagsHTML(e.tags.slice(0, 6))}</div>` : ""}
+    ${e.projects.length ? `<div class="meta">◆ ${e.projects.map((p) => esc(p.name)).join(", ")}</div>` : ""}
+  </a>`;
+}
+
+function gridHTML(entries, emptyMsg) {
+  return entries.length ? `<div class="grid">${entries.map((e) => cardHTML(e)).join("")}</div>`
+    : `<p class="empty">${esc(emptyMsg)}</p>`;
+}
+
+const LEGEND = `<div class="legend" aria-label="Legend">
+  <span class="l-user">User said</span><span class="l-ai">AI interpretation</span>
+  <span class="l-infer">AI inference</span><span class="l-unknown">Unknown</span></div>`;
+
+function prov(kind, title, bodyHTML, why = "") {
+  return `<section class="prov ${kind}"><div class="prov-label"><span>${esc(title)}</span>${why ? `<span class="why">${esc(why)}</span>` : ""}</div>${bodyHTML}</section>`;
+}
+
+/* ---------------------------------------------------------------- capture */
+/**
+ * Mounts the capture box. `opts.projectId` files captures into a project.
+ * `opts.onCaptured(entry)` is called after each successful capture.
+ */
+function mountCapture(root, opts = {}) {
+  const draftKey = "nexus.draft" + (opts.projectId ? `.p${opts.projectId}` : "");
+  root.innerHTML = `
+    <div class="capture">
+      <textarea id="cap-text" placeholder="What are you thinking about?" aria-label="What are you thinking about?"></textarea>
+      <div class="capture-bar">
+        <button class="btn primary" data-act="capture">CAPTURE</button>
+        <button class="btn rec" data-act="record"><span class="dot"></span><span>Record Idea</span></button>
+        <button class="btn" data-act="upload">Upload image / file</button>
+        <input type="file" hidden accept="image/*,audio/*,.pdf,.txt,.md,.doc,.docx">
+        <span class="spacer"></span>
+        <span class="hint">Ctrl/⌘ + Enter to capture · drop files here</span>
+      </div>
+      <div class="pending" hidden></div>
+    </div>`;
+  const box = $(".capture", root);
+  const ta = $("textarea", root);
+  const fileInput = $("input[type=file]", root);
+  const pending = $(".pending", root);
+  const recBtn = $("[data-act=record]", root);
+  ta.value = store(draftKey) || "";
+  ta.addEventListener("input", () => store(draftKey, ta.value || null));
+
+  async function capture() {
+    const text = ta.value;
+    if (!text.trim()) { ta.focus(); return; }
+    const btn = $("[data-act=capture]", root);
+    btn.disabled = true;
+    btn.textContent = "SAVING…";
+    try {
+      const entry = await api("/api/entries", {
+        method: "POST",
+        json: { original_text: text, project_ids: opts.projectId ? [opts.projectId] : [] },
+      });
+      ta.value = "";
+      store(draftKey, null);
+      toast("Captured. Original saved exactly as written.");
+      opts.onCaptured?.(entry);
+    } catch (err) {
+      toast("Could not capture: " + err.message + " — your text is still here.", true);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "CAPTURE";
+    }
+  }
+
+  function showPending(file, previewURL, kindLabel) {
+    pending.hidden = false;
+    pending.innerHTML = `<div class="recorder">
+      <div class="row"><strong>${esc(kindLabel)}</strong><span class="muted small">${esc(file.name)} · ${fmtSize(file.size)}</span></div>
+      ${file.type.startsWith("audio/") ? `<audio controls src="${previewURL}"></audio>` : ""}
+      ${file.type.startsWith("image/") ? `<img src="${previewURL}" alt="" style="max-height:220px;border-radius:8px">` : ""}
+      <input type="text" placeholder="Add a few words about it (optional — stored as your words)" aria-label="Note">
+      <div class="row"><button class="btn primary small" data-act="save">SAVE</button><button class="btn ghost small" data-act="discard">Discard</button></div>
+    </div>`;
+    const note = $("input", pending);
+    if (ta.value.trim()) note.value = ta.value.trim();
+    $("[data-act=discard]", pending).onclick = () => { pending.hidden = true; pending.innerHTML = ""; URL.revokeObjectURL(previewURL); };
+    $("[data-act=save]", pending).onclick = async (ev) => {
+      ev.target.disabled = true;
+      ev.target.textContent = "SAVING…";
+      const fd = new FormData();
+      fd.append("file", file, file.name);
+      if (note.value.trim()) fd.append("note", note.value);
+      if (opts.projectId) fd.append("project_id", opts.projectId);
+      try {
+        const entry = await api("/api/uploads", { method: "POST", body: fd });
+        if (note.value.trim() && note.value.trim() === ta.value.trim()) { ta.value = ""; store(draftKey, null); }
+        pending.hidden = true;
+        pending.innerHTML = "";
+        URL.revokeObjectURL(previewURL);
+        toast("Saved. The original file is stored untouched.");
+        opts.onCaptured?.(entry);
+      } catch (err) {
+        ev.target.disabled = false;
+        ev.target.textContent = "SAVE";
+        toast("Upload failed: " + err.message, true);
+      }
+    };
+  }
+
+  function takeFile(file) {
+    if (!file) return;
+    const kind = file.type.startsWith("image/") ? "Image" : file.type.startsWith("audio/") ? "Audio" : "File";
+    showPending(file, URL.createObjectURL(file), kind + " ready");
+  }
+
+  // Voice capture with MediaRecorder
+  let recorder = null, chunks = [], timer = null, started = 0;
+  async function toggleRecord() {
+    if (recorder && recorder.state === "recording") { recorder.stop(); return; }
+    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
+      toast("Recording isn't supported in this browser. You can upload an audio file instead.", true);
+      return;
+    }
+    let stream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (err) {
+      toast("Microphone unavailable: " + err.message, true);
+      return;
+    }
+    const types = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/ogg;codecs=opus", "audio/ogg"];
+    const mimeType = types.find((t) => MediaRecorder.isTypeSupported?.(t)) || "";
+    recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+    chunks = [];
+    recorder.ondataavailable = (e) => e.data.size && chunks.push(e.data);
+    recorder.onstop = () => {
+      stream.getTracks().forEach((t) => t.stop());
+      clearInterval(timer);
+      recBtn.classList.remove("live");
+      $("span:last-child", recBtn).textContent = "Record Idea";
+      const type = (recorder.mimeType || "audio/webm").split(";")[0];
+      const ext = type.includes("mp4") ? "m4a" : type.includes("ogg") ? "ogg" : "webm";
+      const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+      const file = new File(chunks, `recording-${stamp}.${ext}`, { type: recorder.mimeType || type });
+      showPending(file, URL.createObjectURL(file), "Recording ready");
+    };
+    recorder.start();
+    started = Date.now();
+    recBtn.classList.add("live");
+    const tick = () => {
+      const s = Math.floor((Date.now() - started) / 1000);
+      $("span:last-child", recBtn).textContent = `Stop · ${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+    };
+    tick();
+    timer = setInterval(tick, 500);
+  }
+
+  $("[data-act=capture]", root).onclick = capture;
+  recBtn.onclick = toggleRecord;
+  $("[data-act=upload]", root).onclick = () => fileInput.click();
+  fileInput.onchange = () => { takeFile(fileInput.files[0]); fileInput.value = ""; };
+  ta.addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); capture(); } });
+  box.addEventListener("dragover", (e) => { e.preventDefault(); box.classList.add("drag"); });
+  box.addEventListener("dragleave", () => box.classList.remove("drag"));
+  box.addEventListener("drop", (e) => {
+    box.classList.remove("drag");
+    if (e.dataTransfer.files.length) { e.preventDefault(); takeFile(e.dataTransfer.files[0]); }
+  });
+  return { focus: () => ta.focus() };
+}
+
+/* ------------------------------------------------------------------ views */
+async function viewHome(el) {
+  el.innerHTML = `<div id="cap"></div>
+    <div id="just"></div>
+    <h2>Recently captured</h2><div id="recent"></div>`;
+  const loadRecent = async () => {
+    const data = await api("/api/entries?limit=9");
+    $("#recent", el).innerHTML = gridHTML(data.items, "Nothing captured yet. Your first idea goes in the box above.");
+  };
+  const cap = mountCapture($("#cap", el), {
+    onCaptured: (entry) => {
+      $("#just", el).innerHTML = `<h2>Just captured</h2><div class="grid">${cardHTML(entry)}</div>`;
+      loadRecent();
+    },
+  });
+  cap.focus();
+  await loadRecent();
+}
+
+async function viewToday(el) {
+  el.innerHTML = `<div class="view-head"><div><h1>Today</h1>
+    <p class="lede">${new Date().toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}</p></div>
+    <a class="btn" href="#/">+ Capture</a></div>
+    <h2>Captured today</h2><div id="today"></div>
+    <h2>Patterns in your archive</h2><div id="patterns"></div>
+    <h2>Recently touched</h2><div id="touched"></div>`;
+  const [recent, modified, pats] = await Promise.all([
+    api("/api/entries?limit=200"),
+    api("/api/entries?sort=modified&limit=6"),
+    api("/api/insights/patterns"),
+  ]);
+  const today = new Date().toDateString();
+  const todays = recent.items.filter((e) => new Date(e.created_at).toDateString() === today);
+  $("#today", el).innerHTML = gridHTML(todays, "Nothing captured today yet.");
+  $("#touched", el).innerHTML = gridHTML(modified.items, "No entries yet.");
+  $("#patterns", el).innerHTML = pats.patterns.length
+    ? pats.patterns.map((p) => prov("infer", "AI inference · pattern", `
+        <p class="body">${esc(p.observation)}</p>
+        <div class="small muted">Evidence (${p.count} entries):</div>
+        <ul class="small">${p.evidence.map((ev) => `<li><a href="#/entry/${ev.id}">${esc(ev.title || "Untitled")}</a>
+          <span class="muted">· ${esc(label(ev.entry_type))} · ${fmtDate(ev.created_at)}</span></li>`).join("")}</ul>`,
+        "computed from your entries")).join("")
+    : `<p class="empty">No recurring patterns yet. Patterns appear once three or more entries share a concept — always with the entries that support them.</p>`;
+}
+
+const archiveState = JSON.parse(store("nexus.archiveFilters") || "{}");
+
+async function viewArchive(el) {
+  const [s, projects, tags] = await Promise.all([getSettings(), api("/api/projects"), api("/api/tags")]);
+  const f = archiveState;
+  el.innerHTML = `<div class="view-head"><div><h1>Creative Archive</h1>
+    <p class="lede">Everything you've captured. Your words are never altered.</p></div><span class="muted small" id="count"></span></div>
+    <form class="filters" id="filters">
+      <label class="field">Type<select name="entry_type">${options(s.vocab.entry_types, f.entry_type, "All types")}</select></label>
+      <label class="field">Status<select name="status">${options(s.vocab.statuses, f.status, "All statuses")}</select></label>
+      <label class="field">Project<select name="project_id"><option value="">All projects</option>${projects
+        .map((p) => `<option value="${p.id}"${String(p.id) === f.project_id ? " selected" : ""}>${esc(p.name)}</option>`).join("")}</select></label>
+      <label class="field">Tag<select name="tag"><option value="">All tags</option>${tags
+        .map((t) => `<option value="${esc(t.name)}"${t.name === f.tag ? " selected" : ""}>${esc(t.name)} (${t.count})</option>`).join("")}</select></label>
+      <label class="field">From<input type="date" name="date_from" value="${esc(f.date_from || "")}"></label>
+      <label class="field">To<input type="date" name="date_to" value="${esc(f.date_to || "")}"></label>
+      <label class="field">Sort<select name="sort">
+        ${[["newest", "Newest"], ["oldest", "Oldest"], ["modified", "Recently modified"], ["alpha", "Alphabetical"]]
+          .map(([v, l]) => `<option value="${v}"${v === (f.sort || "newest") ? " selected" : ""}>${l}</option>`).join("")}</select></label>
+      <button class="btn ghost small" type="reset">Clear</button>
+    </form>
+    <div id="results"></div>`;
+  const form = $("#filters", el);
+  async function load() {
+    const fd = new FormData(form);
+    const params = new URLSearchParams({ limit: "300" });
+    for (const [k, v] of fd) { archiveState[k] = v; if (v) params.set(k, v); }
+    store("nexus.archiveFilters", JSON.stringify(archiveState));
+    const data = await api("/api/entries?" + params);
+    $("#count", el).textContent = `${data.total} entr${data.total === 1 ? "y" : "ies"}`;
+    $("#results", el).innerHTML = gridHTML(data.items, "No entries match these filters.");
+  }
+  form.addEventListener("change", load);
+  form.addEventListener("reset", () => setTimeout(load));
+  await load();
+}
+
+async function viewIdeas(el) {
+  el.innerHTML = `<div class="view-head"><div><h1>Idea Incubator</h1>
+    <p class="lede">Raw and exploring ideas. Nothing here is a task or a deadline — it's a place to keep ideas alive and let them grow.</p></div>
+    <a class="btn" href="#/">+ New idea</a></div><div id="ideas"></div>`;
+  const data = await api("/api/entries?status=raw,exploring&limit=300");
+  $("#ideas", el).innerHTML = gridHTML(data.items, "The incubator is empty. Capture something half-formed.");
+}
+
+async function viewProjects(el) {
+  const s = await getSettings();
+  el.innerHTML = `<div class="view-head"><div><h1>Projects</h1>
+    <p class="lede">Gather characters, scenes, sketches and research into the works they belong to. An entry can live in many projects.</p></div></div>
+    <form class="filters" id="newp">
+      <label class="field" style="flex:2 1 220px">Name<input type="text" name="name" required placeholder="The Hollow Sun"></label>
+      <label class="field">Type<select name="project_type">${options(s.vocab.project_types, "other")}</select></label>
+      <label class="field" style="flex:3 1 260px">Description<input type="text" name="description" placeholder="Optional"></label>
+      <button class="btn primary" type="submit">CREATE</button>
+    </form>
+    <div id="plist"></div>`;
+  async function load() {
+    const projects = await api("/api/projects");
+    $("#plist", el).innerHTML = projects.length
+      ? `<div class="grid">${projects.map((p) => `<a class="card" href="#/projects/${p.id}">
+          <div class="meta"><span class="pill type">${esc(label(p.project_type))}</span><span class="pill">${esc(p.status)}</span>
+          <span class="spacer"></span><span>${p.entry_count} entr${p.entry_count === 1 ? "y" : "ies"}</span></div>
+          <h3>${esc(p.name)}</h3>${p.description ? `<p class="summary">${esc(p.description)}</p>` : ""}
+          <div class="meta">Updated ${fmtDate(p.updated_at)}</div></a>`).join("")}</div>`
+      : `<p class="empty">No projects yet.</p>`;
+  }
+  $("#newp", el).onsubmit = async (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    try {
+      await api("/api/projects", { method: "POST", json: Object.fromEntries(fd) });
+      e.target.reset();
+      toast("Project created.");
+      load();
+    } catch (err) { toast(err.message, true); }
+  };
+  await load();
+}
+
+async function viewProject(el, id) {
+  const p = await api(`/api/projects/${id}`);
+  el.innerHTML = `<p><a href="#/projects" class="muted small">← Projects</a></p>
+    <div class="view-head"><div><div class="meta"><span class="pill type">${esc(label(p.project_type))}</span><span class="pill">${esc(p.status)}</span></div>
+    <h1>${esc(p.name)}</h1>${p.description ? `<p class="lede">${esc(p.description)}</p>` : ""}</div></div>
+    <h2>Capture into this project</h2><div id="cap"></div>
+    <h2>${p.entry_count} entr${p.entry_count === 1 ? "y" : "ies"}</h2><div id="pentries">${gridHTML(p.entries, "No entries yet. Capture above, or add existing entries from their detail page.")}</div>`;
+  mountCapture($("#cap", el), { projectId: p.id, onCaptured: () => render() });
+}
+
+const SEARCH_EXAMPLES = ["memory", "villains", "ideas about alternate realities", "unfinished comic ideas", "sketches with monsters"];
+
+async function viewSearch(el, _id, query) {
+  const q = query.get("q") || "";
+  el.innerHTML = `<div class="view-head"><div><h1>Search</h1><p class="lede">Search naturally across your words, transcripts and the AI's notes.</p></div></div>
+    <form class="searchbox" id="sform"><input type="search" name="q" value="${esc(q)}" placeholder="e.g. unfinished comic ideas" aria-label="Search" autofocus>
+    <button class="btn primary" type="submit">SEARCH</button></form>
+    <div class="suggestions">${SEARCH_EXAMPLES.map((x) => `<button type="button" data-q="${esc(x)}">${esc(x)}</button>`).join("")}</div>
+    <div id="sresults"></div>`;
+  $("#sform", el).onsubmit = (e) => {
+    e.preventDefault();
+    location.hash = "#/search?q=" + encodeURIComponent($("input", e.target).value);
+  };
+  $$("[data-q]", el).forEach((b) => (b.onclick = () => (location.hash = "#/search?q=" + encodeURIComponent(b.dataset.q))));
+  if (!q.trim()) return;
+  const r = await api("/api/search", { method: "POST", json: { query: q } });
+  const i = r.interpreted;
+  const understood = [
+    i.entry_types.length && `type: ${i.entry_types.map(label).join(", ")}`,
+    i.statuses.length && `status: ${i.statuses.join(", ")}`,
+    i.source_types.length && `source: ${i.source_types.join(", ")}`,
+    i.terms.length && `words: ${i.terms.join(", ")}`,
+  ].filter(Boolean).join(" · ");
+  const snippet = (s) => esc(s).replace(/\u0001/g, "<mark>").replace(/\u0002/g, "</mark>");
+  $("#sresults", el).innerHTML = `
+    <p class="small muted">Understood as — ${esc(understood || "everything")}${r.relaxed ? " · <strong>no exact type/status match, showing text matches</strong>" : ""}
+    · ${r.results.length} result${r.results.length === 1 ? "" : "s"} <span class="confidence">(${esc(r.mode)})</span></p>
+    ${r.results.length ? `<div class="grid">${r.results.map((x) => cardHTML(x.entry,
+      x.snippet ? `<p class="snippet">${snippet(x.snippet)}</p>` : "")).join("")}</div>` : `<p class="empty">Nothing found for “${esc(q)}”.</p>`}`;
+}
+
+async function viewSettings(el) {
+  const s = await getSettings(true);
+  const ai = s.ai_provider;
+  el.innerHTML = `<div class="view-head"><div><h1>Settings</h1>
+    <p class="lede">NEXUS is configured through the <code>.env</code> file next to <code>run.py</code>. Restart after changing it. API keys stay in the environment and are never stored in the database.</p></div></div>
+    <div class="grid">
+      <div class="panel"><h3>AI provider</h3><dl class="kv">
+        <dt>Active</dt><dd>${esc(ai.name)}</dd>
+        <dt>Sends data off this machine</dt><dd>${ai.external == null ? "—" : ai.external ? "Yes" : "No"}</dd>
+        <dt>Available</dt><dd>${esc(ai.available.join(", "))}</dd></dl>
+        ${ai.error ? `<p class="small" style="color:var(--danger)">${esc(ai.error)}</p>` : ""}
+        <p class="small muted">Set <code>NEXUS_AI_PROVIDER</code>.</p></div>
+      <div class="panel"><h3>Transcription</h3><dl class="kv">
+        <dt>Active</dt><dd>${esc(s.transcription_provider.name)}</dd>
+        <dt>Available</dt><dd>${esc(s.transcription_provider.available.join(", "))}</dd></dl>
+        <p class="small muted">Set <code>NEXUS_TRANSCRIPTION_PROVIDER</code>. The placeholder keeps audio and leaves transcripts empty.</p></div>
+      <div class="panel"><h3>Search</h3><dl class="kv">
+        <dt>Mode</dt><dd>${esc(s.search.mode)}</dd><dt>Semantic search</dt><dd>${s.search.semantic_enabled ? "On" : "Not yet (falls back to text)"}</dd></dl></div>
+      <div class="panel"><h3>Storage</h3><dl class="kv">
+        <dt>Data folder</dt><dd>${esc(s.storage.data_dir)}</dd><dt>Database</dt><dd>${esc(s.storage.database)}</dd>
+        <dt>Upload limit</dt><dd>${s.storage.max_upload_mb} MB</dd><dt>Server</dt><dd>${esc(s.server.host)}:${s.server.port}</dd></dl></div>
+      <div class="panel"><h3>Archive</h3><dl class="kv">
+        <dt>Entries</dt><dd>${s.counts.entries}</dd><dt>Projects</dt><dd>${s.counts.projects}</dd>
+        <dt>Tags</dt><dd>${s.counts.tags}</dd><dt>In trash</dt><dd>${s.counts.trash}</dd></dl></div>
+    </div>`;
+}
+
+/* ------------------------------------------------------------ entry detail */
+async function viewEntry(el, id) {
+  const [e, rels, revs, s, projects] = await Promise.all([
+    api(`/api/entries/${id}`), api(`/api/entries/${id}/relationships`), api(`/api/entries/${id}/revisions`),
+    getSettings(), api("/api/projects"),
+  ]);
+  const m = e.ai_metadata || {};
+  const srcBadge = (src) => `<span class="source-badge ${src}">${src === "user" ? "yours" : "AI"}</span>`;
+  const media = e.attachments.map((a) =>
+    a.kind === "image" ? `<div class="media-preview"><img src="${esc(a.url)}" alt="${esc(a.original_filename)}"></div>`
+    : a.kind === "audio" ? `<div class="media-preview"><audio controls preload="metadata" src="${esc(a.url)}"></audio></div>`
+    : `<p><a class="btn small" href="${esc(a.url)}">Download ${esc(a.original_filename)}</a></p>`).join("");
+  const list = (arr) => `<ul>${arr.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>`;
+  const transcriptInfo = m.transcription;
+
+  const userBlock = e.original_text
+    ? prov("user", "User material", `<div class="body">${esc(e.original_text)}</div>`, "exactly as you captured it · never modified")
+    : prov("unknown", "User material", `<div class="body">No words were written with this ${esc(label(e.source_type))} capture. The original file above is the user material.</div>`);
+
+  const transcriptBlock = e.source_type === "voice"
+    ? (e.transcript
+      ? prov("ai", "Transcript", `<div class="body" id="transcript-text">${esc(e.transcript)}</div>`,
+          m.transcript_source === "user" ? "corrected by you" : `machine-generated from your recording (${transcriptInfo?.provider || "unknown"})`)
+      : prov("unknown", "Transcript · unknown", `<div class="body">${esc(transcriptInfo?.message || "No transcript exists yet.")}</div>`))
+    : "";
+
+  const analysisBlocks = e.analyzed_at ? `
+    ${prov("ai", "AI summary", `<div class="body">${esc(e.ai_summary || "—")}</div>`, `${e.ai_provider} · ${fmtDateTime(e.analyzed_at)}`)}
+    ${prov("ai", "AI interpretation", `<div class="body">${esc(e.ai_interpretation || "—")}</div>
+      ${m.concepts?.length ? `<div class="small" style="margin-top:8px">Concepts: ${m.concepts.map((c) => `<span class="tag ai">${esc(c)}</span>`).join(" ")}</div>` : ""}`,
+      `overall confidence ${pct(e.confidence)}`)}
+    ${prov("infer", "AI inference", `<div class="body">${esc(e.ai_inference || "—")}</div>
+      ${m.potential_projects?.length ? `<div class="small" style="margin-top:8px">Might belong to: ${m.potential_projects.map((p) =>
+        `<a href="#/projects/${p.id}">${esc(p.name)}</a> <span class="confidence">${pct(p.confidence)}</span>`).join(", ")}</div>` : ""}`,
+      "possibilities, not facts")}
+    ${m.uncertainties?.length || m.analysis_error ? prov("unknown", "Unknown / uncertain",
+      list([...(m.analysis_error ? [m.analysis_error] : []), ...(m.uncertainties || [])])) : ""}
+    ${m.method ? `<p class="small muted">Method: ${esc(m.method)}</p>` : ""}`
+    : prov("unknown", "Not analysed", `<div class="body">${esc(m.analysis_error || "The AI organizer hasn't looked at this entry yet.")}</div>`);
+
+  const inProjects = new Set(e.projects.map((p) => p.id));
+  el.innerHTML = `<p class="row"><a href="javascript:history.back()" class="muted small">← Back</a><span class="spacer"></span>${LEGEND}</p>
+  <div class="detail"><div>
+    <div class="meta"><span>${esc(label(e.source_type))} capture</span><span>·</span><span>${fmtDateTime(e.created_at)}</span></div>
+    <h1 class="detail-title" id="title">${esc(e.title)}</h1>
+    <div class="row">
+      ${srcBadge(e.title_source)}<span class="small muted">title</span>
+      <button class="btn ghost small" data-act="edit-title">Edit title</button>
+      <span class="spacer"></span>
+      <label class="small muted">Type <select id="type">${options(s.vocab.entry_types, e.entry_type)}</select></label>${srcBadge(e.entry_type_source)}
+      <label class="small muted">Status <select id="status">${options(s.vocab.statuses, e.status)}</select></label>
+    </div>
+    ${!e.user_confirmed && (e.title_source === "ai" || e.entry_type_source === "ai") && e.analyzed_at
+      ? `<p class="small muted">The title and type above were chosen by the AI. <button class="btn small" data-act="confirm">Confirm them</button> to keep them fixed.</p>` : ""}
+    ${media}
+    ${userBlock}
+    ${prov("user", "Your notes", `<div class="body" id="notes-view">${e.user_notes ? esc(e.user_notes) : `<span class="muted">No notes yet.</span>`}</div>
+      <div class="row" style="margin-top:8px"><button class="btn ghost small" data-act="edit-notes">${e.user_notes ? "Edit notes" : "Add notes"}</button></div>`,
+      "additions you've written later")}
+    ${transcriptBlock}
+    ${analysisBlocks}
+    <div class="row"><button class="btn" data-act="analyze">Re-run AI organizer</button>
+      <span class="small muted">Regenerates AI data only. Your words, title and type choices are kept.</span></div>
+  </div>
+
+  <aside class="side">
+    <div class="panel"><h3>Tags</h3>
+      <div class="meta" id="tags">${e.tags.length ? tagsHTML(e.tags, true) : `<span class="muted small">No tags.</span>`}</div>
+      <form class="row" id="addtag"><input type="text" name="tag" placeholder="Add tag" style="flex:1"><button class="btn small">Add</button></form>
+      <p class="small muted">Dashed = AI tag. Removing an AI tag stops it coming back.</p></div>
+
+    <div class="panel"><h3>Projects</h3>
+      ${e.projects.length ? e.projects.map((p) => `<div class="row"><a href="#/projects/${p.id}">${esc(p.name)}</a><span class="spacer"></span>
+        <button class="btn ghost small" data-remove-project="${p.id}" aria-label="Remove from ${esc(p.name)}">×</button></div>`).join("") : `<span class="muted small">Not in a project.</span>`}
+      ${projects.some((p) => !inProjects.has(p.id)) ? `<div class="row"><select id="addproj" style="flex:1"><option value="">Add to project…</option>${projects
+        .filter((p) => !inProjects.has(p.id)).map((p) => `<option value="${p.id}">${esc(p.name)}</option>`).join("")}</select></div>` : ""}</div>
+
+    <div class="panel"><h3>Related ideas</h3>
+      ${rels.length ? rels.map((r) => `<div class="rel ${esc(r.status)}">
+        <div class="row small"><span class="source-badge ${r.origin}">${esc(r.label)}</span><span class="spacer"></span><span class="confidence">${pct(r.confidence)}</span></div>
+        <div><span class="muted small">${esc(label(r.relationship_type))} →</span> <a href="#/entry/${r.other.id}">${esc(r.other.title)}</a></div>
+        ${r.rationale ? `<div class="why">${esc(r.rationale)}</div>` : ""}
+        ${r.origin === "ai" && r.status !== "accepted" ? `<div class="row">
+          <button class="btn small" data-rel="${r.id}" data-status="accepted">Accept</button>
+          <button class="btn small ghost" data-rel="${r.id}" data-status="rejected">Reject</button>
+          ${r.status !== "ignored" ? `<button class="btn small ghost" data-rel="${r.id}" data-status="ignored">Ignore</button>` : ""}</div>` : ""}
+      </div>`).join("") : `<span class="muted small">No related entries found yet.</span>`}</div>
+
+    <div class="panel"><h3>Source information</h3><dl class="kv">
+      <dt>Source</dt><dd>${esc(label(e.source_type))}</dd>
+      <dt>Created</dt><dd>${fmtDateTime(e.created_at)}</dd>
+      <dt>Modified</dt><dd>${fmtDateTime(e.updated_at)}</dd>
+      ${e.attachments.map((a) => `<dt>File</dt><dd>${esc(a.original_filename)}</dd><dt>Format</dt><dd>${esc(a.mime_type)} · ${fmtSize(a.size_bytes)}</dd>
+        <dt>SHA-256</dt><dd class="confidence" title="${esc(a.sha256)}">${esc(a.sha256.slice(0, 16))}…</dd>`).join("")}
+      <dt>AI provider</dt><dd>${esc(e.ai_provider || "—")}</dd>
+      <dt>Confirmed</dt><dd>${e.user_confirmed ? "Yes, by you" : "No"}</dd>
+      <dt>Entry id</dt><dd>#${e.id}</dd></dl></div>
+
+    <div class="panel"><h3>Revision history</h3><ol class="revisions">${revs.map((r) => `<li><details>
+      <summary><strong>v${r.version_number}</strong> ${esc(r.change_description)} <span class="muted">· ${fmtDateTime(r.created_at)}</span></summary>
+      <pre class="snapshot">${esc(JSON.stringify(r.content_snapshot, null, 2))}</pre></details></li>`).join("")}</ol></div>
+
+    <button class="btn danger ghost" data-act="trash">Move to trash</button>
+  </aside></div>`;
+
+  const put = async (body, msg) => {
+    try { await api(`/api/entries/${id}`, { method: "PUT", json: body }); if (msg) toast(msg); render(); }
+    catch (err) { toast(err.message, true); }
+  };
+  $("#type", el).onchange = (ev) => put({ entry_type: ev.target.value }, "Type set by you.");
+  $("#status", el).onchange = (ev) => put({ status: ev.target.value }, "Status updated.");
+  $("[data-act=confirm]", el)?.addEventListener("click", () => put({ user_confirmed: true }, "Confirmed."));
+  $("[data-act=edit-title]", el).onclick = () => {
+    const v = prompt("Title (leave empty to use the AI's suggestion):", e.title);
+    if (v !== null) put({ title: v }, "Title saved.");
+  };
+  $("[data-act=edit-notes]", el).onclick = () => {
+    const view = $("#notes-view", el);
+    view.innerHTML = `<textarea rows="6" aria-label="Your notes">${esc(e.user_notes || "")}</textarea>
+      <div class="row" style="margin-top:8px"><button class="btn primary small" data-act="save-notes">SAVE NOTES</button></div>`;
+    $("textarea", view).focus();
+    $("[data-act=save-notes]", view).onclick = () => put({ user_notes: $("textarea", view).value }, "Notes saved.");
+  };
+  $("[data-act=analyze]", el).onclick = async (ev) => {
+    ev.target.disabled = true;
+    try { await api(`/api/entries/${id}/analyze`, { method: "POST" }); toast("AI organizer re-ran."); render(); }
+    catch (err) { toast(err.message, true); ev.target.disabled = false; }
+  };
+  const currentTags = e.tags.map((t) => t.name);
+  $$("[data-remove-tag]", el).forEach((b) => (b.onclick = () =>
+    put({ tags: currentTags.filter((t) => t !== b.dataset.removeTag) }, "Tag removed.")));
+  $("#addtag", el).onsubmit = (ev) => {
+    ev.preventDefault();
+    const v = ev.target.tag.value.trim();
+    if (v) put({ tags: [...currentTags, v] }, "Tag added.");
+  };
+  $("#addproj", el)?.addEventListener("change", async (ev) => {
+    if (!ev.target.value) return;
+    try { await api(`/api/projects/${ev.target.value}/entries`, { method: "POST", json: { entry_id: e.id } }); toast("Added to project."); render(); }
+    catch (err) { toast(err.message, true); }
+  });
+  $$("[data-remove-project]", el).forEach((b) => (b.onclick = async () => {
+    await api(`/api/projects/${b.dataset.removeProject}/entries/${e.id}`, { method: "DELETE" });
+    toast("Removed from project."); render();
+  }));
+  $$("[data-rel]", el).forEach((b) => (b.onclick = async () => {
+    try { await api(`/api/relationships/${b.dataset.rel}`, { method: "PATCH", json: { status: b.dataset.status } }); toast(`Relationship ${b.dataset.status}.`); render(); }
+    catch (err) { toast(err.message, true); }
+  }));
+  $("[data-act=trash]", el).onclick = async () => {
+    if (!confirm("Move this entry to the trash? It will be hidden, but the original material is kept and can be restored.")) return;
+    await api(`/api/entries/${id}`, { method: "DELETE" });
+    toast("Moved to trash. Original preserved.");
+    location.hash = "#/archive";
+  };
+}
+
+/* ----------------------------------------------------------------- router */
+const ROUTES = [
+  [/^\/?$/, viewHome, ""],
+  [/^\/today$/, viewToday, "today"],
+  [/^\/archive$/, viewArchive, "archive"],
+  [/^\/ideas$/, viewIdeas, "ideas"],
+  [/^\/projects$/, viewProjects, "projects"],
+  [/^\/projects\/(\d+)$/, viewProject, "projects"],
+  [/^\/entry\/(\d+)$/, viewEntry, "archive"],
+  [/^\/search$/, viewSearch, "search"],
+  [/^\/settings$/, viewSettings, "settings"],
+];
+
+let renderToken = 0;
+async function render() {
+  const token = ++renderToken;
+  const [path, qs] = (location.hash.slice(1) || "/").split("?");
+  const query = new URLSearchParams(qs || "");
+  const match = ROUTES.find(([re]) => re.test(path)) || ROUTES[0];
+  const [re, view, nav] = match;
+  const id = path.match(re)?.[1];
+  $$(".nav a").forEach((a) => a.classList.toggle("active", a.dataset.nav === nav));
+  // Each render gets its own container; a slower, superseded view keeps
+  // writing into its detached container and never clobbers the new one.
+  const container = document.createElement("div");
+  $("#view").replaceChildren(container);
+  try {
+    await view(container, id, query);
+  } catch (err) {
+    if (token === renderToken) container.innerHTML = `<p class="empty">Something went wrong: ${esc(err.message)}</p>`;
+  }
+}
+
+window.addEventListener("hashchange", () => { render(); window.scrollTo(0, 0); });
+window.addEventListener("DOMContentLoaded", render);

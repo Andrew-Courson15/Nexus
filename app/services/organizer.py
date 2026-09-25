@@ -1,0 +1,121 @@
+"""The AI organizer: builds the derived layer around a creative entry.
+
+Steps for each entry:
+  1. Preserve original material (never written here).
+  2. Determine entry type          (only if the user hasn't set it)
+  3. Generate a title              (only if the user hasn't set it)
+  4. Generate a summary
+  5. Extract concepts
+  6. Extract potential themes
+  7. Identify potential projects   (suggestions only — no auto-linking)
+  8. Identify potential relationships (stored as "suggested")
+  9. Generate tags                 (marked source="ai"; user removals respected)
+ 10. Store everything as AI-generated data, with its uncertainty
+ 11. Record a revision and refresh the search index
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from app.models import CreativeEntry, Origin, Project, Relationship, utcnow
+from app.services import text as T
+from app.services.ai import AIProvider, AIProviderError, EntryContext, get_ai_provider
+from app.services.history import record_revision, replace_ai_tags
+from app.services.relationships import discover_relationships
+from app.services.search import index_entry
+
+
+@dataclass
+class OrganizeOutcome:
+    ok: bool
+    provider: str
+    relationships: list[Relationship]
+    error: str | None = None
+
+
+class Organizer:
+    def __init__(self, db: Session, provider: AIProvider | None = None):
+        self.db = db
+        self._provider = provider
+
+    @property
+    def provider(self) -> AIProvider:
+        if self._provider is None:
+            self._provider = get_ai_provider()
+        return self._provider
+
+    def organize(self, entry: CreativeEntry) -> OrganizeOutcome:
+        meta = dict(entry.ai_metadata or {})
+        try:
+            provider = self.provider
+            result = provider.analyze_entry(EntryContext.from_entry(entry))
+        except Exception as exc:  # AI failure must never affect the stored original
+            meta["analysis_error"] = str(exc) if isinstance(exc, AIProviderError) else f"AI analysis failed: {exc}"
+            entry.ai_metadata = meta
+            self.db.flush()
+            index_entry(self.db, entry)
+            return OrganizeOutcome(False, getattr(self._provider, "name", "unknown"), [], meta["analysis_error"])
+
+        # Titles / types the user chose are never overwritten by the AI.
+        if entry.title_source != Origin.user.value:
+            entry.title = result.title[:300]
+            entry.title_source = Origin.ai.value
+        if entry.entry_type_source != Origin.user.value:
+            entry.entry_type = result.entry_type
+            entry.entry_type_source = Origin.ai.value
+
+        entry.ai_summary = result.summary
+        entry.ai_interpretation = result.interpretation
+        entry.ai_inference = result.inference
+        entry.confidence = result.confidence
+        entry.ai_provider = provider.name
+        entry.analyzed_at = utcnow()
+
+        meta.pop("analysis_error", None)
+        meta.update(
+            suggested_title=result.title,
+            suggested_entry_type=result.entry_type,
+            type_confidence=result.type_confidence,
+            concepts=result.concepts,
+            themes=result.themes,
+            keywords=result.keywords,
+            uncertainties=result.uncertainties,
+            method=result.method,
+            potential_projects=self._potential_projects(entry, result.concepts, result.keywords),
+        )
+        if result.visual is not None:
+            meta["visual"] = result.visual
+        entry.ai_metadata = meta
+
+        replace_ai_tags(self.db, entry, result.tags)
+        rels = discover_relationships(self.db, entry, provider)
+        if rels:
+            entry.ai_inference = (entry.ai_inference or "") + (
+                f"\nMay connect to {len(rels)} existing entr{'y' if len(rels) == 1 else 'ies'} "
+                "(see AI-suggested relationships)."
+            )
+        record_revision(self.db, entry, f"AI analysis ({provider.name})")
+        index_entry(self.db, entry)
+        return OrganizeOutcome(True, provider.name, rels)
+
+    def _potential_projects(self, entry: CreativeEntry, concepts: list[str], keywords: list[str]) -> list[dict]:
+        """Projects whose name/description share vocabulary with the entry. Suggestions only."""
+        member_ids = {p.id for p in entry.projects}
+        mine = set(keywords) | set(concepts)
+        out = []
+        for p in self.db.scalars(select(Project)).all():
+            if p.id in member_ids:
+                continue
+            ptext = f"{p.name} {p.description or ''}"
+            theirs = set(T.keywords(ptext)) | set(T.concepts_for(ptext))
+            shared = mine & theirs
+            if not shared:
+                continue
+            score = round(min(0.9, T.overlap(mine, theirs) + 0.1 * (len(shared) - 1)), 2)
+            if score >= 0.2:
+                out.append({"id": p.id, "name": p.name, "confidence": score,
+                            "reason": "Shared vocabulary: " + ", ".join(sorted(shared)[:6])})
+        return sorted(out, key=lambda d: -d["confidence"])[:5]

@@ -1,0 +1,14 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+.env
+.pytest_cache/
+# User data: never commit personal material
+data/*.db
+data/*.db-*
+data/uploads/*
+data/audio/*
+data/images/*
+data/exports/*
+!data/*/.gitkeep

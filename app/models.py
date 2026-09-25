@@ -1,0 +1,310 @@
+"""SQLAlchemy models.
+
+Data principle
+--------------
+RAW data (never modified after capture):
+    CreativeEntry.original_text, Attachment files on disk.
+USER data (supplied or confirmed by the user):
+    title/entry_type when their *_source is "user", status, user_notes,
+    user tags, project membership, accepted relationships.
+DERIVED data (regenerable, always labelled as AI output):
+    transcript, ai_summary, ai_interpretation, ai_inference, ai_metadata,
+    AI tags, AI-suggested relationships, embeddings.
+
+Enumerations are stored as plain strings so the schema migrates cleanly to
+PostgreSQL and new values can be added without a schema change.
+"""
+from __future__ import annotations
+
+from datetime import datetime, timezone
+from enum import Enum
+
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    DateTime,
+    Float,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.types import TypeDecorator
+
+from app.database import Base
+
+
+def utcnow() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+class UTCDateTime(TypeDecorator):
+    """Timezone-aware UTC datetimes on every backend (SQLite drops tzinfo)."""
+
+    impl = DateTime(timezone=True)
+    cache_ok = True
+
+    def process_bind_param(self, value, dialect):
+        if value is not None and value.tzinfo is not None:
+            value = value.astimezone(timezone.utc)
+            if dialect.name == "sqlite":
+                value = value.replace(tzinfo=None)
+        return value
+
+    def process_result_value(self, value, dialect):
+        if value is not None and value.tzinfo is None:
+            value = value.replace(tzinfo=timezone.utc)
+        return value
+
+
+class EntryType(str, Enum):
+    idea = "idea"
+    comic = "comic"
+    movie = "movie"
+    short_film = "short_film"
+    story = "story"
+    character = "character"
+    scene = "scene"
+    dialogue = "dialogue"
+    sketch = "sketch"
+    artwork = "artwork"
+    worldbuilding = "worldbuilding"
+    research = "research"
+    note = "note"
+    brain_dump = "brain_dump"
+    other = "other"
+
+
+class EntryStatus(str, Enum):
+    raw = "raw"
+    exploring = "exploring"
+    developing = "developing"
+    active = "active"
+    completed = "completed"
+    abandoned = "abandoned"
+    archived = "archived"
+
+
+class SourceType(str, Enum):
+    text = "text"
+    voice = "voice"
+    image = "image"
+    file = "file"
+    import_ = "import"
+    conversation = "conversation"
+
+
+class ProjectType(str, Enum):
+    comic = "comic"
+    movie = "movie"
+    short_film = "short_film"
+    art = "art"
+    animation = "animation"
+    writing = "writing"
+    game = "game"
+    other = "other"
+
+
+class ProjectStatus(str, Enum):
+    idea = "idea"
+    active = "active"
+    paused = "paused"
+    completed = "completed"
+    archived = "archived"
+
+
+class RelationshipType(str, Enum):
+    related_to = "related_to"
+    inspired_by = "inspired_by"
+    part_of = "part_of"
+    contains = "contains"
+    character_in = "character_in"
+    scene_in = "scene_in"
+    similar_to = "similar_to"
+    contradicts = "contradicts"
+    evolved_from = "evolved_from"
+    replaces = "replaces"
+    references = "references"
+
+
+class RelationshipStatus(str, Enum):
+    suggested = "suggested"  # AI suggested, not yet reviewed
+    accepted = "accepted"    # confirmed by the user
+    rejected = "rejected"    # user said no; never re-suggested
+    ignored = "ignored"      # user dismissed without deciding
+
+
+class Origin(str, Enum):
+    user = "user"
+    ai = "ai"
+
+
+# Statuses shown in the Idea Incubator.
+INCUBATOR_STATUSES = (EntryStatus.raw.value, EntryStatus.exploring.value)
+UNFINISHED_STATUSES = (
+    EntryStatus.raw.value,
+    EntryStatus.exploring.value,
+    EntryStatus.developing.value,
+    EntryStatus.active.value,
+)
+
+
+class ProjectEntry(Base):
+    """Many-to-many link: an entry can belong to several projects."""
+
+    __tablename__ = "project_entries"
+
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), primary_key=True)
+    entry_id: Mapped[int] = mapped_column(ForeignKey("creative_entries.id", ondelete="CASCADE"), primary_key=True)
+    added_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
+
+
+class CreativeEntry(Base):
+    __tablename__ = "creative_entries"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+
+    # Title / type can come from the user or the AI; *_source records which.
+    title: Mapped[str] = mapped_column(String(300), default="")
+    title_source: Mapped[str] = mapped_column(String(10), default=Origin.ai.value)
+    entry_type: Mapped[str] = mapped_column(String(30), default=EntryType.other.value, index=True)
+    entry_type_source: Mapped[str] = mapped_column(String(10), default=Origin.ai.value)
+    status: Mapped[str] = mapped_column(String(30), default=EntryStatus.raw.value, index=True)
+
+    # RAW: exactly what the user submitted. Never modified after creation.
+    original_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # USER: later additions written by the user (the original stays untouched).
+    user_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # DERIVED
+    transcript: Mapped[str | None] = mapped_column(Text, nullable=True)
+    ai_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    ai_interpretation: Mapped[str | None] = mapped_column(Text, nullable=True)
+    ai_inference: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # concepts, themes, potential projects, uncertainties, visual metadata...
+    ai_metadata: Mapped[dict] = mapped_column(JSON, default=dict)
+    ai_provider: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    analyzed_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+    confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    user_confirmed: Mapped[bool] = mapped_column(Boolean, default=False)
+
+    source_type: Mapped[str] = mapped_column(String(30), default=SourceType.text.value, index=True)
+    # Path of the raw file relative to the data directory (if any).
+    source_file: Mapped[str | None] = mapped_column(String(500), nullable=True)
+
+    # Reserved for future semantic search (no vector DB in v1).
+    embedding_id: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    embedding_model: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    embedding_created_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow, index=True)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow, onupdate=utcnow)
+    # Soft delete: entries are hidden, never destroyed.
+    deleted_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True, index=True)
+
+    attachments: Mapped[list[Attachment]] = relationship(
+        back_populates="entry", cascade="all, delete-orphan", order_by="Attachment.id"
+    )
+    revisions: Mapped[list[CreativeRevision]] = relationship(
+        back_populates="entry", cascade="all, delete-orphan", order_by="CreativeRevision.version_number"
+    )
+    entry_tags: Mapped[list[EntryTag]] = relationship(back_populates="entry", cascade="all, delete-orphan")
+    projects: Mapped[list[Project]] = relationship(
+        secondary="project_entries", back_populates="entries", order_by="Project.name"
+    )
+
+    @property
+    def is_deleted(self) -> bool:
+        return self.deleted_at is not None
+
+
+class Attachment(Base):
+    """Metadata about an original uploaded file. The file itself is never modified."""
+
+    __tablename__ = "attachments"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    entry_id: Mapped[int] = mapped_column(ForeignKey("creative_entries.id", ondelete="CASCADE"), index=True)
+    kind: Mapped[str] = mapped_column(String(20))  # image | audio | file
+    original_filename: Mapped[str] = mapped_column(String(500))
+    stored_path: Mapped[str] = mapped_column(String(500))  # relative to data dir
+    mime_type: Mapped[str] = mapped_column(String(200))
+    size_bytes: Mapped[int] = mapped_column(Integer)
+    sha256: Mapped[str] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
+
+    entry: Mapped[CreativeEntry] = relationship(back_populates="attachments")
+
+
+class Project(Base):
+    __tablename__ = "projects"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(300))
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    project_type: Mapped[str] = mapped_column(String(30), default=ProjectType.other.value)
+    status: Mapped[str] = mapped_column(String(30), default=ProjectStatus.active.value)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow, onupdate=utcnow)
+
+    entries: Mapped[list[CreativeEntry]] = relationship(
+        secondary="project_entries", back_populates="projects", order_by="CreativeEntry.created_at.desc()"
+    )
+
+
+class Relationship(Base):
+    """Edge between two entries — the initial knowledge-graph representation."""
+
+    __tablename__ = "relationships"
+    __table_args__ = (UniqueConstraint("source_entry_id", "target_entry_id", "relationship_type"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    source_entry_id: Mapped[int] = mapped_column(ForeignKey("creative_entries.id", ondelete="CASCADE"), index=True)
+    target_entry_id: Mapped[int] = mapped_column(ForeignKey("creative_entries.id", ondelete="CASCADE"), index=True)
+    relationship_type: Mapped[str] = mapped_column(String(30), default=RelationshipType.related_to.value)
+    confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    origin: Mapped[str] = mapped_column(String(10), default=Origin.ai.value)
+    status: Mapped[str] = mapped_column(String(20), default=RelationshipStatus.suggested.value)
+    rationale: Mapped[str | None] = mapped_column(Text, nullable=True)  # the evidence behind a suggestion
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow, onupdate=utcnow)
+
+    source_entry: Mapped[CreativeEntry] = relationship(foreign_keys=[source_entry_id])
+    target_entry: Mapped[CreativeEntry] = relationship(foreign_keys=[target_entry_id])
+
+
+class Tag(Base):
+    __tablename__ = "tags"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(100), unique=True, index=True)
+
+
+class EntryTag(Base):
+    __tablename__ = "entry_tags"
+
+    entry_id: Mapped[int] = mapped_column(ForeignKey("creative_entries.id", ondelete="CASCADE"), primary_key=True)
+    tag_id: Mapped[int] = mapped_column(ForeignKey("tags.id", ondelete="CASCADE"), primary_key=True)
+    source: Mapped[str] = mapped_column(String(10), default=Origin.user.value)  # user | ai
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
+
+    entry: Mapped[CreativeEntry] = relationship(back_populates="entry_tags")
+    tag: Mapped[Tag] = relationship()
+
+
+class CreativeRevision(Base):
+    """Snapshot of an entry after each meaningful change (append-only)."""
+
+    __tablename__ = "creative_revisions"
+    __table_args__ = (UniqueConstraint("entry_id", "version_number"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    entry_id: Mapped[int] = mapped_column(ForeignKey("creative_entries.id", ondelete="CASCADE"), index=True)
+    version_number: Mapped[int] = mapped_column(Integer)
+    content_snapshot: Mapped[dict] = mapped_column(JSON)
+    change_description: Mapped[str] = mapped_column(String(500))
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
+
+    entry: Mapped[CreativeEntry] = relationship(back_populates="revisions")
