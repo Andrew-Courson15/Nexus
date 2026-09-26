@@ -196,6 +196,8 @@ class CreativeEntry(Base):
     processing_status: Mapped[str | None] = mapped_column(String(20), nullable=True)
 
     source_type: Mapped[str] = mapped_column(String(30), default=SourceType.text.value, index=True)
+    # Id the capturing device made up (phone offline queue): makes re-sends safe.
+    client_id: Mapped[str | None] = mapped_column(String(64), nullable=True, unique=True)
     # Path of the raw file relative to the data directory (if any).
     source_file: Mapped[str | None] = mapped_column(String(500), nullable=True)
 

@@ -6,7 +6,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -27,7 +27,7 @@ async def lifespan(_app: FastAPI):
     processing_queue.stop()
 
 
-app = FastAPI(title="NEXUS", version="0.2.0", lifespan=lifespan,
+app = FastAPI(title="NEXUS", version="0.3.0", lifespan=lifespan,
               description="Private, local-first creative knowledge archive.")
 # Only answer to local host names (guards against DNS-rebinding from web pages).
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=get_settings().allowed_hosts)
@@ -37,6 +37,14 @@ templates = Jinja2Templates(directory=APP_DIR / "templates")
 
 for module in (entries, projects, search, uploads, system):
     app.include_router(module.router)
+
+
+@app.get("/sw.js", include_in_schema=False)
+def service_worker():
+    """Served from the root so it can control the whole app (phone offline support)."""
+    body = (BASE_DIR / "static" / "sw.js").read_text().replace("__VERSION__", app.version)
+    return Response(body, media_type="application/javascript",
+                    headers={"Cache-Control": "no-cache", "Service-Worker-Allowed": "/"})
 
 
 @app.get("/", response_class=HTMLResponse, include_in_schema=False)

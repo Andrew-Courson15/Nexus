@@ -291,14 +291,55 @@ details.raw { margin-top: 4px; }
   .detail { grid-template-columns: 1fr; }
 }
 @media (max-width: 640px) {
-  .topbar { flex-direction: column; align-items: stretch; gap: 8px; padding: 10px 16px; }
-  .nav { flex-wrap: wrap; }
-  .nav a { padding: 4px 10px; font-size: 12px; }
-  .view { padding: 20px 16px 80px; }
+  .topbar {
+    gap: 10px; padding: 10px 16px;
+    padding-top: calc(10px + env(safe-area-inset-top));
+    padding-left: calc(16px + env(safe-area-inset-left)); padding-right: calc(16px + env(safe-area-inset-right));
+  }
+  .brand { font-size: 14px; }
+  .nav { margin-left: auto; }
+  .nav a { padding: 4px 8px; font-size: 11px; }
+  .nav .wide-only { display: none; }
+  .view { padding: 20px 16px calc(96px + env(safe-area-inset-bottom)); }
   h1 { font-size: 23px; }
   .detail-title { font-size: 26px; }
   .capture { padding: 14px; }
   .capture textarea { font-size: 19px; min-height: 150px; }
+  .capture .hint { display: none; }
   .filters > * { flex: 1 1 140px; }
-  .searchbox input { font-size: 16px; }
+  input, select, textarea, .searchbox input { font-size: 16px; } /* 16px stops iPhone zooming in on focus */
+  .toast { bottom: calc(84px + env(safe-area-inset-bottom)); }
+}
+
+/* ---------- archive filters (collapsible on phones) ---------- */
+.filterbox > summary { list-style: none; margin-bottom: 12px; }
+.filterbox > summary::-webkit-details-marker { display: none; }
+@media (min-width: 641px) { .filterbox > summary { display: none; } }
+
+/* ---------- phone tab bar ---------- */
+.tabbar {
+  display: none;
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 10;
+  justify-content: space-around;
+  padding: 6px 8px calc(6px + env(safe-area-inset-bottom));
+  background: color-mix(in srgb, var(--bg) 92%, transparent);
+  backdrop-filter: blur(10px);
+  border-top: 1px solid var(--border);
+}
+.tabbar a {
+  flex: 1; display: flex; flex-direction: column; align-items: center; gap: 2px;
+  padding: 6px 0; min-height: 48px; text-decoration: none;
+  font-size: 11px; font-weight: 600; letter-spacing: .04em; color: var(--muted); border-radius: 10px;
+}
+.tabbar a .ti { font-size: 20px; line-height: 1; }
+.tabbar a.active { color: var(--user); }
+
+/* ---------- offline outbox ---------- */
+.outbox {
+  border: 1px dashed var(--user); color: var(--user); background: var(--user-bg);
+  border-radius: 999px; padding: 3px 10px; font-size: 12px; font-weight: 600; cursor: pointer; white-space: nowrap;
+}
+.outbox.error { border-color: var(--danger); color: var(--danger); }
+@media (max-width: 640px) {
+  .tabbar { display: flex; }  /* after the base rule so it wins */
 }

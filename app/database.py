@@ -70,6 +70,15 @@ def add_missing_columns(conn: Connection, metadata: MetaData) -> list[str]:
     return added
 
 
+def ensure_unique_indexes(conn: Connection, metadata: MetaData) -> None:
+    """Unique constraints on columns added by `add_missing_columns` (SQLite can't add them inline)."""
+    for table in metadata.sorted_tables:
+        for col in table.columns:
+            if col.unique:
+                conn.execute(text(
+                    f'CREATE UNIQUE INDEX IF NOT EXISTS "uq_{table.name}_{col.name}" ON "{table.name}" ("{col.name}")'))
+
+
 def init_db() -> None:
     """Create folders, tables and the full-text index (idempotent)."""
     from app import models  # noqa: F401  (register models on Base.metadata)
@@ -79,4 +88,5 @@ def init_db() -> None:
     Base.metadata.create_all(bind=engine)
     with engine.begin() as conn:
         add_missing_columns(conn, Base.metadata)
+        ensure_unique_indexes(conn, Base.metadata)
         ensure_search_index(conn)

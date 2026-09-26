@@ -88,6 +88,40 @@ Notes for Windows:
 - Whisper runs on the CPU unless NVIDIA's CUDA libraries are installed. It switches to the CPU
   automatically if the GPU path fails. On an i5-11400, the `small` model is quick enough for voice notes.
 
+## NEXUS on your phone (iPhone or Android)
+
+Your phone uses the **same NEXUS that runs on your PC**, so everything is in one archive: ideas
+captured on the phone appear on the PC and the other way round. The phone reaches the PC over
+[Tailscale](https://tailscale.com), a free, private, encrypted network that only your own
+devices can join. It works from anywhere (home, school, work, mobile data), and NEXUS is never
+exposed to the public internet.
+
+**On the PC (once):**
+1. Install Tailscale from https://tailscale.com/download/windows and sign in.
+2. In PowerShell, in the nexus folder:
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File scripts\phone_setup_windows.ps1
+   ```
+   The script:
+   - finds the PC's private address (for example `https://gaming-pc.tail1234.ts.net`)
+   - allows that address in `.env`
+   - turns on the private HTTPS link
+   - can start NEXUS automatically when Windows starts
+3. Restart NEXUS.
+
+**On the iPhone:**
+1. Install **Tailscale** from the App Store and sign in with the **same account**.
+2. Open **Safari** and go to the address the script printed.
+3. Tap **Share**, then **Add to Home Screen**. NEXUS now opens like an app.
+
+**When the PC is off or asleep**, the phone app still opens, and you can still capture text,
+photos and voice notes. They're kept on the phone (you'll see "*N* to sync" at the top) and sent
+automatically the next time NEXUS is reachable. Each capture carries its own id, so a re-send
+never creates a duplicate, and it keeps the time you actually captured it.
+
+If the script says HTTPS certificates are off, open https://login.tailscale.com/admin/dns, turn
+on **MagicDNS** and **HTTPS Certificates**, and run it again.
+
 ## Updating NEXUS
 
 Close NEXUS first. Your ideas in `data\` are never touched by an update, and the database
@@ -212,6 +246,8 @@ Browsers only allow microphone access on `localhost` or HTTPS. Open NEXUS at
 ## Security
 
 - NEXUS binds to `127.0.0.1` and **has no login**. Do not expose it to a network or the internet.
+  For phone access, use the Tailscale setup above: it keeps NEXUS on `127.0.0.1` and only your own
+  signed-in devices can reach it.
   `run.py` warns you if the host isn't a loopback address.
 - Requests with unexpected `Host` headers are rejected, which protects against DNS-rebinding attacks from web pages.
 - The AI and transcription run on your machine. NEXUS only talks to the Ollama address you configure, and never through a proxy. No cloud AI service is contacted (none are implemented).
@@ -254,7 +290,8 @@ nexus/
 ├── static/css/style.css      Styles (dark/light, responsive)
 ├── static/js/app.js          Vanilla JS app (router, views, recorder)
 ├── data/{uploads,audio,images,exports}/
-├── scripts/                 setup_mac.sh, setup_windows.ps1, start_windows.bat
+├── scripts/                 setup_mac.sh, setup_windows.ps1, start_windows.bat, phone_setup_windows.ps1
+├── static/sw.js, manifest.webmanifest, icons/   Installable phone app + offline support
 ├── tests/                    pytest suite (includes a fake Ollama)
 ├── requirements.txt          NEXUS itself
 ├── requirements-local.txt    Local Whisper
@@ -363,7 +400,7 @@ Transcription follows the same pattern in `services/transcription.py`: `Transcri
 
 | Method | Path | |
 |---|---|---|
-| POST | `/api/entries` | Capture text (`original_text`, optional `title`, `entry_type`, `status`, `tags`, `project_ids`, `analyze`) |
+| POST | `/api/entries` | Capture text (`original_text`, optional `title`, `entry_type`, `status`, `tags`, `project_ids`, `analyze`, `client_id`, `captured_at`). A repeated `client_id` returns the existing entry (200) instead of a duplicate |
 | GET | `/api/entries` | List (`entry_type`, `status`, `source_type`, `project_id`, `tag`, `date_from`, `date_to`, `sort=newest\|oldest\|modified\|alpha`, `limit`, `offset`) |
 | GET | `/api/entries/{id}` | Detail |
 | PUT | `/api/entries/{id}` | Edit title/type/status/notes/transcript/tags/confirmation (not `original_text`) |
@@ -375,7 +412,7 @@ Transcription follows the same pattern in `services/transcription.py`: `Transcri
 | GET | `/api/entries/{id}/relationships` | Relationships (`include_rejected=true` to see rejected ones) |
 | POST | `/api/entries/{id}/relationships` | Create a relationship yourself |
 | PATCH | `/api/relationships/{id}` | `{"status": "accepted"\|"rejected"\|"ignored"}` |
-| POST | `/api/uploads` | Multipart: `file`, optional `note`, `title`, `entry_type`, `project_id`, `analyze` |
+| POST | `/api/uploads` | Multipart: `file`, optional `note`, `title`, `entry_type`, `project_id`, `analyze`, `client_id`, `captured_at` |
 | GET | `/api/uploads/{attachment_id}` | The original file |
 | POST | `/api/search` | `{"query": "...", "limit", "entry_types", "statuses", "date_from", "date_to"}`. Each result has `matched_by` (`words`, `meaning`, `filters`) and `similarity` |
 | POST | `/api/search/reindex` | Queue entries whose meaning index is missing or stale |

@@ -6,6 +6,7 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
 from app.database import get_db
@@ -56,6 +57,24 @@ def load_entry(db: Session, entry_id: int, include_deleted: bool = False) -> Cre
     return entry
 
 
+def existing_capture(db: Session, client_id: str | None) -> CreativeEntry | None:
+    """A capture already received with this device-made id (a re-send after a dropped connection)."""
+    if not client_id:
+        return None
+    entry_id = db.scalar(select(CreativeEntry.id).where(CreativeEntry.client_id == client_id))
+    return load_entry(db, entry_id, include_deleted=True) if entry_id else None
+
+
+def capture_time(captured_at: datetime | None) -> datetime:
+    """When the idea was captured: the device's time if given (never in the future), else now."""
+    now = utcnow()
+    if captured_at is None:
+        return now
+    if captured_at.tzinfo is None:
+        captured_at = captured_at.replace(tzinfo=timezone.utc)
+    return min(captured_at, now)
+
+
 def _split(values: list[str] | None) -> list[str]:
     out: list[str] = []
     for v in values or []:
@@ -64,12 +83,19 @@ def _split(values: list[str] | None) -> list[str]:
 
 
 @router.post("/entries", response_model=EntryDetail, status_code=201)
-def create_entry(payload: EntryCreate, db: Session = Depends(get_db)):
+def create_entry(payload: EntryCreate, response: Response, db: Session = Depends(get_db)):
+    if (dup := existing_capture(db, payload.client_id)) is not None:
+        response.status_code = 200  # already have it: sending twice never creates a duplicate
+        return entry_detail(dup)
+    created = capture_time(payload.captured_at)
     entry = CreativeEntry(
         original_text=payload.original_text,  # RAW — stored exactly as submitted
         status=payload.status.value,
         source_type=payload.source_type,
         ai_metadata={},
+        client_id=payload.client_id,
+        created_at=created,
+        updated_at=created,
     )
     if payload.title and payload.title.strip():
         entry.title, entry.title_source = payload.title.strip(), Origin.user.value
@@ -81,7 +107,12 @@ def create_entry(payload: EntryCreate, db: Session = Depends(get_db)):
             raise HTTPException(400, f"Project {pid} does not exist")
         entry.projects.append(project)
     db.add(entry)
-    db.flush()
+    try:
+        db.flush()
+    except IntegrityError:  # the same capture arrived twice at the same moment
+        db.rollback()
+        response.status_code = 200
+        return entry_detail(existing_capture(db, payload.client_id))
     for t in payload.tags:
         add_tag(db, entry, t, Origin.user.value)
     record_revision(db, entry, "Captured original material")

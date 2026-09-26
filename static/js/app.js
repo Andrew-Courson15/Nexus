@@ -39,7 +39,14 @@ async function api(path, opts = {}) {
     init.headers["Content-Type"] = "application/json";
     delete init.json;
   }
-  const res = await fetch(path, init);
+  let res;
+  try {
+    res = await fetch(path, init);
+  } catch {
+    throw unreachable();
+  }
+  // 502-504: the private link is up but NEXUS on the PC isn't answering.
+  if ([502, 503, 504].includes(res.status)) throw unreachable();
   if (res.status === 204) return null;
   const data = await res.json().catch(() => null);
   if (!res.ok) {
@@ -48,6 +55,124 @@ async function api(path, opts = {}) {
     throw new Error(msg);
   }
   return data;
+}
+
+function unreachable() {
+  const err = new Error("Can't reach NEXUS right now.");
+  err.offline = true;
+  return err;
+}
+
+/* ------------------------------------------------------------ offline outbox
+ * When NEXUS can't be reached (phone away from the PC, PC asleep), captures
+ * are kept in this device's IndexedDB and sent later. Each capture carries a
+ * device-made id, so a capture that is sent twice is still saved once. */
+const outbox = {
+  _db: null,
+  open() {
+    if (this._db) return this._db;
+    this._db = new Promise((resolve, reject) => {
+      const req = indexedDB.open("nexus-outbox", 1);
+      req.onupgradeneeded = () => req.result.createObjectStore("items", { keyPath: "client_id" });
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+    return this._db;
+  },
+  async _tx(mode, fn) {
+    const db = await this.open();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction("items", mode);
+      const out = fn(tx.objectStore("items"));
+      tx.oncomplete = () => resolve(out?.result ?? out);
+      tx.onerror = () => reject(tx.error);
+    });
+  },
+  add(item) { return this._tx("readwrite", (s) => s.put(item)); },
+  remove(id) { return this._tx("readwrite", (s) => s.delete(id)); },
+  all() { return this._tx("readonly", (s) => s.getAll()); },
+};
+
+function newClientId() {
+  if (crypto.randomUUID) return crypto.randomUUID().replace(/-/g, "");
+  return Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+/** Send one capture. item: {client_id, captured_at, text?, file?, filename?, note?, project_id?} */
+function sendCapture(item) {
+  if (item.file) {
+    const fd = new FormData();
+    fd.append("file", item.file, item.filename || item.file.name || "capture");
+    if (item.note) fd.append("note", item.note);
+    if (item.project_id) fd.append("project_id", item.project_id);
+    fd.append("client_id", item.client_id);
+    fd.append("captured_at", item.captured_at);
+    return api("/api/uploads", { method: "POST", body: fd });
+  }
+  return api("/api/entries", {
+    method: "POST",
+    json: { original_text: item.text, project_ids: item.project_id ? [item.project_id] : [],
+            client_id: item.client_id, captured_at: item.captured_at },
+  });
+}
+
+/** Save now if NEXUS is reachable, otherwise keep it on this device. Returns {entry} or {queued: true}. */
+async function captureOrQueue(fields) {
+  const item = { client_id: newClientId(), captured_at: new Date().toISOString(), ...fields };
+  try {
+    return { entry: await sendCapture(item) };
+  } catch (err) {
+    if (!err.offline) throw err;
+    try {
+      await outbox.add(item);
+    } catch {
+      throw new Error("NEXUS can't be reached and this browser can't store ideas offline.");
+    }
+    refreshOutbox();
+    return { queued: true };
+  }
+}
+
+let flushing = false;
+async function flushOutbox({ quiet = true } = {}) {
+  if (flushing) return;
+  flushing = true;
+  let sent = 0;
+  try {
+    const items = (await outbox.all()).sort((a, b) => a.captured_at.localeCompare(b.captured_at));
+    for (const item of items) {
+      try {
+        await sendCapture(item);
+        await outbox.remove(item.client_id);
+        sent++;
+      } catch (err) {
+        if (err.offline) break;  // still unreachable: try again later
+        // Rejected by the server (e.g. file too large): keep it, but say why.
+        item.error = err.message;
+        await outbox.add(item);
+      }
+    }
+  } catch { /* storage unavailable */ } finally {
+    flushing = false;
+  }
+  await refreshOutbox();
+  if (sent) {
+    toast(`Sent ${sent} idea${sent === 1 ? "" : "s"} saved on this device.`);
+    if (["", "#/", "#/archive", "#/today", "#/ideas"].includes(location.hash)) render();
+  } else if (!quiet) {
+    toast("Still can't reach NEXUS. Your ideas are safe on this device.", true);
+  }
+}
+
+async function refreshOutbox() {
+  const btn = $("#outbox");
+  let items = [];
+  try { items = await outbox.all(); } catch { /* no storage */ }
+  btn.hidden = !items.length;
+  const failed = items.filter((i) => i.error).length;
+  btn.textContent = `${items.length} to sync`;
+  btn.title = failed ? `Couldn't send ${failed}: ${items.find((i) => i.error).error}` : "Saved on this device. Tap to send now.";
+  btn.classList.toggle("error", failed > 0);
 }
 
 let settingsCache = null;
@@ -162,14 +287,15 @@ function mountCapture(root, opts = {}) {
     btn.disabled = true;
     btn.textContent = "SAVING…";
     try {
-      const entry = await api("/api/entries", {
-        method: "POST",
-        json: { original_text: text, project_ids: opts.projectId ? [opts.projectId] : [] },
-      });
+      const r = await captureOrQueue({ text, project_id: opts.projectId || null });
       ta.value = "";
       store(draftKey, null);
-      toast("Captured. Original saved exactly as written.");
-      opts.onCaptured?.(entry);
+      if (r.queued) {
+        toast("Saved on this device. It will be sent to NEXUS when it's reachable.");
+      } else {
+        toast("Captured. Original saved exactly as written.");
+        opts.onCaptured?.(r.entry);
+      }
     } catch (err) {
       toast("Could not capture: " + err.message + " — your text is still here.", true);
     } finally {
@@ -193,18 +319,20 @@ function mountCapture(root, opts = {}) {
     $("[data-act=save]", pending).onclick = async (ev) => {
       ev.target.disabled = true;
       ev.target.textContent = "SAVING…";
-      const fd = new FormData();
-      fd.append("file", file, file.name);
-      if (note.value.trim()) fd.append("note", note.value);
-      if (opts.projectId) fd.append("project_id", opts.projectId);
       try {
-        const entry = await api("/api/uploads", { method: "POST", body: fd });
+        const r = await captureOrQueue({
+          file, filename: file.name, note: note.value.trim() ? note.value : null, project_id: opts.projectId || null,
+        });
         if (note.value.trim() && note.value.trim() === ta.value.trim()) { ta.value = ""; store(draftKey, null); }
         pending.hidden = true;
         pending.innerHTML = "";
         URL.revokeObjectURL(previewURL);
-        toast("Saved. The original file is stored untouched.");
-        opts.onCaptured?.(entry);
+        if (r.queued) {
+          toast("Saved on this device. It will be sent to NEXUS when it's reachable.");
+        } else {
+          toast("Saved. The original file is stored untouched.");
+          opts.onCaptured?.(r.entry);
+        }
       } catch (err) {
         ev.target.disabled = false;
         ev.target.textContent = "SAVE";
@@ -281,8 +409,14 @@ async function viewHome(el) {
     <div id="just"></div>
     <h2>Recently captured</h2><div id="recent"></div>`;
   const loadRecent = async () => {
-    const data = await api("/api/entries?limit=9");
-    $("#recent", el).innerHTML = gridHTML(data.items, "Nothing captured yet. Your first idea goes in the box above.");
+    try {
+      const data = await api("/api/entries?limit=9");
+      $("#recent", el).innerHTML = gridHTML(data.items, "Nothing captured yet. Your first idea goes in the box above.");
+    } catch (err) {
+      if (!err.offline) throw err;
+      $("#recent", el).innerHTML = `<p class="empty">NEXUS isn't reachable right now, but you can still capture.
+        Ideas are kept on this device and sent automatically when NEXUS is back.</p>`;
+    }
   };
   const cap = mountCapture($("#cap", el), {
     onCaptured: (entry) => {
@@ -333,6 +467,8 @@ async function viewArchive(el) {
   el.innerHTML = `<div class="view-head"><div><h1>Creative Archive</h1>
     <p class="lede">Everything you've captured. Your words are never altered.</p></div>
     <div class="row"><span class="muted small" id="count"></span>${trash.total ? `<a class="btn ghost small" href="#/trash">Trash (${trash.total})</a>` : ""}</div></div>
+    <details class="filterbox" ${matchMedia("(min-width: 641px)").matches ? "open" : ""}>
+    <summary class="btn ghost small">Filters &amp; sort</summary>
     <form class="filters" id="filters">
       <label class="field">Type<select name="entry_type">${options(s.vocab.entry_types, f.entry_type, "All types")}</select></label>
       <label class="field">Status<select name="status">${options(s.vocab.statuses, f.status, "All statuses")}</select></label>
@@ -346,7 +482,7 @@ async function viewArchive(el) {
         ${[["newest", "Newest"], ["oldest", "Oldest"], ["modified", "Recently modified"], ["alpha", "Alphabetical"]]
           .map(([v, l]) => `<option value="${v}"${v === (f.sort || "newest") ? " selected" : ""}>${l}</option>`).join("")}</select></label>
       <button class="btn ghost small" type="reset">Clear</button>
-    </form>
+    </form></details>
     <div id="results"></div>`;
   const form = $("#filters", el);
   async function load() {
@@ -822,7 +958,7 @@ async function render() {
   const match = ROUTES.find(([re]) => re.test(path)) || ROUTES[0];
   const [re, view, nav] = match;
   const id = path.match(re)?.[1];
-  $$(".nav a").forEach((a) => a.classList.toggle("active", a.dataset.nav === nav));
+  $$(".nav a, .tabbar a").forEach((a) => a.classList.toggle("active", a.dataset.nav === nav));
   // Each render gets its own container; a slower, superseded view keeps
   // writing into its detached container and never clobbers the new one.
   const container = document.createElement("div");
@@ -830,9 +966,22 @@ async function render() {
   try {
     await view(container, id, query);
   } catch (err) {
-    if (token === renderToken) container.innerHTML = `<p class="empty">Something went wrong: ${esc(err.message)}</p>`;
+    if (token !== renderToken) return;
+    container.innerHTML = err.offline
+      ? `<p class="empty">NEXUS isn't reachable right now. Is the PC on and NEXUS running?<br>
+          You can still <a href="#/">capture ideas</a>: they wait on this device and are sent automatically.</p>`
+      : `<p class="empty">Something went wrong: ${esc(err.message)}</p>`;
   }
 }
 
 window.addEventListener("hashchange", () => { render(); window.scrollTo(0, 0); });
-window.addEventListener("DOMContentLoaded", render);
+window.addEventListener("DOMContentLoaded", () => {
+  render();
+  $("#outbox").onclick = () => flushOutbox({ quiet: false });
+  flushOutbox();
+  // iPhones have no background sync: retry while the app is open, and whenever it comes back.
+  setInterval(() => { if (!$("#outbox").hidden) flushOutbox(); }, 20000);
+  window.addEventListener("online", () => flushOutbox());
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) flushOutbox(); });
+  if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
+});

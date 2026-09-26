@@ -41,6 +41,9 @@ class EntryCreate(BaseModel):
     tags: list[str] = Field(default_factory=list)
     project_ids: list[int] = Field(default_factory=list)
     analyze: bool = True
+    # Set by the phone's offline queue: a re-sent capture is recognised, and keeps the time it was made.
+    client_id: str | None = Field(None, min_length=8, max_length=64, pattern=r"^[A-Za-z0-9_-]+$")
+    captured_at: datetime | None = None
 
     @field_validator("original_text")
     @classmethod

@@ -8,16 +8,18 @@ import hashlib
 import mimetypes
 import re
 import uuid
+from datetime import datetime
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile
 from fastapi.responses import FileResponse
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.database import get_db
 from app.models import Attachment, CreativeEntry, EntryType, Origin, Project, SourceType
-from app.routes.entries import load_entry
+from app.routes.entries import capture_time, existing_capture, load_entry
 from app.schemas import EntryDetail, entry_detail
 from app.services.history import record_revision
 from app.services.processing import enqueue
@@ -73,8 +75,14 @@ async def upload_file(
     entry_type: EntryType | None = Form(None),
     project_id: int | None = Form(None),
     analyze: bool = Form(True),
+    client_id: str | None = Form(None, min_length=8, max_length=64, pattern=r"^[A-Za-z0-9_-]+$"),
+    captured_at: datetime | None = Form(None),
+    response: Response = None,
     db: Session = Depends(get_db),
 ):
+    if (dup := existing_capture(db, client_id)) is not None:
+        response.status_code = 200  # a re-send of something already saved
+        return entry_detail(dup)
     settings = get_settings()
     original_name = Path(file.filename or "upload").name[:500] or "upload"
     kind, mime = _classify(file.content_type, original_name)
@@ -94,11 +102,15 @@ async def upload_file(
     path, size, sha = await _store(file, dest_dir, mime)
     rel_path = path.relative_to(settings.data_dir).as_posix()
 
+    created = capture_time(captured_at)
     entry = CreativeEntry(
         original_text=note if note and note.strip() else None,
         source_type=source_type,
         source_file=rel_path,
         ai_metadata={},
+        client_id=client_id,
+        created_at=created,
+        updated_at=created,
     )
     if title and title.strip():
         entry.title, entry.title_source = title.strip()[:300], Origin.user.value
@@ -111,7 +123,13 @@ async def upload_file(
         mime_type=mime, size_bytes=size, sha256=sha,
     ))
     db.add(entry)
-    db.flush()
+    try:
+        db.flush()
+    except IntegrityError:  # the same capture arrived twice at the same moment
+        db.rollback()
+        path.unlink(missing_ok=True)
+        response.status_code = 200
+        return entry_detail(existing_capture(db, client_id))
     record_revision(db, entry, f"Captured original {kind} upload")
     index_entry(db, entry)
     db.commit()  # the original file and entry are safe before any AI work
