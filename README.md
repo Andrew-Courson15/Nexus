@@ -88,6 +88,25 @@ Notes for Windows:
 - Whisper runs on the CPU unless NVIDIA's CUDA libraries are installed. It switches to the CPU
   automatically if the GPU path fails. On an i5-11400, the `small` model is quick enough for voice notes.
 
+## Updating NEXUS
+
+Close NEXUS first. Your ideas in `data\` are never touched by an update, and the database
+upgrades itself on the next start.
+
+**Windows (PowerShell):**
+```powershell
+cd $HOME\nexus
+git pull
+powershell -ExecutionPolicy Bypass -File scripts\setup_windows.ps1
+```
+
+**Mac (Terminal):**
+```bash
+cd ~/nexus && git pull && ./scripts/setup_mac.sh
+```
+
+Re-running setup installs anything new, such as the search-by-meaning model. It skips what you already have.
+
 ### Manual setup (any OS)
 
 ```bash
@@ -141,6 +160,10 @@ Browsers only allow microphone access on `localhost` or HTTPS. Open NEXUS at
 - **Ideas**: the **Idea Incubator**, meaning everything whose status is `raw` or `exploring`. Nothing here is turned into a task.
 - **Search**: natural queries such as `memory`, `villains`, `ideas about alternate realities`,
   `unfinished comic ideas`, `sketches with monsters`. NEXUS shows how it understood your query.
+  It matches your **words** and, with the local embedding model, the **meaning**. For example,
+  "forgetting who you are" finds an idea about memory loss. Each result shows how it matched.
+- **Trash**: entries you trash are hidden, never destroyed. Open it from the Creative Archive
+  or Settings and **Restore** anything.
 - **Entry detail**: your material, notes, transcript, AI summary, interpretation, inference and
   uncertainty, each visually distinct. You can:
   - edit the title, type and status (your choices are never overwritten by the AI)
@@ -150,7 +173,8 @@ Browsers only allow microphone access on `localhost` or HTTPS. Open NEXUS at
   - add the entry to projects
   - **accept / reject / ignore** AI-suggested relationships
   - re-run the organizer
-  - browse the full revision history
+  - browse the full revision history: each version shows what changed, and **Restore this version**
+    brings an old one back as a new version, so nothing is lost
   - move the entry to the trash
 
 ---
@@ -176,6 +200,10 @@ Browsers only allow microphone access on `localhost` or HTTPS. Open NEXUS at
 | `NEXUS_WHISPER_MODEL` | `small` | `tiny`, `base`, `small`, `medium`, `large-v3`, `turbo` (bigger is more accurate but slower) |
 | `NEXUS_WHISPER_LANGUAGE` | empty | Empty means auto-detect. Or set a code such as `en` |
 | `NEXUS_WHISPER_DEVICE` / `_COMPUTE_TYPE` | `auto` / `auto` | CPU on Mac; CUDA is used automatically on NVIDIA |
+| `NEXUS_EMBEDDING_PROVIDER` | `ollama` | `ollama` (search by meaning) or `none` (words only) |
+| `NEXUS_EMBEDDING_MODEL` | `nomic-embed-text` | Local embedding model (about 0.3 GB) |
+| `NEXUS_SEMANTIC_MIN_SIMILARITY` | `0.5` | How close (0–1) a meaning match must be. Raise it if unrelated ideas show up |
+| `NEXUS_SEMANTIC_WINDOW` | `0.15` | Keep only meaning matches within this distance of the best one |
 | `NEXUS_PROCESSING_MODE` | `background` | `background` (captures return instantly) or `sync` |
 | `OPENAI_API_KEY`, `ANTHROPIC_API_KEY` | empty | Read from the environment only. Never stored in the database. |
 
@@ -207,7 +235,8 @@ nexus/
 │   ├── services/
 │   │   ├── ai.py             AIProvider interface, LocalHeuristicProvider, reserved providers, registry
 │   │   ├── ollama.py         OllamaProvider: local LLM, structured output, images, fallback
-│   │   ├── processing.py     Background queue: transcribe → organize, crash recovery
+│   │   ├── processing.py     Background queue: transcribe → organize → index, crash recovery
+│   │   ├── embeddings.py     Search by meaning: embedding provider, vector index, similarity
 │   │   ├── organizer.py      Organizer: runs the provider, stores derived data safely
 │   │   ├── relationships.py  Relationship discovery + review
 │   │   ├── search.py         SQLite FTS5 search, query parsing, SemanticSearchService seam
@@ -247,6 +276,7 @@ nexus/
 | `tags` / `entry_tags` | Tags. `entry_tags.source` records whether you or the AI added the tag. |
 | `creative_revisions` | Append-only JSON snapshots (`version_number`, `content_snapshot`, `change_description`). Written on capture, every edit, every AI analysis, project change, trash and restore. |
 | `entry_search` | SQLite FTS5 index (porter stemming, BM25) over user and AI text. |
+| `entry_embeddings` | **Derived.** One meaning vector per entry (`model`, `dim`, normalised float32 `vector`, `content_hash`). Rebuilt automatically when the entry's text or the model changes. |
 
 Enumerations (entry types, statuses, source types, project types, relationship types) are
 stored as strings, which keeps them portable to PostgreSQL. New nullable columns are added to an
@@ -299,9 +329,21 @@ class AIProvider(ABC):
 - `OpenAIProvider` and `AnthropicProvider` are registered stubs.
 - **Background processing** (`services/processing.py`):
   - A capture is committed first, then queued.
-  - A single worker thread transcribes (voice), then organizes, one entry at a time.
+  - A single worker thread transcribes (voice), then organizes, then indexes for search by meaning, one entry at a time.
   - The UI shows "organizing…" and updates by itself.
-  - Unfinished work resumes after a restart.
+  - Unfinished work resumes after a restart. Entries missing from the meaning index are indexed at startup.
+  - **Locking:** slow model calls run with no database write pending, and results are written
+    in one quick step on a fresh read. So capturing never blocks while the model thinks, and edits
+    made meanwhile are kept.
+- **Search by meaning** (`services/embeddings.py` and `SemanticSearchService` in `services/search.py`):
+  - Each entry gets an embedding vector from a local Ollama model (default `nomic-embed-text`).
+    The vector is built from your words, notes, transcript, AI summary, concepts, the image
+    description and tags.
+  - Searching embeds the query and scores entries by cosine similarity. That list is merged
+    with the word matches using reciprocal-rank fusion.
+  - Type and status filters stay strict. If nothing matches them, NEXUS shows looser matches and says so.
+  - "Related ideas" also use the index: the closest entries by meaning are among the candidates the model judges.
+  - If the model isn't installed or Ollama is down, search quietly falls back to words and shows a note.
 
 **Adding a real provider:**
 1. Subclass `AIProvider`.
@@ -335,7 +377,10 @@ Transcription follows the same pattern in `services/transcription.py`: `Transcri
 | PATCH | `/api/relationships/{id}` | `{"status": "accepted"\|"rejected"\|"ignored"}` |
 | POST | `/api/uploads` | Multipart: `file`, optional `note`, `title`, `entry_type`, `project_id`, `analyze` |
 | GET | `/api/uploads/{attachment_id}` | The original file |
-| POST | `/api/search` | `{"query": "...", "limit", "entry_types", "statuses", "date_from", "date_to"}` |
+| POST | `/api/search` | `{"query": "...", "limit", "entry_types", "statuses", "date_from", "date_to"}`. Each result has `matched_by` (`words`, `meaning`, `filters`) and `similarity` |
+| POST | `/api/search/reindex` | Queue entries whose meaning index is missing or stale |
+| GET | `/api/trash` | Entries in the trash |
+| POST | `/api/entries/{id}/revisions/{n}/restore` | Bring back version *n* (recorded as a new version) |
 | GET/POST | `/api/projects` | List / create |
 | GET/PUT | `/api/projects/{id}` | Detail with entries / update |
 | POST | `/api/projects/{id}/entries` | `{"entry_id": n}` |
@@ -346,11 +391,10 @@ Transcription follows the same pattern in `services/transcription.py`: `Transcri
 
 ## Not built yet
 
-- Embeddings and vector search behind `SemanticSearchService`, using the reserved `embedding_*` fields. Ollama embedding models make this local too. **(Next.)**
-- A trash view in the UI (the restore API already exists), plus diff and restore between revisions. **(Next.)**
-- Questions over the archive. `answer_question` works with Ollama, but there is no endpoint or UI yet.
+- Asking questions about the archive ("what are my recurring villains?"). `answer_question` works with Ollama; it needs an endpoint and UI.
 - Knowledge-graph entities beyond entries: people, places, themes and events.
 - A relationship graph visualisation, and manual linking in the UI (the API exists).
+- Tracking who created each entry, for when more than one person uses the same NEXUS.
 - Exports into `data/exports`.
 - Alembic migrations for non-additive schema changes, and a PostgreSQL option.
 - Cloud providers (OpenAI, Anthropic), for use only if you ever opt in.
