@@ -140,3 +140,65 @@ def test_meaning_relaxes_filters_when_nothing_matches_them(client, fake):
     res = search(client, "stories about amnesia")  # nothing is typed "story"
     assert [r["entry"]["id"] for r in res["results"]] == [hero["id"]]
     assert res["relaxed"] is True and res["results"][0]["matched_by"] == ["meaning"]
+
+
+NEUTRAL = {"title": "Sea Idea", "entry_type": "idea", "type_confidence": 0.5, "summary": "An idea.",
+           "interpretation": "An idea.", "inferences": [], "concepts": [], "themes": [], "tags": ["idea"],
+           "uncertainties": [], "confidence": 0.5}
+
+
+def _related_scenario(client, monkeypatch, with_meaning: bool):
+    from app.services import organizer
+
+    fake = FakeOllama(models=["test-model", "nomic-embed-text"], analysis=dict(NEUTRAL))
+    if with_meaning:
+        monkeypatch.setattr(embeddings, "get_embedding_provider", lambda: fake.embedder())
+    monkeypatch.setattr(organizer, "get_ai_provider", lambda: fake.provider())
+    old = cap(client, "A leviathan sleeps beneath the harbor.")
+    fake.relationships = [{"candidate_id": old["id"], "relationship_type": "similar_to", "confidence": 0.8,
+                           "rationale": "Both are giant creatures lurking under the city."}]
+    new = cap(client, "The monster under the bridge.")
+    return fake, old, client.get(f"/api/entries/{new['id']}/relationships").json()
+
+
+def test_related_ideas_use_meaning_even_without_shared_words(client, monkeypatch):
+    fake, old, rels = _related_scenario(client, monkeypatch, with_meaning=True)
+    assert [(r["other"]["id"], r["relationship_type"]) for r in rels] == [(old["id"], "similar_to")]
+    assert rels[0]["label"] == "AI suggested relationship"
+    assert f"CANDIDATE {old['id']}" in fake.chats[-1]["messages"][1]["content"]
+
+
+def test_without_meaning_index_word_prefilter_finds_nothing(client, monkeypatch):
+    fake, _, rels = _related_scenario(client, monkeypatch, with_meaning=False)
+    assert rels == []
+    assert not any("link entries" in c["messages"][0]["content"] for c in fake.chats)
+
+
+def test_bad_embedding_reply_never_loses_the_analysis(client, monkeypatch):
+    import httpx
+
+    from app.services.embeddings import OllamaEmbeddingProvider
+
+    def broken(request):
+        if request.url.path == "/api/tags":
+            return httpx.Response(200, json={"models": [{"name": "nomic-embed-text"}]})
+        return httpx.Response(200, content=b"<html>not json</html>")
+
+    bad = OllamaEmbeddingProvider(base_url="http://x.test", transport=httpx.MockTransport(broken))
+    monkeypatch.setattr(embeddings, "get_embedding_provider", lambda: bad)
+    cap(client, "A villain who collects memories.")
+    e = cap(client, "A hero who loses his memories.")
+    assert e["processing_status"] == "done" and e["ai_summary"]
+    assert "unreadable" in e["ai_metadata"]["embedding_error"]
+    assert "unavailable" in search(client, "memories")["note"]
+
+
+def test_meaning_neighbours_skip_trashed_and_self(client, fake):
+    from app.services.embeddings import similar_entries
+
+    a = cap(client, "A leviathan sleeps beneath the harbor.")
+    b = cap(client, "A tentacled creature in the subway.")
+    client.delete(f"/api/entries/{a['id']}")
+    with SessionLocal() as db:
+        assert similar_entries(db, "the monster under the bridge", allowed_ids={b["id"]}) == [b["id"]]
+        assert similar_entries(db, "the monster under the bridge", allowed_ids=set()) == []

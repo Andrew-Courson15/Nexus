@@ -74,11 +74,25 @@ class RelationshipReview(BaseModel):
     status: RelationshipStatus
 
 
+def _project_name(v: str | None) -> str | None:
+    if v is None:
+        return v
+    v = " ".join(v.split())
+    if not v:
+        raise ValueError("Project name cannot be empty")
+    return v
+
+
 class ProjectCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=300)
     description: str | None = Field(None, max_length=20_000)
     project_type: ProjectType = ProjectType.other
     status: ProjectStatus = ProjectStatus.active
+
+    @field_validator("name")
+    @classmethod
+    def _clean_name(cls, v: str | None) -> str | None:
+        return _project_name(v)
 
 
 class ProjectUpdate(BaseModel):
@@ -88,6 +102,11 @@ class ProjectUpdate(BaseModel):
     description: str | None = Field(None, max_length=20_000)
     project_type: ProjectType | None = None
     status: ProjectStatus | None = None
+
+    @field_validator("name")
+    @classmethod
+    def _clean_name(cls, v: str | None) -> str | None:
+        return _project_name(v)
 
 
 class ProjectEntryAdd(BaseModel):

@@ -93,16 +93,28 @@ class OllamaEmbeddingProvider(EmbeddingProvider):
             raise EmbeddingError(f"The embedding model '{self.model}' isn't installed. Run: ollama pull {self.model}")
         if r.status_code >= 400:
             raise EmbeddingError(f"Ollama error ({r.status_code}): {r.text[:200]}")
-        vectors = r.json().get("embeddings")
-        if not isinstance(vectors, list) or len(vectors) != len(texts):
+        try:
+            vectors = r.json().get("embeddings")
+        except (ValueError, AttributeError) as exc:
+            raise EmbeddingError("Ollama returned an unreadable reply.") from exc
+        if (not isinstance(vectors, list) or len(vectors) != len(texts)
+                or not all(isinstance(v, list) and v for v in vectors)):
             raise EmbeddingError("Ollama returned no embeddings.")
         return vectors
 
     def _legacy(self, text: str) -> list[float]:
-        r = self._http.post("/api/embeddings", json={"model": self.model, "prompt": text})
-        if r.status_code >= 400:
-            raise EmbeddingError(f"Ollama error ({r.status_code}): {r.text[:200]}")
-        return r.json()["embedding"]
+        try:
+            r = self._http.post("/api/embeddings", json={"model": self.model, "prompt": text})
+            if r.status_code >= 400:
+                raise EmbeddingError(f"Ollama error ({r.status_code}): {r.text[:200]}")
+            vec = r.json()["embedding"]
+        except httpx.HTTPError as exc:
+            raise EmbeddingError(f"Could not talk to Ollama: {exc}") from exc
+        except (ValueError, KeyError, TypeError) as exc:
+            raise EmbeddingError("Ollama returned an unreadable reply.") from exc
+        if not isinstance(vec, list) or not vec:
+            raise EmbeddingError("Ollama returned no embeddings.")
+        return vec
 
     def health(self) -> dict[str, Any]:
         try:
@@ -118,10 +130,18 @@ class OllamaEmbeddingProvider(EmbeddingProvider):
         return {"ok": True, "detail": f"Search by meaning is on ({self.model})."}
 
 
+_instances: dict[tuple, EmbeddingProvider] = {}
+
+
 def get_embedding_provider() -> EmbeddingProvider:
-    if get_settings().embedding_provider in ("none", "off", "disabled", ""):
+    """The configured provider. One shared instance per process (reuses its connection pool)."""
+    s = get_settings()
+    if s.embedding_provider in ("none", "off", "disabled", ""):
         return DisabledEmbeddingProvider()
-    return OllamaEmbeddingProvider()
+    key = (s.embedding_provider, s.embedding_model, s.ollama_url)
+    if key not in _instances:
+        _instances[key] = OllamaEmbeddingProvider()
+    return _instances[key]
 
 
 # --------------------------------------------------------------------------- #
@@ -220,6 +240,22 @@ def nearest(db: Session, query_vec: list[float], model: str, allowed_ids: set[in
         scored.append((entry_id, dot(q, vec)))
     scored.sort(key=lambda t: -t[1])
     return scored[:limit]
+
+
+def similar_entries(db: Session, text: str, allowed_ids: set[int], limit: int = 5) -> list[int]:
+    """Entries (among `allowed_ids`) closest in meaning to `text`, best first.
+
+    Empty if the meaning index isn't available.
+    """
+    provider = get_embedding_provider()
+    if provider.name == "none" or not text.strip() or not allowed_ids:
+        return []
+    try:
+        vec = provider.embed_document(text[:MAX_TEXT_CHARS])
+    except EmbeddingError:
+        return []
+    min_sim = get_settings().semantic_min_similarity
+    return [eid for eid, sim in nearest(db, vec, provider.model, allowed_ids, limit=limit) if sim >= min_sim]
 
 
 def index_stats(db: Session, model: str) -> dict[str, int]:

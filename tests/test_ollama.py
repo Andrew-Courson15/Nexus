@@ -161,3 +161,11 @@ def test_end_to_end_capture_with_local_model(client, monkeypatch):
     # what the model saw in the picture is searchable
     hits = client.post("/api/search", json={"query": "sketches with monsters"}).json()["results"]
     assert img["id"] in [h["entry"]["id"] for h in hits]
+
+
+def test_vision_check_is_retried_after_ollama_comes_up(tmp_path):
+    fake = FakeOllama(reachable=False, capabilities=["completion", "vision"])
+    p = fake.provider()
+    assert p._supports_vision("test-model") is None
+    fake.reachable = True
+    assert p._supports_vision("test-model") is True

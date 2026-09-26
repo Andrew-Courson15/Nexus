@@ -25,6 +25,7 @@ from sqlalchemy.orm import Session
 from app.models import CreativeEntry, Origin, Project, Relationship, utcnow
 from app.services import text as T
 from app.services.ai import AIProvider, AIProviderError, EntryContext, get_ai_provider
+from app.services.embeddings import similar_entries
 from app.services.history import record_revision, replace_ai_tags
 from app.services.relationships import relationship_candidates, store_suggestions
 from app.services.search import index_entry
@@ -86,6 +87,13 @@ class Organizer:
         suggestions = []
         candidates = relationship_candidates(self.db, entry.id)
         if candidates:
+            try:
+                new_ctx.similar_ids = similar_entries(
+                    self.db,
+                    "\n".join([new_ctx.title, new_ctx.analysis_text, result.summary, ", ".join(result.concepts)]),
+                    allowed_ids={c.id for c in candidates})
+            except Exception:  # the meaning index is a bonus; never lose the analysis over it
+                log.exception("Meaning lookup failed for entry %s", entry.id)
             try:
                 suggestions = provider.find_relationships(new_ctx, candidates)
             except Exception:  # relationship hints are optional; keep the analysis

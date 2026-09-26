@@ -43,6 +43,7 @@ class EntryContext:
     attachments: list[dict[str, Any]] = field(default_factory=list)
     concepts: list[str] | None = None  # previously extracted, if known
     summary: str = ""                  # previous AI summary, if any
+    similar_ids: list[int] = field(default_factory=list)  # closest entries by meaning, best first
     title_is_user: bool = False
 
     @classmethod
@@ -414,9 +415,15 @@ PROVIDERS: dict[str, Callable[[], AIProvider]] = {
 }
 
 
+_instances: dict[str, AIProvider] = {}
+
+
 def get_ai_provider(name: str | None = None) -> AIProvider:
+    """The configured provider. One shared instance per process (reuses its connection pool)."""
     key = (name or get_settings().ai_provider or "ollama").lower()
     factory = PROVIDERS.get(key)
     if factory is None:
         raise AIProviderError(f"Unknown AI provider '{key}'. Options: {', '.join(sorted(PROVIDERS))}.")
-    return factory()
+    if key not in _instances:
+        _instances[key] = factory()
+    return _instances[key]

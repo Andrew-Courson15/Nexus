@@ -323,11 +323,13 @@ class OllamaProvider(AIProvider):
         """True/False if Ollama reports capabilities; None if it doesn't say."""
         if model not in self._capabilities:
             try:
-                self._capabilities[model] = self.client.show(model).get("capabilities")
+                caps = self.client.show(model).get("capabilities")
             except OllamaError:
-                self._capabilities[model] = None
-        caps = self._capabilities[model]
-        return None if caps is None else "vision" in caps
+                return None  # Ollama down or model missing: ask again next time
+            if caps is None:
+                return None  # older Ollama that doesn't report capabilities
+            self._capabilities[model] = caps
+        return "vision" in self._capabilities[model]
 
     @staticmethod
     def _images(entry: EntryContext, notes: list[str]) -> list[str]:
@@ -496,13 +498,19 @@ class OllamaProvider(AIProvider):
     def find_relationships(self, entry: EntryContext, existing_entries: list[EntryContext]
                            ) -> list[RelationshipSuggestion]:
         threshold = get_settings().relationship_threshold
-        # Cheap pre-filter so the model only judges plausible candidates.
+        # Cheap pre-filter so the model only judges plausible candidates: the
+        # closest entries by meaning (if the meaning index is available) plus
+        # entries that share concepts or words.
         pre = self.fallback.find_relationships(entry, existing_entries, threshold=0.1,
                                                limit=RELATIONSHIP_CANDIDATES)
-        if not pre:
-            return []
         by_id = {c.id: c for c in existing_entries}
-        candidates = [by_id[p.target_id] for p in pre if p.target_id in by_id]
+        ids: list[int] = []
+        for eid in list(entry.similar_ids[:5]) + [p.target_id for p in pre]:
+            if eid in by_id and eid not in ids:
+                ids.append(eid)
+        if not ids:
+            return []
+        candidates = [by_id[i] for i in ids[:RELATIONSHIP_CANDIDATES]]
         listing = "\n\n".join(
             f"CANDIDATE {c.id}: [{c.entry_type}] {c.title or 'Untitled'}\n"
             f"{(c.summary or c.analysis_text)[:600]}"

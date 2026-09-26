@@ -201,3 +201,10 @@ def test_data_dirs_exist(client):
     s = get_settings()
     for d in (s.uploads_dir, s.audio_dir, s.images_dir, s.exports_dir):
         assert Path(d).is_dir()
+
+
+def test_blank_project_names_are_rejected(client):
+    assert client.post("/api/projects", json={"name": "   "}).status_code == 422
+    p = client.post("/api/projects", json={"name": "  The   Hollow Sun "}).json()
+    assert p["name"] == "The Hollow Sun"
+    assert client.put(f"/api/projects/{p['id']}", json={"name": "  "}).status_code == 422
