@@ -139,6 +139,27 @@ def test_local_whisper_provider_with_stub_model(tmp_path):
     assert p2.transcribe(audio).status == "empty"
 
 
+def test_whisper_falls_back_to_cpu_when_gpu_libraries_missing(tmp_path, monkeypatch):
+    audio = tmp_path / "a.webm"
+    audio.write_bytes(WEBM)
+
+    class BrokenGPU:
+        def transcribe(self, path, **kw):
+            raise RuntimeError("Library cublas64_12.dll is not found or cannot be loaded")
+
+    class CPUModel:
+        def transcribe(self, path, **kw):
+            return iter([SimpleNamespace(text="hi there")]), SimpleNamespace(language="en", duration=1.0)
+
+    monkeypatch.setattr(LocalWhisperProvider, "_cpu_fallback", False)
+    p = LocalWhisperProvider(model_size="stub-gpu", device="auto", compute_type="auto")
+    LocalWhisperProvider._models[("stub-gpu", "auto", "auto")] = BrokenGPU()
+    LocalWhisperProvider._models[("stub-gpu", "cpu", "int8")] = CPUModel()
+    r = p.transcribe(audio)
+    assert r.text == "hi there" and "CPU" in r.message
+    assert LocalWhisperProvider._cpu_fallback is True
+
+
 def test_whisper_reports_missing_install(monkeypatch, tmp_path):
     monkeypatch.setattr(LocalWhisperProvider, "installed", staticmethod(lambda: False))
     p = LocalWhisperProvider()

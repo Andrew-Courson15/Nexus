@@ -73,6 +73,7 @@ class LocalWhisperProvider(TranscriptionProvider):
     external = False
     _models: dict[tuple, Any] = {}
     _lock = threading.Lock()
+    _cpu_fallback = False  # set once the GPU path has failed in this process
 
     def __init__(self, model_size: str | None = None, device: str | None = None,
                  compute_type: str | None = None, language: str | None = None):
@@ -94,17 +95,24 @@ class LocalWhisperProvider(TranscriptionProvider):
             return False
         return True
 
+    def _effective(self) -> tuple[str, str]:
+        if self.device == "auto" and LocalWhisperProvider._cpu_fallback:
+            return "cpu", ("int8" if self.compute_type == "auto" else self.compute_type)
+        return self.device, self.compute_type
+
     def load(self):
         """Load (and on first use, download) the speech model. Cached per process."""
-        key = (self.model_size, self.device, self.compute_type)
+        device, compute_type = self._effective()
+        key = (self.model_size, device, compute_type)
         with self._lock:
             if key not in self._models:
                 from faster_whisper import WhisperModel
 
                 try:
-                    self._models[key] = WhisperModel(self.model_size, device=self.device,
-                                                     compute_type=self.compute_type)
+                    self._models[key] = WhisperModel(self.model_size, device=device, compute_type=compute_type)
                 except Exception as exc:
+                    if _gpu_error(exc):
+                        raise
                     raise RuntimeError(
                         f"Couldn't load the Whisper '{self.model_size}' speech model. The first time, it needs an "
                         "internet connection to download it (about 0.5 GB for 'small'); after that it works "
@@ -112,19 +120,32 @@ class LocalWhisperProvider(TranscriptionProvider):
                     ) from exc
             return self._models[key]
 
-    def transcribe(self, audio_path: Path) -> TranscriptionResult:
-        if not self.installed():
-            return TranscriptionResult(None, self.name, "unavailable", message=f"faster-whisper isn't installed. {INSTALL_HINT}")
+    def _run(self, audio_path: Path):
         model = self.load()
         segments, info = model.transcribe(str(audio_path), language=self.language, vad_filter=True, beam_size=5)
         text = " ".join(seg.text.strip() for seg in segments).strip()  # decoding happens while iterating
+        return text, info
+
+    def transcribe(self, audio_path: Path) -> TranscriptionResult:
+        if not self.installed():
+            return TranscriptionResult(None, self.name, "unavailable", message=f"faster-whisper isn't installed. {INSTALL_HINT}")
+        note = ""
+        try:
+            text, info = self._run(audio_path)
+        except Exception as exc:
+            # NVIDIA PCs without the CUDA libraries (common on Windows): use the CPU instead.
+            if self.device != "auto" or LocalWhisperProvider._cpu_fallback or not _gpu_error(exc):
+                raise
+            LocalWhisperProvider._cpu_fallback = True
+            text, info = self._run(audio_path)
+            note = " (ran on the CPU: GPU libraries for Whisper aren't installed)"
         language = getattr(info, "language", None)
         duration = getattr(info, "duration", None)
         if not text:
-            return TranscriptionResult(None, self.name, "empty", language, "No speech was detected in the recording.",
-                                       duration)
+            return TranscriptionResult(None, self.name, "empty", language,
+                                       "No speech was detected in the recording." + note, duration)
         prob = getattr(info, "language_probability", None)
-        msg = f"Detected language: {language}" + (f" ({prob:.0%})" if isinstance(prob, float) else "")
+        msg = f"Detected language: {language}" + (f" ({prob:.0%})" if isinstance(prob, float) else "") + note
         return TranscriptionResult(text, self.name, "completed", language, msg, duration)
 
     def health(self) -> dict[str, Any]:
@@ -133,6 +154,11 @@ class LocalWhisperProvider(TranscriptionProvider):
         loaded = any(k[0] == self.model_size for k in self._models)
         return {"ok": True, "detail": f"Whisper '{self.model_size}' ready"
                 + ("" if loaded else " (the model downloads/loads on first recording)") + "."}
+
+
+def _gpu_error(exc: BaseException) -> bool:
+    msg = str(exc).lower()
+    return any(k in msg for k in ("cublas", "cudnn", "cuda", "libcu", ".dll", "gpu"))
 
 
 class OpenAIWhisperProvider(TranscriptionProvider):

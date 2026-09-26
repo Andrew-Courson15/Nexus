@@ -63,6 +63,31 @@ Open **http://localhost:8000**. The **Settings** page shows a green dot when Oll
 - **If Ollama isn't running,** captures still work. They are organized by the simple offline
   heuristics and marked as such. Use **Re-run AI organizer** later.
 
+## Setup on Windows
+
+**Install these once:**
+- **Python 3.12.** In PowerShell, run `winget install Python.Python.3.12`, or use the installer from
+  python.org and tick **"Add python.exe to PATH"**.
+- **Git:** `winget install Git.Git`
+- **Ollama for Windows**, from https://ollama.com/download. It uses your NVIDIA GPU automatically.
+
+Close PowerShell and open a new window, so it picks up the new programs. Then run:
+
+```powershell
+cd $HOME
+git clone -b claude/nexus-ai-os-rhh5si https://github.com/Andrew-Courson15/Nexus.git nexus
+cd nexus
+powershell -ExecutionPolicy Bypass -File scripts\setup_windows.ps1
+```
+
+**To start NEXUS,** double-click `scripts\start_windows.bat`. It opens http://localhost:8000 for you.
+To stop NEXUS, close its window.
+
+Notes for Windows:
+- The setup script reports your graphics card's video memory. With less than 12 GB, use `gemma3:4b` for speed.
+- Whisper runs on the CPU unless NVIDIA's CUDA libraries are installed. It switches to the CPU
+  automatically if the GPU path fails. On an i5-11400, the `small` model is quick enough for voice notes.
+
 ### Manual setup (any OS)
 
 ```bash
@@ -200,7 +225,7 @@ nexus/
 ├── static/css/style.css      Styles (dark/light, responsive)
 ├── static/js/app.js          Vanilla JS app (router, views, recorder)
 ├── data/{uploads,audio,images,exports}/
-├── scripts/setup_mac.sh      One-step Mac setup
+├── scripts/                 setup_mac.sh, setup_windows.ps1, start_windows.bat
 ├── tests/                    pytest suite (includes a fake Ollama)
 ├── requirements.txt          NEXUS itself
 ├── requirements-local.txt    Local Whisper
