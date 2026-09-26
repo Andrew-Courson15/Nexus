@@ -155,7 +155,7 @@ class Organizer:
         member_ids = {p.id for p in entry.projects}
         mine = set(keywords) | set(concepts)
         out = []
-        for p in self.db.scalars(select(Project)).all():
+        for p in self.db.scalars(select(Project).where(Project.deleted_at.is_(None))).all():
             if p.id in member_ids:
                 continue
             ptext = f"{p.name} {p.description or ''}"

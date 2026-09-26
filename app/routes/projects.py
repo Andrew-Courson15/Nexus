@@ -30,10 +30,15 @@ def _entry_count(db: Session, project_id: int) -> int:
     ) or 0
 
 
-def _detail(db: Session, project_id: int) -> ProjectDetail:
+def _get(db: Session, project_id: int, include_deleted: bool = False) -> Project:
     project = db.get(Project, project_id)
-    if project is None:
+    if project is None or (project.deleted_at is not None and not include_deleted):
         raise HTTPException(404, "Project not found")
+    return project
+
+
+def _detail(db: Session, project_id: int) -> ProjectDetail:
+    project = _get(db, project_id)
     entries = db.scalars(
         select(CreativeEntry)
         .join(ProjectEntry, ProjectEntry.entry_id == CreativeEntry.id)
@@ -47,8 +52,11 @@ def _detail(db: Session, project_id: int) -> ProjectDetail:
 
 
 @router.get("", response_model=list[ProjectOut])
-def list_projects(db: Session = Depends(get_db)):
-    projects = db.scalars(select(Project).order_by(Project.updated_at.desc())).all()
+def list_projects(trashed: bool = False, db: Session = Depends(get_db)):
+    """Active projects, or with `trashed=true` the ones in the trash."""
+    cond = Project.deleted_at.is_not(None) if trashed else Project.deleted_at.is_(None)
+    order = Project.deleted_at.desc() if trashed else Project.updated_at.desc()
+    projects = db.scalars(select(Project).where(cond).order_by(order)).all()
     return [project_out(p, _entry_count(db, p.id)) for p in projects]
 
 
@@ -72,9 +80,7 @@ def get_project(project_id: int, db: Session = Depends(get_db)):
 
 @router.put("/{project_id}", response_model=ProjectDetail)
 def update_project(project_id: int, payload: ProjectUpdate, db: Session = Depends(get_db)):
-    project = db.get(Project, project_id)
-    if project is None:
-        raise HTTPException(404, "Project not found")
+    project = _get(db, project_id)
     for key, value in payload.model_dump(exclude_unset=True).items():
         if value is not None:
             setattr(project, key, value.value if hasattr(value, "value") else value)
@@ -84,9 +90,7 @@ def update_project(project_id: int, payload: ProjectUpdate, db: Session = Depend
 
 @router.post("/{project_id}/entries", response_model=ProjectDetail)
 def add_entry_to_project(project_id: int, payload: ProjectEntryAdd, db: Session = Depends(get_db)):
-    project = db.get(Project, project_id)
-    if project is None:
-        raise HTTPException(404, "Project not found")
+    project = _get(db, project_id)
     entry = load_entry(db, payload.entry_id)
     if project not in entry.projects:
         entry.projects.append(project)
@@ -94,6 +98,23 @@ def add_entry_to_project(project_id: int, payload: ProjectEntryAdd, db: Session 
         record_revision(db, entry, f"Added to project “{project.name}”")
         index_entry(db, entry)
         db.commit()
+    return _detail(db, project_id)
+
+
+@router.delete("/{project_id}", status_code=204)
+def trash_project(project_id: int, db: Session = Depends(get_db)):
+    """Move a project to the trash. Its entries stay in the archive, untouched."""
+    project = _get(db, project_id)
+    project.deleted_at = utcnow()
+    db.commit()
+    return Response(status_code=204)
+
+
+@router.post("/{project_id}/restore", response_model=ProjectDetail)
+def restore_project(project_id: int, db: Session = Depends(get_db)):
+    project = _get(db, project_id, include_deleted=True)
+    project.deleted_at = None
+    db.commit()
     return _detail(db, project_id)
 
 

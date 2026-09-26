@@ -162,7 +162,7 @@ Browsers only allow microphone access on `localhost` or HTTPS. Open NEXUS at
   `unfinished comic ideas`, `sketches with monsters`. NEXUS shows how it understood your query.
   It matches your **words** and, with the local embedding model, the **meaning**. For example,
   "forgetting who you are" finds an idea about memory loss. Each result shows how it matched.
-- **Trash**: entries you trash are hidden, never destroyed. Open it from the Creative Archive
+- **Trash**: entries and projects you trash are hidden, never destroyed (trashing a project never touches its entries). Open it from the Creative Archive
   or Settings and **Restore** anything.
 - **Entry detail**: your material, notes, transcript, AI summary, interpretation, inference and
   uncertainty, each visually distinct. You can:
@@ -385,6 +385,8 @@ Transcription follows the same pattern in `services/transcription.py`: `Transcri
 | GET/PUT | `/api/projects/{id}` | Detail with entries / update |
 | POST | `/api/projects/{id}/entries` | `{"entry_id": n}` |
 | DELETE | `/api/projects/{id}/entries/{entry_id}` | Remove from project |
+| DELETE | `/api/projects/{id}` | Move a project to the trash (its entries are untouched) |
+| POST | `/api/projects/{id}/restore` | Restore a trashed project (`GET /api/projects?trashed=true` lists them) |
 | GET | `/api/tags`, `/api/settings`, `/api/insights/patterns` | Tags with counts, configuration (no secrets), evidence-backed patterns |
 
 ---

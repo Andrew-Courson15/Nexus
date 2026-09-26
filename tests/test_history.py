@@ -63,3 +63,22 @@ def test_restore_same_version_is_a_no_op(client):
 def test_restore_unknown_version(client):
     e = cap(client, "Just one idea.")
     assert client.post(f"/api/entries/{e['id']}/revisions/99/restore").status_code == 404
+
+
+def test_trash_and_restore_a_project_keeps_its_entries(client):
+    p = client.post("/api/projects", json={"name": "The Hollow Sun"}).json()
+    e = cap(client, "A sun priest who forgets prayers.", project_ids=[p["id"]])
+    assert client.delete(f"/api/projects/{p['id']}").status_code == 204
+    # hidden everywhere...
+    assert client.get("/api/projects").json() == []
+    assert client.get(f"/api/projects/{p['id']}").status_code == 404
+    assert client.get(f"/api/entries/{e['id']}").json()["projects"] == []
+    assert client.post(f"/api/projects/{p['id']}/entries", json={"entry_id": e["id"]}).status_code == 404
+    # ...but the entry itself is untouched, and the project is in the trash
+    assert client.get(f"/api/entries/{e['id']}").json()["original_text"] == "A sun priest who forgets prayers."
+    trashed = client.get("/api/projects?trashed=true").json()
+    assert [t["id"] for t in trashed] == [p["id"]] and trashed[0]["deleted_at"] and trashed[0]["entry_count"] == 1
+    # restore brings back the project and its membership
+    back = client.post(f"/api/projects/{p['id']}/restore").json()
+    assert back["entry_count"] == 1
+    assert [x["name"] for x in client.get(f"/api/entries/{e['id']}").json()["projects"]] == ["The Hollow Sun"]

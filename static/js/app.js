@@ -383,7 +383,7 @@ async function viewProjects(el) {
     </form>
     <div id="plist"></div>`;
   async function load() {
-    const projects = await api("/api/projects");
+    const [projects, trashed] = await Promise.all([api("/api/projects"), api("/api/projects?trashed=true")]);
     $("#plist", el).innerHTML = projects.length
       ? `<div class="grid">${projects.map((p) => `<a class="card" href="#/projects/${p.id}">
           <div class="meta"><span class="pill type">${esc(label(p.project_type))}</span><span class="pill">${esc(p.status)}</span>
@@ -391,6 +391,10 @@ async function viewProjects(el) {
           <h3>${esc(p.name)}</h3>${p.description ? `<p class="summary">${esc(p.description)}</p>` : ""}
           <div class="meta">Updated ${fmtDate(p.updated_at)}</div></a>`).join("")}</div>`
       : `<p class="empty">No projects yet.</p>`;
+    if (trashed.length) {
+      $("#plist", el).insertAdjacentHTML("beforeend",
+        `<p class="small" style="margin-top:16px"><a href="#/trash">${trashed.length} project${trashed.length === 1 ? "" : "s"} in the trash</a></p>`);
+    }
   }
   $("#newp", el).onsubmit = async (e) => {
     e.preventDefault();
@@ -411,8 +415,17 @@ async function viewProject(el, id) {
     <div class="view-head"><div><div class="meta"><span class="pill type">${esc(label(p.project_type))}</span><span class="pill">${esc(p.status)}</span></div>
     <h1>${esc(p.name)}</h1>${p.description ? `<p class="lede">${esc(p.description)}</p>` : ""}</div></div>
     <h2>Capture into this project</h2><div id="cap"></div>
-    <h2>${p.entry_count} entr${p.entry_count === 1 ? "y" : "ies"}</h2><div id="pentries">${gridHTML(p.entries, "No entries yet. Capture above, or add existing entries from their detail page.")}</div>`;
+    <h2>${p.entry_count} entr${p.entry_count === 1 ? "y" : "ies"}</h2><div id="pentries">${gridHTML(p.entries, "No entries yet. Capture above, or add existing entries from their detail page.")}</div>
+    <p style="margin-top:32px"><button class="btn danger ghost" data-act="trash-project">Move project to trash</button></p>`;
   mountCapture($("#cap", el), { projectId: p.id, onCaptured: () => render() });
+  $("[data-act=trash-project]", el).onclick = async () => {
+    if (!confirm(`Move “${p.name}” to the trash? Its ${p.entry_count} entr${p.entry_count === 1 ? "y stays" : "ies stay"} in your archive, and you can restore the project from the Trash.`)) return;
+    try {
+      await api(`/api/projects/${p.id}`, { method: "DELETE" });
+      toast("Project moved to trash. Its entries are untouched.");
+      location.hash = "#/projects";
+    } catch (err) { toast(err.message, true); }
+  };
 }
 
 const SEARCH_EXAMPLES = ["memory", "villains", "ideas about alternate realities", "unfinished comic ideas", "sketches with monsters"];
@@ -502,17 +515,34 @@ async function viewSettings(el) {
 }
 
 async function viewTrash(el) {
-  const data = await api("/api/trash");
+  const [data, projects] = await Promise.all([api("/api/trash"), api("/api/projects?trashed=true")]);
   el.innerHTML = `<p><a href="#/archive" class="muted small">← Creative Archive</a></p>
     <div class="view-head"><div><h1>Trash</h1>
-    <p class="lede">Entries you moved here are hidden from the archive, but nothing is destroyed. Restore brings an entry back exactly as it was.</p></div></div>
+    <p class="lede">Things you moved here are hidden, but nothing is destroyed. Restore brings them back exactly as they were.</p></div></div>
+    <h2>Entries</h2>
     ${data.items.length ? `<div class="grid">${data.items.map((e) => `<div class="card trashed">
       <div class="meta"><span class="pill type">${esc(label(e.entry_type))}</span><span class="spacer"></span>
         <span>Trashed ${fmtDate(e.deleted_at)}</span></div>
       <h3>${esc(e.title)}</h3>
       ${e.ai_summary || e.excerpt ? `<p class="summary">${esc(e.excerpt || e.ai_summary)}</p>` : ""}
       <div class="row"><button class="btn small" data-restore="${e.id}">Restore</button></div></div>`).join("")}</div>`
-      : `<p class="empty">The trash is empty.</p>`}`;
+      : `<p class="empty">No entries in the trash.</p>`}
+    <h2>Projects</h2>
+    ${projects.length ? `<div class="grid">${projects.map((p) => `<div class="card trashed">
+      <div class="meta"><span class="pill type">${esc(label(p.project_type))}</span><span class="spacer"></span>
+        <span>Trashed ${fmtDate(p.deleted_at)}</span></div>
+      <h3>${esc(p.name)}</h3>
+      <p class="summary">${p.entry_count} entr${p.entry_count === 1 ? "y" : "ies"}${p.description ? " · " + esc(p.description) : ""}</p>
+      <div class="row"><button class="btn small" data-restore-project="${p.id}">Restore</button></div></div>`).join("")}</div>`
+      : `<p class="empty">No projects in the trash.</p>`}`;
+  $$("[data-restore-project]", el).forEach((b) => (b.onclick = async () => {
+    b.disabled = true;
+    try {
+      await api(`/api/projects/${b.dataset.restoreProject}/restore`, { method: "POST" });
+      toast("Project restored.");
+      render();
+    } catch (err) { toast(err.message, true); b.disabled = false; }
+  }));
   $$("[data-restore]", el).forEach((b) => (b.onclick = async () => {
     b.disabled = true;
     try {

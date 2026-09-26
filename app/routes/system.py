@@ -52,7 +52,7 @@ def read_settings(db: Session = Depends(get_db)):
         "server": {"host": s.host, "port": s.port},
         "counts": {
             "entries": db.scalar(select(func.count()).where(active)) or 0,
-            "projects": db.scalar(select(func.count(Project.id))) or 0,
+            "projects": db.scalar(select(func.count(Project.id)).where(Project.deleted_at.is_(None))) or 0,
             "tags": db.scalar(select(func.count(Tag.id))) or 0,
             "trash": db.scalar(select(func.count()).where(CreativeEntry.deleted_at.is_not(None))) or 0,
         },

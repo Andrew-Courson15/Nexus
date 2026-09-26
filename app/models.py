@@ -253,6 +253,8 @@ class Project(Base):
     status: Mapped[str] = mapped_column(String(30), default=ProjectStatus.active.value)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow, onupdate=utcnow)
+    # Soft delete: a trashed project is hidden; its entries are never touched.
+    deleted_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
 
     entries: Mapped[list[CreativeEntry]] = relationship(
         secondary="project_entries", back_populates="projects", order_by="CreativeEntry.created_at.desc()"

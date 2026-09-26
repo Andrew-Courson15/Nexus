@@ -226,6 +226,7 @@ class ProjectOut(BaseModel):
     created_at: datetime
     updated_at: datetime
     entry_count: int
+    deleted_at: datetime | None = None
 
 
 class ProjectDetail(ProjectOut):
@@ -278,7 +279,7 @@ def _summary_fields(e: CreativeEntry) -> dict[str, Any]:
         created_at=e.created_at, updated_at=e.updated_at, ai_summary=e.ai_summary,
         tags=sorted((TagOut(name=et.tag.name, source=et.source) for et in e.entry_tags),
                     key=lambda t: (t.source != "user", t.name)),
-        projects=[ProjectRef(id=p.id, name=p.name) for p in e.projects],
+        projects=[ProjectRef(id=p.id, name=p.name) for p in e.projects if p.deleted_at is None],
         attachments=_attachments(e),
         excerpt=_excerpt(e),
         processing_status=e.processing_status,
@@ -323,5 +324,5 @@ def relationship_out(r: Relationship, entry_id: int) -> RelationshipOut:
 def project_out(p: Project, entry_count: int) -> ProjectOut:
     return ProjectOut(
         id=p.id, name=p.name, description=p.description, project_type=p.project_type, status=p.status,
-        created_at=p.created_at, updated_at=p.updated_at, entry_count=entry_count,
+        created_at=p.created_at, updated_at=p.updated_at, entry_count=entry_count, deleted_at=p.deleted_at,
     )
