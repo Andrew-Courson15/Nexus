@@ -72,7 +72,7 @@ def index_entry(db: Session, entry: CreativeEntry) -> None:
         "tags": " ".join(et.tag.name for et in entry.entry_tags),
         "concepts": " ".join(
             meta.get("concepts", []) + meta.get("themes", []) + [entry.entry_type.replace("_", " ")]
-            + _visual_terms(meta.get("visual"))
+            + visual_terms(meta.get("visual"))
         ),
     }
     cols = ", ".join(_FTS_COLUMNS)
@@ -80,7 +80,7 @@ def index_entry(db: Session, entry: CreativeEntry) -> None:
     db.execute(text(f"INSERT INTO {FTS_TABLE} (rowid, {cols}) VALUES (:id, {params})"), values)
 
 
-def _visual_terms(visual: dict | None) -> list[str]:
+def visual_terms(visual: dict | None) -> list[str]:
     """What the AI saw in an image, so 'sketches with monsters' can find pictures."""
     if not visual:
         return []
@@ -173,6 +173,8 @@ class SearchHit:
     entry: CreativeEntry
     score: float
     snippet: str | None
+    matched_by: list[str] = field(default_factory=lambda: ["words"])  # words | meaning | filters
+    similarity: float | None = None
 
 
 @dataclass
@@ -181,6 +183,7 @@ class SearchOutcome:
     hits: list[SearchHit]
     mode: str
     relaxed: bool = False
+    note: str | None = None
 
 
 class SearchService:
@@ -216,10 +219,14 @@ class SearchService:
     def _base_query(self, pq: ParsedQuery, use_filters: bool, date_from, date_to):
         stmt = (
             select(CreativeEntry)
-            .where(CreativeEntry.deleted_at.is_(None))
             .options(selectinload(CreativeEntry.entry_tags).selectinload(EntryTag.tag),
-                     selectinload(CreativeEntry.projects))
+                     selectinload(CreativeEntry.projects), selectinload(CreativeEntry.attachments))
         )
+        return self.apply_filters(stmt, pq, use_filters, date_from, date_to)
+
+    @staticmethod
+    def apply_filters(stmt, pq: ParsedQuery, use_filters: bool, date_from, date_to):
+        stmt = stmt.where(CreativeEntry.deleted_at.is_(None))
         if use_filters:
             if pq.entry_types:
                 stmt = stmt.where(CreativeEntry.entry_type.in_(pq.entry_types))
@@ -237,7 +244,7 @@ class SearchService:
         stmt = self._base_query(pq, use_filters, date_from, date_to)
         if not terms:
             rows = self.db.scalars(stmt.order_by(CreativeEntry.created_at.desc()).limit(limit)).all()
-            return [SearchHit(e, 0.0, None) for e in rows]
+            return [SearchHit(e, 0.0, None, ["filters"]) for e in rows]
         if fts_available():
             return self._fts(stmt, terms, limit)
         return self._like(stmt, terms, limit)
@@ -271,20 +278,86 @@ class SearchService:
 
 
 class SemanticSearchService:
-    """Future home of embedding-based search.
+    """Hybrid search: word matches (FTS5) + meaning matches (embeddings).
 
-    Planned: an `EmbeddingProvider` fills `CreativeEntry.embedding_*` and a
-    vector store answers similarity queries. Until then this delegates to
-    full-text search so callers can already depend on this interface.
+    The two ranked lists are merged with reciprocal-rank fusion, so an entry
+    found both ways rises to the top. If the embedding model isn't available,
+    this quietly returns the word-only results with a note explaining why.
     """
 
-    def __init__(self, db: Session, text_search: SearchService | None = None):
+    RRF_K = 60
+    MAX_MEANING_HITS = 20
+
+    def __init__(self, db: Session, text_search: SearchService | None = None, provider=None):
+        from app.services.embeddings import get_embedding_provider
+
         self.db = db
         self.text_search = text_search or SearchService(db)
+        self.provider = provider or get_embedding_provider()
 
     @property
     def semantic_enabled(self) -> bool:
-        return False
+        return self.provider.name != "none"
 
-    def search(self, query: str, **kwargs) -> SearchOutcome:
-        return self.text_search.search(query, **kwargs)
+    def search(self, query: str, limit: int = 50, entry_types: list[str] | None = None,
+               statuses: list[str] | None = None, date_from: datetime | None = None,
+               date_to: datetime | None = None) -> SearchOutcome:
+        from app.config import get_settings
+        from app.services.embeddings import EmbeddingError, nearest
+
+        text = self.text_search.search(query, limit=limit, entry_types=entry_types, statuses=statuses,
+                                       date_from=date_from, date_to=date_to)
+        pq = text.parsed
+        if not pq.terms or not self.semantic_enabled:
+            return text  # filter-only queries ("unfinished comics") don't need meaning
+        try:
+            qvec = self.provider.embed_query(query.strip())
+        except EmbeddingError as exc:
+            text.note = f"Search by meaning is unavailable right now ({exc}) Showing word matches."
+            return text
+
+        s = get_settings()
+
+        def meaning_matches(use_filters: bool) -> list[tuple[int, float]]:
+            ids_stmt = SearchService.apply_filters(select(CreativeEntry.id), pq, use_filters, date_from, date_to)
+            near = nearest(self.db, qvec, self.provider.model, set(self.db.scalars(ids_stmt)), limit=100)
+            if not near:
+                return []
+            cutoff = max(s.semantic_min_similarity, near[0][1] - s.semantic_window)
+            return [(eid, sim) for eid, sim in near if sim >= cutoff][: self.MAX_MEANING_HITS]
+
+        meaning = meaning_matches(True)
+        relaxed = False
+        if not meaning and not text.hits and pq.has_filters:
+            # Same rule as word search: "stories about amnesia" with no entry typed
+            # "story" still shows ideas about amnesia, flagged as a looser match.
+            meaning = meaning_matches(False)
+            relaxed = bool(meaning)
+        if not meaning:
+            return SearchOutcome(pq, text.hits, text.mode + "+meaning", text.relaxed, text.note)
+
+        # Keep filters strict when meaning found strict matches; relaxed word matches would only add noise.
+        word_hits = text.hits if (relaxed or not text.relaxed) else []
+        scores: dict[int, float] = {}
+        by_id: dict[int, SearchHit] = {}
+        for rank, h in enumerate(word_hits):
+            scores[h.entry.id] = scores.get(h.entry.id, 0) + 1 / (self.RRF_K + rank + 1)
+            by_id[h.entry.id] = SearchHit(h.entry, 0, h.snippet, ["words"])
+        missing = [eid for eid, _ in meaning if eid not in by_id]
+        loaded = {}
+        if missing:
+            stmt = self.text_search._base_query(pq, False, None, None).where(CreativeEntry.id.in_(missing))
+            loaded = {e.id: e for e in self.db.scalars(stmt)}
+        for rank, (eid, sim) in enumerate(meaning):
+            scores[eid] = scores.get(eid, 0) + 1 / (self.RRF_K + rank + 1)
+            hit = by_id.get(eid)
+            if hit is None:
+                if eid not in loaded:
+                    continue
+                hit = by_id[eid] = SearchHit(loaded[eid], 0, None, [])
+            hit.matched_by.append("meaning")
+            hit.similarity = round(sim, 3)
+        hits = sorted(by_id.values(), key=lambda h: -scores[h.entry.id])[:limit]
+        for h in hits:
+            h.score = round(scores[h.entry.id] * 1000, 3)
+        return SearchOutcome(pq, hits, text.mode + "+meaning", relaxed=relaxed, note=None)

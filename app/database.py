@@ -18,7 +18,8 @@ settings = get_settings()
 _is_sqlite = settings.database_url.startswith("sqlite")
 engine = create_engine(
     settings.database_url,
-    connect_args={"check_same_thread": False} if _is_sqlite else {},
+    # timeout: how long a write waits for another one to finish before giving up.
+    connect_args={"check_same_thread": False, "timeout": 30} if _is_sqlite else {},
 )
 
 if _is_sqlite:

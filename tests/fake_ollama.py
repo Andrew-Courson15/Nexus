@@ -22,6 +22,29 @@ DEFAULT_ANALYSIS = {
 }
 
 
+# Words in the same group "mean" the same thing to the fake embedding model:
+# each vector says which topics a text touches.
+MEANING_GROUPS = [
+    {"memory", "memories", "remember", "forget", "forgetting", "forgot", "amnesia", "recall"},
+    {"dimension", "dimensions", "portal", "universe", "reality", "realities", "multiverse", "worlds"},
+    {"monster", "monsters", "creature", "beast", "tentacle", "tentacled", "leviathan"},
+    {"sword", "blade", "weapon", "katana"},
+    {"cake", "lemon", "recipe", "bake", "baking", "sunday"},
+    {"identity", "self", "yourself"},
+    {"dragon", "dragons", "wyvern"},
+]
+
+
+def fake_embedding(text: str) -> list[float]:
+    import re
+
+    for prefix in ("search_query: ", "search_document: "):
+        text = text.replace(prefix, "")
+    words = re.findall(r"[a-z]+", text.lower())
+    vec = [1.0 if any(w in g for w in words) else 0.0 for g in MEANING_GROUPS] + [0.05]
+    return vec
+
+
 class FakeOllama:
     def __init__(self, models=("test-model:latest",), capabilities=("completion",), analysis=None,
                  relationships=None, reachable=True, chat_status=200, raw_reply=None):
@@ -42,6 +65,11 @@ class FakeOllama:
             return httpx.Response(200, json={"models": [{"name": m} for m in self.models]})
         body = json.loads(request.content or b"{}")
         self.requests.append({"path": path, **body})
+        if path == "/api/embed":
+            name = body.get("model", "")
+            if not any(m.split(":")[0] == name.split(":")[0] for m in self.models):
+                return httpx.Response(404, json={"error": f"model '{name}' not found"})
+            return httpx.Response(200, json={"embeddings": [fake_embedding(t) for t in body["input"]]})
         if path == "/api/show":
             name = body.get("model", "")
             if not any(m.split(":")[0] == name.split(":")[0] for m in self.models):
@@ -75,6 +103,16 @@ class FakeOllama:
 
     def provider(self, model="test-model", vision_model=None) -> OllamaProvider:
         return OllamaProvider(model=model, vision_model=vision_model, client=self.client())
+
+    def embedder(self, model="nomic-embed-text"):
+        from app.services.embeddings import OllamaEmbeddingProvider
+
+        return OllamaEmbeddingProvider(model=model, base_url="http://ollama.test",
+                                       transport=httpx.MockTransport(self.handler))
+
+    @property
+    def embeds(self) -> list[dict]:
+        return [r for r in self.requests if r["path"] == "/api/embed"]
 
     @property
     def chats(self) -> list[dict]:

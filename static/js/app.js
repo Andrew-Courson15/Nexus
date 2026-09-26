@@ -328,10 +328,11 @@ async function viewToday(el) {
 const archiveState = JSON.parse(store("nexus.archiveFilters") || "{}");
 
 async function viewArchive(el) {
-  const [s, projects, tags] = await Promise.all([getSettings(), api("/api/projects"), api("/api/tags")]);
+  const [s, projects, tags, trash] = await Promise.all([getSettings(), api("/api/projects"), api("/api/tags"), api("/api/trash")]);
   const f = archiveState;
   el.innerHTML = `<div class="view-head"><div><h1>Creative Archive</h1>
-    <p class="lede">Everything you've captured. Your words are never altered.</p></div><span class="muted small" id="count"></span></div>
+    <p class="lede">Everything you've captured. Your words are never altered.</p></div>
+    <div class="row"><span class="muted small" id="count"></span>${trash.total ? `<a class="btn ghost small" href="#/trash">Trash (${trash.total})</a>` : ""}</div></div>
     <form class="filters" id="filters">
       <label class="field">Type<select name="entry_type">${options(s.vocab.entry_types, f.entry_type, "All types")}</select></label>
       <label class="field">Status<select name="status">${options(s.vocab.statuses, f.status, "All statuses")}</select></label>
@@ -438,11 +439,18 @@ async function viewSearch(el, _id, query) {
     i.terms.length && `words: ${i.terms.join(", ")}`,
   ].filter(Boolean).join(" · ");
   const snippet = (s) => esc(s).replace(/\u0001/g, "<mark>").replace(/\u0002/g, "</mark>");
+  const how = r.mode.includes("meaning") ? "words + meaning" : "words only";
+  const badges = (x) => x.matched_by.map((m) => m === "meaning"
+    ? `<span class="match meaning" title="Similar in meaning, even if the words differ">≈ meaning ${pct(x.similarity)}</span>`
+    : m === "words" ? `<span class="match words" title="Contains your search words">words</span>` : "").join("");
   $("#sresults", el).innerHTML = `
-    <p class="small muted">Understood as — ${esc(understood || "everything")}${r.relaxed ? " · <strong>no exact type/status match, showing text matches</strong>" : ""}
-    · ${r.results.length} result${r.results.length === 1 ? "" : "s"} <span class="confidence">(${esc(r.mode)})</span></p>
+    ${r.note ? `<p class="notice small">${esc(r.note)}</p>` : ""}
+    <p class="small muted">Understood as — ${esc(understood || "everything")}${r.relaxed ? " · <strong>nothing matched the type/status exactly, so these are looser matches</strong>" : ""}
+    · ${r.results.length} result${r.results.length === 1 ? "" : "s"} <span class="confidence">(${esc(how)})</span></p>
     ${r.results.length ? `<div class="grid">${r.results.map((x) => cardHTML(x.entry,
-      x.snippet ? `<p class="snippet">${snippet(x.snippet)}</p>` : "")).join("")}</div>` : `<p class="empty">Nothing found for “${esc(q)}”.</p>`}`;
+      `${x.matched_by.some((m) => m !== "filters") ? `<div class="meta">${badges(x)}</div>` : ""}
+       ${x.snippet ? `<p class="snippet">${snippet(x.snippet)}</p>` : ""}`)).join("")}</div>`
+      : `<p class="empty">Nothing found for “${esc(q)}”.</p>`}`;
 }
 
 function health(h) {
@@ -469,15 +477,95 @@ async function viewSettings(el) {
       <div class="panel"><h3>Background work</h3><dl class="kv">
         <dt>Mode</dt><dd>${esc(s.processing.mode)}</dd><dt>In progress</dt><dd>${s.processing.active} entr${s.processing.active === 1 ? "y" : "ies"}</dd></dl>
         <p class="small muted">Captures are saved instantly; transcription and organizing happen afterwards, one at a time.</p></div>
-      <div class="panel"><h3>Search</h3><dl class="kv">
-        <dt>Mode</dt><dd>${esc(s.search.mode)}</dd><dt>Semantic search</dt><dd>${s.search.semantic_enabled ? "On" : "Not yet (falls back to text)"}</dd></dl></div>
+      <div class="panel"><h3>Search by meaning</h3>${health(s.search.health)}<dl class="kv">
+        <dt>Word search</dt><dd>${s.search.mode === "fts5" ? "On (full-text)" : "On (basic)"}</dd>
+        <dt>Meaning model</dt><dd>${esc(s.search.embedding_model || "—")}</dd>
+        ${s.search.index ? `<dt>Indexed</dt><dd>${s.search.index.indexed} of ${s.search.index.entries} entries</dd>` : ""}</dl>
+        ${s.search.semantic_enabled && s.search.index?.pending
+          ? `<button class="btn small" data-act="reindex">Index ${s.search.index.pending} entr${s.search.index.pending === 1 ? "y" : "ies"} now</button>` : ""}
+        <p class="small muted">Finds ideas by what they're about, not just exact words. Set <code>NEXUS_EMBEDDING_MODEL</code>.</p></div>
       <div class="panel"><h3>Storage</h3><dl class="kv">
         <dt>Data folder</dt><dd>${esc(s.storage.data_dir)}</dd><dt>Database</dt><dd>${esc(s.storage.database)}</dd>
         <dt>Upload limit</dt><dd>${s.storage.max_upload_mb} MB</dd><dt>Server</dt><dd>${esc(s.server.host)}:${s.server.port}</dd></dl></div>
       <div class="panel"><h3>Archive</h3><dl class="kv">
         <dt>Entries</dt><dd>${s.counts.entries}</dd><dt>Projects</dt><dd>${s.counts.projects}</dd>
-        <dt>Tags</dt><dd>${s.counts.tags}</dd><dt>In trash</dt><dd>${s.counts.trash}</dd></dl></div>
+        <dt>Tags</dt><dd>${s.counts.tags}</dd><dt>In trash</dt><dd><a href="#/trash">${s.counts.trash} · view trash</a></dd></dl></div>
     </div>`;
+  $("[data-act=reindex]", el)?.addEventListener("click", async (ev) => {
+    ev.target.disabled = true;
+    try {
+      const r = await api("/api/search/reindex", { method: "POST" });
+      toast(`Indexing ${r.queued} entr${r.queued === 1 ? "y" : "ies"} in the background…`);
+      setTimeout(() => { if (location.hash === "#/settings") render(); }, 4000);
+    } catch (err) { toast(err.message, true); ev.target.disabled = false; }
+  });
+}
+
+async function viewTrash(el) {
+  const data = await api("/api/trash");
+  el.innerHTML = `<p><a href="#/archive" class="muted small">← Creative Archive</a></p>
+    <div class="view-head"><div><h1>Trash</h1>
+    <p class="lede">Entries you moved here are hidden from the archive, but nothing is destroyed. Restore brings an entry back exactly as it was.</p></div></div>
+    ${data.items.length ? `<div class="grid">${data.items.map((e) => `<div class="card trashed">
+      <div class="meta"><span class="pill type">${esc(label(e.entry_type))}</span><span class="spacer"></span>
+        <span>Trashed ${fmtDate(e.deleted_at)}</span></div>
+      <h3>${esc(e.title)}</h3>
+      ${e.ai_summary || e.excerpt ? `<p class="summary">${esc(e.excerpt || e.ai_summary)}</p>` : ""}
+      <div class="row"><button class="btn small" data-restore="${e.id}">Restore</button></div></div>`).join("")}</div>`
+      : `<p class="empty">The trash is empty.</p>`}`;
+  $$("[data-restore]", el).forEach((b) => (b.onclick = async () => {
+    b.disabled = true;
+    try {
+      await api(`/api/entries/${b.dataset.restore}/restore`, { method: "POST" });
+      toast("Restored to the archive.");
+      render();
+    } catch (err) { toast(err.message, true); b.disabled = false; }
+  }));
+}
+
+/* ------------------------------------------------------------ revisions */
+const REV_FIELDS = [
+  ["title", "Title"], ["entry_type", "Type"], ["status", "Status"], ["user_notes", "Your notes"],
+  ["transcript", "Transcript"], ["tags", "Tags"], ["project_ids", "Projects"], ["user_confirmed", "Confirmed"],
+  ["ai_summary", "AI summary"], ["ai_interpretation", "AI interpretation"], ["ai_inference", "AI inference"],
+];
+
+function revValue(key, v, projects) {
+  if (v == null || v === "" || (Array.isArray(v) && !v.length)) return "—";
+  if (key === "tags") return v.map((t) => t.name + (t.source === "ai" ? " (AI)" : "")).join(", ");
+  if (key === "project_ids") return v.map((pid) => projects.find((p) => p.id === pid)?.name || `#${pid}`).join(", ");
+  if (key === "entry_type") return label(v);
+  if (typeof v === "boolean") return v ? "yes" : "no";
+  const text = String(v);
+  return text.length > 240 ? text.slice(0, 237) + "…" : text;
+}
+
+const sameAs = (a, b) => REV_FIELDS.every(([k]) => JSON.stringify(a[k] ?? null) === JSON.stringify(b[k] ?? null));
+
+function revisionHTML(r, prev, latest, projects) {
+  const cur = r.content_snapshot || {};
+  const isLatest = r.id === latest.id;
+  const canRestore = !isLatest && !sameAs(cur, latest.content_snapshot || {});
+  let body;
+  if (!prev) {
+    body = `<p class="small muted">The original capture.</p>`;
+  } else {
+    const before = prev.content_snapshot || {};
+    const changes = REV_FIELDS.filter(([k]) => JSON.stringify(cur[k] ?? null) !== JSON.stringify(before[k] ?? null));
+    body = changes.length
+      ? `<table class="diff">${changes.map(([k, l]) => `<tr><th>${l}</th><td>
+          <span class="before">${esc(revValue(k, before[k], projects))}</span>
+          <span class="arrow">→</span> <span class="after">${esc(revValue(k, cur[k], projects))}</span></td></tr>`).join("")}</table>`
+      : `<p class="small muted">No visible changes (internal data only).</p>`;
+  }
+  return `<li><details>
+    <summary><strong>v${r.version_number}</strong> ${esc(r.change_description)}${isLatest ? ` <span class="pill">current</span>` : ""}
+      <span class="muted">· ${fmtDateTime(r.created_at)}</span></summary>
+    ${body}
+    ${canRestore ? `<button class="btn small" data-restore-version="${r.version_number}">Restore this version</button>` : ""}
+    <details class="raw"><summary class="small muted">Raw data</summary>
+      <pre class="snapshot">${esc(JSON.stringify(cur, null, 2))}</pre></details>
+  </details></li>`;
 }
 
 /* ------------------------------------------------------------ entry detail */
@@ -598,9 +686,9 @@ async function viewEntry(el, id) {
       <dt>Confirmed</dt><dd>${e.user_confirmed ? "Yes, by you" : "No"}</dd>
       <dt>Entry id</dt><dd>#${e.id}</dd></dl></div>
 
-    <div class="panel"><h3>Revision history</h3><ol class="revisions">${revs.map((r) => `<li><details>
-      <summary><strong>v${r.version_number}</strong> ${esc(r.change_description)} <span class="muted">· ${fmtDateTime(r.created_at)}</span></summary>
-      <pre class="snapshot">${esc(JSON.stringify(r.content_snapshot, null, 2))}</pre></details></li>`).join("")}</ol></div>
+    <div class="panel"><h3>Revision history</h3>
+      <p class="small muted">Every change is kept. Restoring adds a new version, so nothing is ever lost.</p>
+      <ol class="revisions">${revs.map((r, i) => revisionHTML(r, revs[i + 1], revs[0], projects)).join("")}</ol></div>
 
     <button class="btn danger ghost" data-act="trash">Move to trash</button>
   </aside></div>`;
@@ -668,6 +756,12 @@ async function viewEntry(el, id) {
     try { await api(`/api/relationships/${b.dataset.rel}`, { method: "PATCH", json: { status: b.dataset.status } }); toast(`Relationship ${b.dataset.status}.`); render(); }
     catch (err) { toast(err.message, true); }
   }));
+  $$("[data-restore-version]", el).forEach((b) => (b.onclick = async () => {
+    const v = b.dataset.restoreVersion;
+    if (!confirm(`Bring this entry back to version ${v}? The current version stays in the history, so you can always come back to it.`)) return;
+    try { await api(`/api/entries/${id}/revisions/${v}/restore`, { method: "POST" }); toast(`Restored version ${v}.`); render(); }
+    catch (err) { toast(err.message, true); }
+  }));
   $("[data-act=trash]", el).onclick = async () => {
     if (!confirm("Move this entry to the trash? It will be hidden, but the original material is kept and can be restored.")) return;
     await api(`/api/entries/${id}`, { method: "DELETE" });
@@ -687,6 +781,7 @@ const ROUTES = [
   [/^\/entry\/(\d+)$/, viewEntry, "archive"],
   [/^\/search$/, viewSearch, "search"],
   [/^\/settings$/, viewSettings, "settings"],
+  [/^\/trash$/, viewTrash, "archive"],
 ];
 
 let renderToken = 0;

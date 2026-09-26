@@ -45,6 +45,11 @@ class Settings:
     whisper_device: str = "auto"
     whisper_compute_type: str = "auto"
     whisper_language: str = ""  # empty = auto-detect
+    # Search by meaning (embeddings via Ollama)
+    embedding_provider: str = "ollama"  # "ollama" | "none"
+    embedding_model: str = "nomic-embed-text"
+    semantic_min_similarity: float = 0.5
+    semantic_window: float = 0.15  # keep meaning-matches within this distance of the best one
 
     @property
     def uploads_dir(self) -> Path:
@@ -92,4 +97,8 @@ def get_settings() -> Settings:
         whisper_device=os.getenv("NEXUS_WHISPER_DEVICE", "auto").strip(),
         whisper_compute_type=os.getenv("NEXUS_WHISPER_COMPUTE_TYPE", "auto").strip(),
         whisper_language=os.getenv("NEXUS_WHISPER_LANGUAGE", "").strip(),
+        embedding_provider=os.getenv("NEXUS_EMBEDDING_PROVIDER", "ollama").strip().lower(),
+        embedding_model=os.getenv("NEXUS_EMBEDDING_MODEL", "nomic-embed-text").strip(),
+        semantic_min_similarity=float(os.getenv("NEXUS_SEMANTIC_MIN_SIMILARITY", "0.5")),
+        semantic_window=float(os.getenv("NEXUS_SEMANTIC_WINDOW", "0.15")),
     )

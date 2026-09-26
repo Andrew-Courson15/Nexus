@@ -143,6 +143,7 @@ class EntrySummary(BaseModel):
     attachments: list[AttachmentOut]
     excerpt: str | None
     processing_status: str | None
+    deleted_at: datetime | None = None
 
 
 class EntryDetail(EntrySummary):
@@ -216,6 +217,8 @@ class SearchResult(BaseModel):
     entry: EntrySummary
     score: float
     snippet: str | None
+    matched_by: list[str] = []
+    similarity: float | None = None
 
 
 class SearchResponse(BaseModel):
@@ -224,6 +227,7 @@ class SearchResponse(BaseModel):
     semantic_enabled: bool
     interpreted: dict[str, Any]
     relaxed: bool
+    note: str | None = None
     results: list[SearchResult]
 
 
@@ -259,6 +263,7 @@ def _summary_fields(e: CreativeEntry) -> dict[str, Any]:
         attachments=_attachments(e),
         excerpt=_excerpt(e),
         processing_status=e.processing_status,
+        deleted_at=e.deleted_at,
     )
 
 

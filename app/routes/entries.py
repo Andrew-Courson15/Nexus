@@ -34,8 +34,8 @@ from app.schemas import (
     entry_summary,
     relationship_out,
 )
-from app.services.history import add_tag, record_revision, set_user_tags
-from app.services.processing import enqueue
+from app.services.history import add_tag, record_revision, restore_snapshot, set_user_tags
+from app.services.processing import enqueue, reindex_meaning
 from app.services.relationships import relationships_for
 from app.services.search import index_entry, remove_from_index
 
@@ -188,6 +188,7 @@ def update_entry(entry_id: int, payload: EntryUpdate, db: Session = Depends(get_
         record_revision(db, entry, data.get("change_description") or ("Edited: " + ", ".join(changes)))
         index_entry(db, entry)
         db.commit()
+        reindex_meaning(entry.id)
     return entry_detail(load_entry(db, entry_id))
 
 
@@ -210,6 +211,7 @@ def restore_entry(entry_id: int, db: Session = Depends(get_db)):
         record_revision(db, entry, "Restored from trash")
         index_entry(db, entry)
         db.commit()
+        reindex_meaning(entry.id)
     return entry_detail(load_entry(db, entry_id))
 
 
@@ -253,6 +255,34 @@ def list_revisions(entry_id: int, db: Session = Depends(get_db)):
         .order_by(CreativeRevision.version_number.desc())
     ).all()
     return [RevisionOut.model_validate(r, from_attributes=True) for r in revs]
+
+
+@router.post("/entries/{entry_id}/revisions/{version}/restore", response_model=EntryDetail)
+def restore_revision(entry_id: int, version: int, db: Session = Depends(get_db)):
+    """Bring the entry back to an earlier version. This adds a new revision; nothing is erased."""
+    entry = load_entry(db, entry_id)
+    rev = db.scalar(select(CreativeRevision).where(
+        CreativeRevision.entry_id == entry_id, CreativeRevision.version_number == version))
+    if rev is None:
+        raise HTTPException(404, "Version not found")
+    changed = restore_snapshot(db, entry, rev.content_snapshot or {})
+    if changed:
+        entry.updated_at = utcnow()
+        record_revision(db, entry, f"Restored version {version}")
+        index_entry(db, entry)
+        db.commit()
+        reindex_meaning(entry.id)
+    return entry_detail(load_entry(db, entry_id))
+
+
+@router.get("/trash", response_model=EntryList)
+def list_trash(db: Session = Depends(get_db)):
+    """Entries moved to the trash. Nothing here is destroyed; restore brings it back."""
+    rows = db.scalars(
+        select(CreativeEntry).where(CreativeEntry.deleted_at.is_not(None)).options(*_LOAD[:3])
+        .order_by(CreativeEntry.deleted_at.desc())
+    ).all()
+    return EntryList(items=[entry_summary(e) for e in rows], total=len(rows))
 
 
 @router.get("/entries/{entry_id}/relationships", response_model=list[RelationshipOut])

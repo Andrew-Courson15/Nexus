@@ -66,6 +66,12 @@ catch { Fail "Ollama is installed but not running. Start 'Ollama' from the Start
 Say "Downloading the local model $model (one time, several GB)..."
 & ollama pull $model
 if ($LASTEXITCODE -ne 0) { Fail "Downloading $model failed. Check your internet connection and run this script again." }
+$embedLine = Select-String -Path ".env" -Pattern "^NEXUS_EMBEDDING_MODEL=(.*)$" | Select-Object -First 1
+$embed = if ($embedLine) { $embedLine.Matches[0].Groups[1].Value.Trim() } else { "" }
+if (-not $embed) { $embed = "nomic-embed-text" }
+Say "Downloading the search-by-meaning model $embed (one time, about 0.3 GB)..."
+& ollama pull $embed
+if ($LASTEXITCODE -ne 0) { Write-Host "Couldn't download $embed. Search will use words only until it's installed." -ForegroundColor Yellow }
 
 # 6. Whisper speech model (downloads once, then works offline)
 Say "Preparing Whisper for voice notes (one-time download)..."

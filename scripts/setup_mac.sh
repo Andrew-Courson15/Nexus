@@ -37,6 +37,10 @@ curl -fsS -m 3 http://127.0.0.1:11434/api/tags >/dev/null 2>&1 || stop "Ollama i
 Open the Ollama app (it lives in the menu bar), then run this script again."
 say "Downloading the local model $MODEL (one time, several GB)…"
 ollama pull "$MODEL"
+EMBED="$(grep -E '^NEXUS_EMBEDDING_MODEL=' .env | cut -d= -f2- | tr -d '[:space:]')"
+EMBED="${EMBED:-nomic-embed-text}"
+say "Downloading the search-by-meaning model $EMBED (one time, about 0.3 GB)…"
+ollama pull "$EMBED"
 
 # 5. Whisper speech model (downloads once, then works offline).
 say "Preparing Whisper for voice notes (one-time download)…"

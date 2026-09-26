@@ -6,9 +6,16 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.schemas import SearchRequest, SearchResponse, SearchResult, entry_summary
+from app.services.processing import queue_embedding_backfill
 from app.services.search import SemanticSearchService
 
 router = APIRouter(prefix="/api", tags=["search"])
+
+
+@router.post("/search/reindex")
+def reindex(db: Session = Depends(get_db)):
+    """Queue every entry whose meaning-index is missing or out of date."""
+    return {"queued": queue_embedding_backfill(db)}
 
 
 @router.post("/search", response_model=SearchResponse)
@@ -34,6 +41,8 @@ def search(payload: SearchRequest, db: Session = Depends(get_db)):
             "source_types": pq.source_types,
         },
         relaxed=outcome.relaxed,
-        results=[SearchResult(entry=entry_summary(h.entry), score=round(h.score, 4), snippet=h.snippet)
+        note=outcome.note,
+        results=[SearchResult(entry=entry_summary(h.entry), score=round(h.score, 4), snippet=h.snippet,
+                              matched_by=h.matched_by, similarity=h.similarity)
                  for h in outcome.hits],
     )

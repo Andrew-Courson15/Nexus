@@ -19,7 +19,7 @@ from app.models import (
     RelationshipType,
     Tag,
 )
-from app.services import ai, transcription
+from app.services import ai, embeddings, transcription
 from app.services.insights import find_patterns
 from app.services.search import fts_available
 
@@ -46,7 +46,7 @@ def read_settings(db: Session = Depends(get_db)):
         "processing": {"mode": s.processing_mode,
                        "active": db.scalar(select(func.count()).where(
                            active, CreativeEntry.processing_status.in_(ACTIVE_PROCESSING))) or 0},
-        "search": {"mode": "fts5" if fts_available() else "like", "semantic_enabled": False},
+        "search": _search_info(db),
         "storage": {"data_dir": str(s.data_dir), "database": s.database_url.split("://")[0],
                     "max_upload_mb": s.max_upload_mb},
         "server": {"host": s.host, "port": s.port},
@@ -64,6 +64,16 @@ def read_settings(db: Session = Depends(get_db)):
             "relationship_types": [e.value for e in RelationshipType],
         },
     }
+
+
+def _search_info(db: Session) -> dict:
+    provider = embeddings.get_embedding_provider()
+    health = provider.health()
+    info = {"mode": "fts5" if fts_available() else "like", "semantic_enabled": bool(health.get("ok")),
+            "embedding_provider": provider.name, "embedding_model": provider.model, "health": health}
+    if provider.name != "none":
+        info["index"] = embeddings.index_stats(db, provider.model)
+    return info
 
 
 @router.get("/tags")

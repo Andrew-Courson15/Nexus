@@ -6,7 +6,11 @@ and Whisper are never asked to do several things at once).
 
 Status lives in `CreativeEntry.processing_status`:
     queued -> transcribing -> analyzing -> done | failed
-Entries left unfinished by a shutdown are picked up again on the next start.
+After organizing, the entry is (re)indexed for search by meaning. Small
+"embed-only" jobs (after edits) refresh that index without touching the
+status, so they never show an "organizing..." banner.
+Entries left unfinished by a shutdown are picked up again on the next start,
+and entries missing from the meaning index are indexed in the background.
 
 Set NEXUS_PROCESSING_MODE=sync to run the pipeline inside the request instead
 (used by the test suite).
@@ -38,6 +42,15 @@ class Job:
     transcribe: bool = True
     analyze: bool = True
     force_transcribe: bool = False
+    embed: bool = True
+
+    @property
+    def embed_only(self) -> bool:
+        return not self.transcribe and not self.analyze
+
+    @property
+    def key(self) -> tuple[int, str]:
+        return (self.entry_id, "embed" if self.embed_only else "full")
 
 
 def _load(db: Session, entry_id: int) -> CreativeEntry | None:
@@ -71,12 +84,37 @@ def transcribe_entry(db: Session, entry: CreativeEntry, force: bool = False) -> 
     return bool(result.text)
 
 
+def _embed(db: Session, entry: CreativeEntry) -> None:
+    """Refresh the meaning index for one entry. Failures are recorded, never fatal."""
+    from app.services.embeddings import EmbeddingError, embed_entry, get_embedding_provider
+
+    provider = get_embedding_provider()
+    if provider.name == "none":
+        return
+    try:
+        embed_entry(db, entry, provider)
+        db.commit()
+    except EmbeddingError as exc:
+        db.rollback()
+        meta = dict(entry.ai_metadata or {})
+        meta["embedding_error"] = str(exc)
+        entry.ai_metadata = meta
+        db.commit()
+
+
 def run_job(job: Job) -> str:
     """Run one job in its own session. Returns the final status."""
     with SessionLocal() as db:
         entry = _load(db, job.entry_id)
         if entry is None or entry.deleted_at is not None:
             return "skipped"
+        if job.embed_only:
+            try:
+                _embed(db, entry)
+            except Exception:  # pragma: no cover - defensive
+                log.exception("Indexing entry %s failed", job.entry_id)
+                db.rollback()
+            return "indexed"
         try:
             if job.transcribe and entry.source_type == SourceType.voice.value:
                 entry.processing_status = "transcribing"
@@ -91,6 +129,8 @@ def run_job(job: Job) -> str:
                 ok = Organizer(db).organize(entry).ok
             entry.processing_status = "done" if ok else "failed"
             db.commit()
+            if job.embed:
+                _embed(db, entry)
             return entry.processing_status
         except Exception as exc:  # never let one entry kill the worker
             log.exception("Processing entry %s failed", job.entry_id)
@@ -108,7 +148,7 @@ def run_job(job: Job) -> str:
 class ProcessingQueue:
     def __init__(self):
         self._queue: queue.Queue[Job | None] = queue.Queue()
-        self._pending: set[int] = set()
+        self._pending: set[tuple[int, str]] = set()
         self._lock = threading.Lock()
         self._thread: threading.Thread | None = None
 
@@ -133,9 +173,9 @@ class ProcessingQueue:
         if self.sync:
             return run_job(job)
         with self._lock:
-            if job.entry_id in self._pending:
+            if job.key in self._pending:
                 return None
-            self._pending.add(job.entry_id)
+            self._pending.add(job.key)
         self._queue.put(job)
         return None
 
@@ -162,6 +202,8 @@ class ProcessingQueue:
             db.commit()
         for entry_id in ids:
             self.submit(Job(entry_id))
+        with SessionLocal() as db:
+            queue_embedding_backfill(db)
         return len(ids)
 
     def _worker(self) -> None:
@@ -171,9 +213,11 @@ class ProcessingQueue:
                 return
             try:
                 run_job(job)
+            except Exception:  # pragma: no cover - run_job already guards; keep the worker alive
+                log.exception("Job %s crashed", job)
             finally:
                 with self._lock:
-                    self._pending.discard(job.entry_id)
+                    self._pending.discard(job.key)
 
 
 processing_queue = ProcessingQueue()
@@ -186,3 +230,25 @@ def enqueue(db: Session, entry: CreativeEntry, *, transcribe: bool = True, analy
     db.commit()
     processing_queue.submit(Job(entry.id, transcribe, analyze, force_transcribe))
     db.expire_all()  # sync mode changed the row in another session
+
+
+def reindex_meaning(entry_id: int) -> None:
+    """Refresh one entry's meaning index after an edit (no status change)."""
+    processing_queue.submit(Job(entry_id, transcribe=False, analyze=False, embed=True))
+
+
+def queue_embedding_backfill(db: Session) -> int:
+    """Queue entries whose meaning index is missing or stale. Does nothing if embeddings are unavailable."""
+    from app.services.embeddings import get_embedding_provider, needs_embedding
+
+    provider = get_embedding_provider()
+    if not provider.health().get("ok"):
+        return 0
+    entries = db.scalars(select(CreativeEntry).where(
+        CreativeEntry.deleted_at.is_(None),
+        (CreativeEntry.processing_status.is_(None)) | (CreativeEntry.processing_status.not_in(ACTIVE_PROCESSING)),
+    ).options(selectinload(CreativeEntry.entry_tags).selectinload(EntryTag.tag))).all()
+    ids = [e.id for e in entries if needs_embedding(db, e, provider.model)]
+    for entry_id in ids:
+        reindex_meaning(entry_id)
+    return len(ids)

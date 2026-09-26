@@ -26,6 +26,7 @@ from sqlalchemy import (
     Float,
     ForeignKey,
     Integer,
+    LargeBinary,
     String,
     Text,
     UniqueConstraint,
@@ -277,6 +278,23 @@ class Relationship(Base):
 
     source_entry: Mapped[CreativeEntry] = relationship(foreign_keys=[source_entry_id])
     target_entry: Mapped[CreativeEntry] = relationship(foreign_keys=[target_entry_id])
+
+
+class EntryEmbedding(Base):
+    """DERIVED: a vector describing an entry's meaning, for search by meaning.
+
+    Stored as packed float32 (L2-normalised) so cosine similarity is a dot
+    product. Regenerated whenever the entry's text or the model changes.
+    """
+
+    __tablename__ = "entry_embeddings"
+
+    entry_id: Mapped[int] = mapped_column(ForeignKey("creative_entries.id", ondelete="CASCADE"), primary_key=True)
+    model: Mapped[str] = mapped_column(String(200))
+    dim: Mapped[int] = mapped_column(Integer)
+    vector: Mapped[bytes] = mapped_column(LargeBinary)
+    content_hash: Mapped[str] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
 
 
 class Tag(Base):

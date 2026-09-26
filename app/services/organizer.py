@@ -15,6 +15,8 @@ Steps for each entry:
 """
 from __future__ import annotations
 
+import dataclasses
+import logging
 from dataclasses import dataclass
 
 from sqlalchemy import select
@@ -24,8 +26,10 @@ from app.models import CreativeEntry, Origin, Project, Relationship, utcnow
 from app.services import text as T
 from app.services.ai import AIProvider, AIProviderError, EntryContext, get_ai_provider
 from app.services.history import record_revision, replace_ai_tags
-from app.services.relationships import discover_relationships
+from app.services.relationships import relationship_candidates, store_suggestions
 from app.services.search import index_entry
+
+log = logging.getLogger("nexus.organizer")
 
 
 @dataclass
@@ -48,16 +52,50 @@ class Organizer:
         return self._provider
 
     def organize(self, entry: CreativeEntry) -> OrganizeOutcome:
-        meta = dict(entry.ai_metadata or {})
+        """Run the AI and store its results.
+
+        Slow model calls happen first, with no database write pending, so the
+        archive never stays locked while the model thinks (captures keep
+        working). Results are then written in one quick step, based on a fresh
+        read of the entry so edits made meanwhile are respected.
+        """
+        # Phase 1 - analyse (no writes pending)
+        ctx = EntryContext.from_entry(entry)
+        self.db.commit()
         try:
             provider = self.provider
-            result = provider.analyze_entry(EntryContext.from_entry(entry))
+            result = provider.analyze_entry(ctx)
         except Exception as exc:  # AI failure must never affect the stored original
-            meta["analysis_error"] = str(exc) if isinstance(exc, AIProviderError) else f"AI analysis failed: {exc}"
+            error = str(exc) if isinstance(exc, AIProviderError) else f"AI analysis failed: {exc}"
+            self.db.expire(entry)
+            meta = dict(entry.ai_metadata or {})
+            meta["analysis_error"] = error
             entry.ai_metadata = meta
             self.db.flush()
             index_entry(self.db, entry)
-            return OrganizeOutcome(False, getattr(self._provider, "name", "unknown"), [], meta["analysis_error"])
+            return OrganizeOutcome(False, getattr(self._provider, "name", "unknown"), [], error)
+
+        # Phase 2 - related entries (still no writes pending)
+        new_ctx = dataclasses.replace(
+            ctx,
+            title=ctx.title if ctx.title_is_user else result.title,
+            entry_type=ctx.entry_type if entry.entry_type_source == Origin.user.value else result.entry_type,
+            concepts=result.concepts,
+            summary=result.summary,
+        )
+        suggestions = []
+        candidates = relationship_candidates(self.db, entry.id)
+        if candidates:
+            try:
+                suggestions = provider.find_relationships(new_ctx, candidates)
+            except Exception:  # relationship hints are optional; keep the analysis
+                log.exception("Relationship discovery failed for entry %s", entry.id)
+
+        # Phase 3 - write everything quickly, on a fresh copy of the entry
+        self.db.expire(entry)
+        if entry.deleted_at is not None:
+            return OrganizeOutcome(False, provider.name, [], "Entry was moved to the trash during analysis.")
+        meta = dict(entry.ai_metadata or {})
 
         # Titles / types the user chose are never overwritten by the AI.
         if entry.title_source != Origin.user.value:
@@ -94,7 +132,7 @@ class Organizer:
         entry.ai_metadata = meta
 
         replace_ai_tags(self.db, entry, result.tags)
-        rels = discover_relationships(self.db, entry, provider)
+        rels = store_suggestions(self.db, entry, suggestions)
         if rels:
             entry.ai_inference = (entry.ai_inference or "") + (
                 f"\nMay connect to {len(rels)} existing entr{'y' if len(rels) == 1 else 'ies'} "
