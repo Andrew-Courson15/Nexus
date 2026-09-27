@@ -7,6 +7,8 @@ const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
 const esc = (s) =>
   String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 const label = (s) => String(s ?? "").replace(/_/g, " ");
+const localISODate = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+const ordinal = (n) => n + ([, "st", "nd", "rd"][(n % 100 >> 3 ^ 1) && n % 10] || "th");
 const fmtDate = (iso) =>
   new Date(iso).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
 const fmtDateTime = (iso) =>
@@ -370,6 +372,19 @@ function charactersFromCopy(snap, kind = "character") {
   }).sort((a, b) => (b.link_count + b.mention_count) - (a.link_count + a.mention_count));
 }
 
+/** /api/insights/rediscover from the offline copy (same rules; the phone's own daily pick). */
+function rediscoverFromCopy(snap, today) {
+  const [y, mo, d] = today.split("-").map(Number), monthStart = new Date(y, mo - 1, 1), monthAgo = Date.now() - 30 * 864e5;
+  const onThisDay = snap.entries.filter((e) => { const c = new Date(e.created_at); return c.getDate() === d && c < monthStart; }).slice(0, 12);
+  const seen = new Set(onThisDay.map((e) => e.id));
+  const stale = snap.entries.filter((e) => !seen.has(e.id) && ["raw", "exploring", "developing", "active"].includes(e.status)
+    && new Date(e.updated_at) < monthAgo).sort((a, b) => a.id - b.id);
+  let seed = y * 372 + mo * 31 + d;
+  const rand = () => ((seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648);
+  for (let i = stale.length - 1; i > 0; i--) { const j = Math.floor(rand() * (i + 1)); [stale[i], stale[j]] = [stale[j], stale[i]]; }
+  return { today, on_this_day: onThisDay, resurfaced: stale.slice(0, 3) };
+}
+
 async function offlineAnswer(path, opts = {}) {
   const snap = await offlineCopy.snapshot();
   const [p, qs] = path.split("?");
@@ -392,6 +407,7 @@ async function offlineAnswer(path, opts = {}) {
     else if (p === "/api/search") out = searchCopy(snap, opts.json?.query || "");
     else if (p === "/api/graph") out = graphFromCopy(snap, q);
     else if (p === "/api/characters") out = charactersFromCopy(snap, q.get("kind") || "character");
+    else if (p === "/api/insights/rediscover") out = rediscoverFromCopy(snap, q.get("today") || localISODate());
   }
   if (out === undefined && COPY_LISTS.includes(path)) out = await offlineCopy.get("url:" + path).catch(() => undefined);
   if (out === undefined || out === null || out === false) return undefined;
@@ -951,6 +967,7 @@ async function viewToday(el) {
     <p class="lede">${new Date().toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}</p></div>
     <a class="btn" href="#/">+ Capture</a></div>
     <h2>Captured today</h2><div id="today"></div>
+    <section id="rediscover" hidden><h2>Rediscover</h2><div id="rediscover-body"></div></section>
     <h2>Patterns in your archive</h2><div id="patterns"></div>
     <h2>Recently touched</h2><div id="touched"></div>`;
   const [recent, modified, pats] = await Promise.all([
@@ -962,6 +979,14 @@ async function viewToday(el) {
   const todays = recent.items.filter((e) => new Date(e.created_at).toDateString() === today);
   $("#today", el).innerHTML = gridHTML(todays, "Nothing captured today yet.");
   $("#touched", el).innerHTML = gridHTML(modified.items, "No entries yet.");
+  api(`/api/insights/rediscover?today=${localISODate()}&tz_offset=${new Date().getTimezoneOffset()}`).then((r) => {
+    if (!r.on_this_day.length && !r.resurfaced.length) return;
+    $("#rediscover-body", el).innerHTML = (r.on_this_day.length ? `<p class="small muted">Captured on the ${ordinal(new Date().getDate())} of an earlier month:</p>
+      ${gridHTML(r.on_this_day, "")}` : "")
+      + (r.resurfaced.length ? `<p class="small muted">Unfinished ideas you haven't touched in over a month (a different few each day):</p>
+      ${gridHTML(r.resurfaced, "")}` : "");
+    $("#rediscover", el).hidden = false;
+  }).catch(() => {});
   $("#patterns", el).innerHTML = pats.patterns.length
     ? pats.patterns.map((p) => prov("infer", "AI inference · pattern", `
         <p class="body">${esc(p.observation)}</p>

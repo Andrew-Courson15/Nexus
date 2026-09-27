@@ -4,6 +4,8 @@ The version is in `app/__init__.py` and shown in **Settings → This device**.
 
 ## 0.14.0 (2026-09-27)
 
+- **Rediscover** on Today: ideas from this day in earlier months or years, and a few unfinished
+  ideas you haven't touched for a month.
 - **Timeline**: the whole archive month by month, as picture tiles (Creative Archive → Timeline).
 - **Characters** and **Places & worlds**: each character or place with the sketches and scenes
   linked to it and the entries that mention its name. Also on the phone when the PC is off.

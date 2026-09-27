@@ -1,6 +1,8 @@
 """Settings, tags and creative-intelligence endpoints."""
 from __future__ import annotations
 
+from datetime import date, datetime, timezone
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -10,6 +12,7 @@ from app.config import get_settings
 from app.database import get_db
 from app.models import (
     ACTIVE_PROCESSING,
+    UNFINISHED_STATUSES,
     CreativeEntry,
     EntryStatus,
     EntryTag,
@@ -223,3 +226,34 @@ def problem_report(db: Session = Depends(get_db)):
     tail = _log_tail(s.data_dir / "nexus.log")
     lines += ["", f"Last {len(tail)} lines of nexus.log:" if tail else "No nexus.log (NEXUS was started in a window).", *tail]
     return {"text": "\n".join(lines)}
+
+
+@router.get("/insights/rediscover")
+def rediscover(today: date | None = None, tz_offset: int = Query(0, ge=-900, le=900), db: Session = Depends(get_db)):
+    """Old ideas worth another look: ones captured on this day of an earlier month or year, and a
+    few unfinished ideas nobody has touched for a month (a different few each day)."""
+    import random
+    from datetime import timedelta
+
+    from app.routes.entries import _LOAD
+    from app.schemas import entry_summary
+
+    shift = timedelta(minutes=-tz_offset)  # the browser's getTimezoneOffset(): local = UTC - offset
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    today = today or (now + shift).date()
+    entries = db.scalars(select(CreativeEntry).where(CreativeEntry.deleted_at.is_(None)).options(*_LOAD)
+                         .order_by(CreativeEntry.created_at.desc())).all()
+
+    def local(dt):
+        return (dt.replace(tzinfo=None) + shift).date()
+
+    on_this_day = [e for e in entries if (d := local(e.created_at)).day == today.day and d < today.replace(day=1)
+                   ][:12]
+    seen = {e.id for e in on_this_day}
+    stale = [e for e in entries if e.id not in seen and e.status in UNFINISHED_STATUSES
+             and e.updated_at.replace(tzinfo=None) < now - timedelta(days=30)]
+    stale.sort(key=lambda e: e.id)
+    resurfaced = random.Random(today.isoformat()).sample(stale, min(3, len(stale)))
+    return {"today": today.isoformat(),
+            "on_this_day": [entry_summary(e).model_dump(mode="json") for e in on_this_day],
+            "resurfaced": [entry_summary(e).model_dump(mode="json") for e in resurfaced]}
