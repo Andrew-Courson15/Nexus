@@ -72,3 +72,52 @@ def test_shares_are_signed_with_your_name(client):
     import io, json, zipfile
     data = client.get("/api/share/export", params={"entry_ids": str(e["id"])}).content
     assert json.loads(zipfile.ZipFile(io.BytesIO(data)).read("manifest.json"))["by"] == "Andrew"
+
+
+def test_phone_link_with_qr_code(client, monkeypatch):
+    assert client.get("/api/phone-link").json()["url"] is None  # phone setup not done yet
+    monkeypatch.setenv("NEXUS_ALLOWED_HOSTS", "testserver,localhost,127.0.0.1,gaming-pc.tail1234.ts.net")
+    get_settings.cache_clear()
+    d = client.get("/api/phone-link").json()
+    assert d["url"] == "https://gaming-pc.tail1234.ts.net"
+    assert d["qr_svg"].startswith("<svg") and "<script" not in d["qr_svg"]
+
+
+def test_downloading_a_model_reports_progress(client, monkeypatch):
+    import time
+
+    from app.services import ollama, preferences
+
+    def fake_pull(self, model, on_progress):
+        on_progress("pulling manifest", None, None)
+        on_progress("downloading", 50, 100)
+        on_progress("downloading", 100, 100)
+    monkeypatch.setattr(ollama.OllamaClient, "pull", fake_pull)
+    r = client.post("/api/models/pull", json={"name": "gemma3:4b"})
+    assert r.status_code == 202
+    for _ in range(50):
+        state = {p["name"]: p for p in client.get("/api/models/pulls").json()}["gemma3:4b"]
+        if state["state"] != "downloading":
+            break
+        time.sleep(0.02)
+    assert state["state"] == "done" and state["completed"] == state["total"] == 100
+    assert client.post("/api/models/pull", json={"name": "bad name!"}).status_code == 400
+    preferences._pulls.clear()
+
+
+def test_failed_downloads_say_why(client, monkeypatch):
+    import time
+
+    from app.services import ollama, preferences
+
+    def broken(self, model, on_progress):
+        raise ollama.OllamaError("pull model manifest: file does not exist")
+    monkeypatch.setattr(ollama.OllamaClient, "pull", broken)
+    client.post("/api/models/pull", json={"name": "nosuchmodel"})
+    for _ in range(50):
+        state = client.get("/api/models/pulls").json()[0]
+        if state["state"] != "downloading":
+            break
+        time.sleep(0.02)
+    assert state["state"] == "failed" and "does not exist" in state["error"]
+    preferences._pulls.clear()

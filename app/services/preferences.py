@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import threading
 import uuid
 
 from app.config import PREFERENCE_TYPES, _resolve, get_settings, preferences_file, read_preferences
@@ -148,7 +149,60 @@ def describe() -> dict:
         "values": values,
         "from_app": sorted(saved),
         "labels": LABELS,
-        "choices": {"installed_models": installed, "whisper_models": WHISPER_MODELS},
+        "choices": {"installed_models": installed, "whisper_models": WHISPER_MODELS, "suggested_models": SUGGESTED_MODELS},
         "file": str(preferences_file(s.data_dir)),
     }
 
+
+
+# -- downloading models (Ollama) ---------------------------------------------------
+
+SUGGESTED_MODELS = [
+    {"name": "gemma3:12b", "note": "best quality; needs 16 GB+ memory or a 10 GB+ graphics card (about 8 GB download)"},
+    {"name": "gemma3:4b", "note": "faster, for 8 GB computers (about 3 GB download)"},
+    {"name": "nomic-embed-text", "note": "search by meaning (about 0.3 GB)"},
+]
+_pulls: dict[str, dict] = {}
+_pull_lock = threading.Lock()
+
+
+def start_pull(name: str) -> dict:
+    """Start downloading a model in the background (once at a time per model)."""
+    from app.services.ollama import OllamaClient
+
+    name = str(name).strip()
+    if not _MODEL_RE.match(name):
+        raise PreferenceError("Use a model name such as gemma3:4b.")
+    with _pull_lock:
+        if _pulls.get(name, {}).get("state") == "downloading":
+            return _pulls[name]
+        _pulls[name] = {"name": name, "state": "downloading", "status": "starting", "completed": 0, "total": 0, "error": None}
+
+    def run():
+        s = get_settings()
+        client = OllamaClient(s.ollama_url, 30)
+
+        def progress(status, completed, total):
+            with _pull_lock:
+                p = _pulls[name]
+                p["status"] = status
+                if total:
+                    p["completed"], p["total"] = completed or 0, total
+        try:
+            client.pull(name, progress)
+            with _pull_lock:
+                _pulls[name].update(state="done", status="success")
+            _apply()  # the installed list and health checks see it now
+        except Exception as exc:  # OllamaError or anything unexpected: show it to the user
+            with _pull_lock:
+                _pulls[name].update(state="failed", error=str(exc)[:300])
+        finally:
+            client._http.close()
+
+    threading.Thread(target=run, name=f"nexus-pull-{name}", daemon=True).start()
+    return _pulls[name]
+
+
+def pulls() -> list[dict]:
+    with _pull_lock:
+        return [dict(p) for p in _pulls.values()]

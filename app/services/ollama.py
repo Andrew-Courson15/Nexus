@@ -108,6 +108,26 @@ class OllamaClient:
             raise OllamaError(f"Ollama is not reachable at {self.base_url}.") from exc
         return [m.get("name", "") for m in r.json().get("models", [])]
 
+    def pull(self, model: str, on_progress) -> None:
+        """Download a model, calling on_progress(status, completed, total) as Ollama reports it."""
+        try:
+            with self._http.stream("POST", "/api/pull", json={"model": model, "stream": True},
+                                   timeout=httpx.Timeout(None, connect=5.0)) as r:
+                if r.status_code >= 400:
+                    raise OllamaError(f"Ollama couldn't download {model} ({r.status_code}): {r.read().decode()[:300]}")
+                for line in r.iter_lines():
+                    if not line.strip():
+                        continue
+                    try:
+                        msg = json.loads(line)
+                    except ValueError:
+                        continue
+                    if msg.get("error"):
+                        raise OllamaError(str(msg["error"])[:300])
+                    on_progress(str(msg.get("status", "")), msg.get("completed"), msg.get("total"))
+        except httpx.HTTPError as exc:
+            raise OllamaError(f"Ollama is not reachable at {self.base_url}. Is the Ollama app running?") from exc
+
     def show(self, model: str, timeout: float = 5.0) -> dict:
         return self._post("/api/show", {"model": model}, timeout=timeout)
 

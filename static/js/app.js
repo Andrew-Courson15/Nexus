@@ -385,6 +385,23 @@ function showUnlock() {
   };
 }
 
+/** Settings panel (on the computer): the phone's private address as a QR code to scan. */
+async function mountPhone(box) {
+  let d;
+  try { d = await api("/api/phone-link"); } catch { box.remove(); return; }
+  box.innerHTML = d.url
+    ? `<h3>Your phone</h3>
+      <div class="phone-link">${d.qr_svg ? `<div class="qr" aria-hidden="true">${d.qr_svg}</div>` : ""}
+        <ol class="small">
+          <li>Install <strong>Tailscale</strong> on the phone and sign in with the same account as this computer.</li>
+          <li>Point the phone's camera at this code (or type <code>${esc(d.url)}</code> into Safari).</li>
+          <li>Tap <strong>Share → Add to Home Screen</strong>.</li>
+        </ol></div>`
+    : `<h3>Your phone</h3><p class="small muted">To use NEXUS on your phone from anywhere, privately: install Tailscale on this
+      computer, then run this once in the nexus folder:</p><p><code>${esc(d.setup_command)}</code></p>
+      <p class="small muted">Afterwards a QR code to scan with your phone appears here.</p>`;
+}
+
 /** Settings panel: the passcode other devices need (set on the PC itself). */
 async function mountLock(box) {
   let st;
@@ -1242,10 +1259,38 @@ async function mountPreferences(box) {
       <label class="field wide">Backup folder <input type="text" name="backup_dir" value="${esc(v.backup_dir)}" placeholder="for example D:\\NEXUS Backups"></label>
       <label class="field">Automatic backup every (days) <input type="number" name="backup_every_days" min="0" max="365" step="1" value="${v.backup_every_days}"></label>
       <label class="field">Backups to keep <input type="number" name="backup_keep" min="1" max="100" step="1" value="${v.backup_keep}"></label>
+      <div class="wide model-dl"><span class="small"><strong>Download a model:</strong></span>
+        ${d.choices.suggested_models.filter((m) => !models.some((x) => sameModel(x, m.name))).map((m) =>
+          `<button type="button" class="btn ghost small" data-pull="${esc(m.name)}" title="${esc(m.note)}">${esc(m.name)}</button>`).join("")}
+        <input type="text" id="pull-name" placeholder="other model name" aria-label="Model to download" style="max-width:180px">
+        <button type="button" class="btn ghost small" data-pull-custom>Download</button>
+        <div id="pulls" class="small"></div>
+        <p class="small muted">${d.choices.suggested_models.map((m) => `<strong>${esc(m.name)}</strong>: ${esc(m.note)}`).join(" · ")}</p></div>
       <div class="row wide"><button class="btn primary small" type="submit">Save preferences</button>
         <span class="small muted">They apply straight away. ${models.length ? "" : "Ollama isn't answering, so type model names."}</span></div>
     </form>`;
   const form = $("#prefs-form", box);
+  const showPulls = async () => {
+    if (!box.isConnected) return;
+    let list = [];
+    try { list = await api("/api/models/pulls", { noCopy: true }); } catch { return; }
+    $("#pulls", box).innerHTML = list.map((p) => {
+      const pct = p.total ? Math.round((p.completed / p.total) * 100) : null;
+      return `<div class="pull"><strong>${esc(p.name)}</strong> ${p.state === "downloading"
+        ? `<progress max="100" ${pct === null ? "" : `value="${pct}"`}></progress> ${pct === null ? esc(p.status) : pct + "%"}`
+        : p.state === "done" ? "✓ downloaded" : `<span style="color:var(--danger)">failed: ${esc(p.error || "")}</span>`}</div>`;
+    }).join("");
+    if (list.some((p) => p.state === "downloading")) setTimeout(showPulls, 1000);
+    else if (list.some((p) => p.state === "done" && !box.dataset.refreshed)) { box.dataset.refreshed = "1"; mountPreferences(box); }
+  };
+  const pull = async (name) => {
+    if (!name) return;
+    try { await api("/api/models/pull", { method: "POST", json: { name } }); delete box.dataset.refreshed; showPulls(); }
+    catch (err) { toast(err.message, true); }
+  };
+  $$("[data-pull]", box).forEach((b) => (b.onclick = () => pull(b.dataset.pull)));
+  $("[data-pull-custom]", box).onclick = () => pull($("#pull-name", box).value.trim());
+  showPulls();
   form.semantic_min_similarity.oninput = (ev) => { $("#strict-note", box).textContent = `(${ev.target.value})`; };
   form.onsubmit = async (ev) => {
     ev.preventDefault();
@@ -1734,6 +1779,7 @@ async function viewSettings(el) {
       <div class="panel" id="import"></div>
       <div class="panel" id="device"></div>
       <div class="panel" id="lock"></div>
+      ${HAS_OFFLINE_COPY ? "" : `<div class="panel" id="phone"></div>`}
     </div>`;
   el.querySelector(".view-head").insertAdjacentHTML("afterend", `<section class="panel prefs" id="prefs"><p class="loading">Loading…</p></section>`);
   mountPreferences($("#prefs", el));
@@ -1741,6 +1787,7 @@ async function viewSettings(el) {
   mountImport($("#import", el));
   mountDevice($("#device", el));
   mountLock($("#lock", el));
+  if ($("#phone", el)) mountPhone($("#phone", el));
   $("[data-act=reindex]", el)?.addEventListener("click", async (ev) => {
     ev.target.disabled = true;
     try {

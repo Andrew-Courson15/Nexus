@@ -133,3 +133,48 @@ def export_markdown(db: Session = Depends(get_db)):
     path, name = build(db)
     return FileResponse(path, media_type="application/zip", filename=name,
                         background=BackgroundTask(lambda: path.unlink(missing_ok=True)))
+
+
+@router.get("/phone-link")
+def phone_link():
+    """The private address a phone opens (set up by the phone setup script), with a QR code to scan."""
+    import sys
+
+    s = get_settings()
+    names = [h for h in s.allowed_hosts if h.endswith(".ts.net")]
+    script = ("./scripts/phone_setup_mac.sh" if sys.platform == "darwin"
+              else "powershell -ExecutionPolicy Bypass -File scripts\\phone_setup_windows.ps1")
+    if not names:
+        return {"url": None, "setup_command": script}
+    url = f"https://{names[-1]}"
+    try:
+        import io
+
+        import qrcode
+        import qrcode.image.svg
+
+        buf = io.BytesIO()
+        qrcode.make(url, image_factory=qrcode.image.svg.SvgPathImage, box_size=10, border=2).save(buf)
+        svg = buf.getvalue().decode()
+        svg = svg[svg.index("<svg"):]  # drop the XML declaration so it can sit inside the page
+    except Exception:  # the QR code is a convenience; the address still works
+        svg = None
+    return {"url": url, "qr_svg": svg, "setup_command": script}
+
+
+@router.post("/models/pull", status_code=202)
+def pull_model(payload: dict):
+    """Download an Ollama model in the background (progress: GET /api/models/pulls)."""
+    from app.services import preferences
+
+    try:
+        return preferences.start_pull(payload.get("name", ""))
+    except preferences.PreferenceError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
+@router.get("/models/pulls")
+def model_pulls():
+    from app.services import preferences
+
+    return preferences.pulls()

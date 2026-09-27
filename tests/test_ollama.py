@@ -216,3 +216,19 @@ def test_short_notes_are_sent_whole():
     fake = FakeOllama()
     fake.provider().analyze_entry(EntryContext(id=1, source_type="voice", transcript="A short idea."))
     assert len(fake.chats) == 1 and "TOO LONG" not in fake.chats[0]["messages"][1]["content"]
+
+
+def test_pull_reads_ollamas_progress_stream():
+    import httpx
+
+    from app.services.ollama import OllamaClient, OllamaError
+
+    lines = b'{"status":"pulling manifest"}\n{"status":"downloading","completed":10,"total":40}\n\n{"status":"success"}\n'
+    client = OllamaClient("http://o", 5, transport=httpx.MockTransport(lambda r: httpx.Response(200, content=lines)))
+    seen = []
+    client.pull("gemma3:4b", lambda s, c, t: seen.append((s, c, t)))
+    assert seen == [("pulling manifest", None, None), ("downloading", 10, 40), ("success", None, None)]
+    bad = OllamaClient("http://o", 5, transport=httpx.MockTransport(
+        lambda r: httpx.Response(200, content=b'{"error":"pull model manifest: file does not exist"}\n')))
+    with pytest.raises(OllamaError, match="does not exist"):
+        bad.pull("nope", lambda *a: None)

@@ -496,3 +496,12 @@ a.cite:hover { border-color: var(--text); }
 .setup-check li { display: grid; grid-template-columns: 190px 1fr; gap: 10px; align-items: baseline; }
 .setup-check .health { margin: 0; }
 @media (max-width: 640px) { .setup-check li { grid-template-columns: 1fr; gap: 2px; } }
+
+/* ---------- phone link & model downloads ---------- */
+.phone-link { display: flex; gap: 18px; align-items: center; flex-wrap: wrap; }
+.phone-link .qr { width: 150px; height: 150px; background: #fff; padding: 6px; border-radius: 10px; flex: none; }
+.phone-link .qr svg { width: 100%; height: 100%; display: block; }
+.phone-link ol { flex: 1 1 200px; padding-left: 18px; margin: 0; line-height: 1.6; }
+.model-dl { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.model-dl #pulls, .model-dl p { flex-basis: 100%; margin: 0; }
+.model-dl progress { width: 160px; vertical-align: middle; }
