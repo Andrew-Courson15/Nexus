@@ -13,7 +13,7 @@ from fastapi.templating import Jinja2Templates
 from app import __version__
 from app.config import BASE_DIR, get_settings
 from app.database import init_db
-from app.routes import art, backups, entries, graph, lock, offline, projects, search, share, system, uploads
+from app.routes import art, backups, entries, graph, lock, offline, organize, projects, search, share, system, uploads
 from app.services.backup import runner as backup_runner
 from app.services.processing import processing_queue
 
@@ -54,7 +54,7 @@ async def require_passcode(request: Request, call_next):
 app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 templates = Jinja2Templates(directory=APP_DIR / "templates")
 
-for module in (entries, projects, search, uploads, system, art, offline, backups, share, graph, lock):
+for module in (entries, organize, projects, search, uploads, system, art, offline, backups, share, graph, lock):
     app.include_router(module.router)
 
 

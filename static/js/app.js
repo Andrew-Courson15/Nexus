@@ -871,7 +871,8 @@ async function viewArchive(el) {
   const f = archiveState;
   el.innerHTML = `<div class="view-head"><div><h1>Creative Archive</h1>
     <p class="lede">Everything you've captured. Your words are never altered.</p></div>
-    <div class="row"><span class="muted small" id="count"></span><a class="btn ghost small" href="#/map">Connections map</a>${trash.total ? `<a class="btn ghost small" href="#/trash">Trash (${trash.total})</a>` : ""}</div></div>
+    <div class="row"><span class="muted small" id="count"></span><button type="button" class="btn ghost small" data-act="select">Select</button>
+      <a class="btn ghost small" href="#/tags">Tags</a><a class="btn ghost small" href="#/map">Connections map</a>${trash.total ? `<a class="btn ghost small" href="#/trash">Trash (${trash.total})</a>` : ""}</div></div>
     <details class="filterbox" ${matchMedia("(min-width: 641px)").matches ? "open" : ""}>
     <summary class="btn ghost small">Filters &amp; sort</summary>
     <form class="filters" id="filters">
@@ -898,10 +899,108 @@ async function viewArchive(el) {
     const data = await api("/api/entries?" + params);
     $("#count", el).textContent = `${data.total} entr${data.total === 1 ? "y" : "ies"}`;
     $("#results", el).innerHTML = gridHTML(data.items, "No entries match these filters.");
+    selection.clear();
+    drawSelection();
   }
   form.addEventListener("change", load);
   form.addEventListener("reset", () => setTimeout(load));
+
+  // --- select several entries and act on them together
+  const selection = new Set();
+  let selecting = false;
+  const results = $("#results", el);
+  el.insertAdjacentHTML("beforeend", `<div class="bulkbar" id="bulkbar" hidden>
+    <strong id="bulk-count"></strong><button type="button" class="btn ghost small" data-bulk="all">Select all shown</button>
+    <select id="bulk-project" aria-label="Project"><option value="">Add to project…</option>${projects.map((p) =>
+      `<option value="${p.id}">${esc(p.name)}</option>`).join("")}</select>
+    <select id="bulk-status" aria-label="Status"><option value="">Set status…</option>${s.vocab.statuses.map((x) =>
+      `<option value="${esc(x)}">${esc(label(x))}</option>`).join("")}</select>
+    <button type="button" class="btn ghost small" data-bulk="tag">Add tag</button>
+    <button type="button" class="btn ghost small" data-bulk="export">Export</button>
+    <button type="button" class="btn ghost small danger" data-bulk="trash">Move to trash</button>
+    <span class="spacer"></span><button type="button" class="btn small" data-bulk="done">Done</button></div>`);
+  const bar = $("#bulkbar", el);
+  const cardId = (card) => +card.getAttribute("href").split("/").pop();
+  function drawSelection() {
+    $$(".card", results).forEach((c) => c.classList.toggle("selected", selection.has(cardId(c))));
+    results.classList.toggle("selecting", selecting);
+    bar.hidden = !selecting;
+    $("#bulk-count", bar).textContent = `${selection.size} selected`;
+  }
+  $("[data-act=select]", el).onclick = () => { selecting = !selecting; selection.clear(); drawSelection(); };
+  results.addEventListener("click", (ev) => {
+    const card = ev.target.closest(".card");
+    if (!selecting || !card) return;
+    ev.preventDefault();
+    const id = cardId(card);
+    selection.has(id) ? selection.delete(id) : selection.add(id);
+    drawSelection();
+  });
+  const run = async (body, done) => {
+    if (!selection.size) return toast("Tap entries to select them first.");
+    try {
+      const r = await api("/api/entries/bulk", { method: "POST", json: { entry_ids: [...selection], ...body } });
+      toast(done(r.changed));
+      load();
+    } catch (err) { toast(err.message, true); }
+  };
+  $("#bulk-project", bar).onchange = (ev) => {
+    if (!ev.target.value) return;
+    run({ action: "add_to_project", project_id: +ev.target.value }, (n) => `Added ${n} to the project.`);
+    ev.target.value = "";
+  };
+  $("#bulk-status", bar).onchange = (ev) => {
+    if (!ev.target.value) return;
+    run({ action: "set_status", status: ev.target.value }, (n) => `Updated ${n}.`);
+    ev.target.value = "";
+  };
+  bar.addEventListener("click", (ev) => {
+    const act = ev.target.dataset.bulk;
+    if (act === "done") { selecting = false; selection.clear(); drawSelection(); }
+    if (act === "all") { $$(".card", results).forEach((c) => selection.add(cardId(c))); drawSelection(); }
+    if (act === "tag") {
+      const tag = prompt(`Tag to add to ${selection.size} entr${selection.size === 1 ? "y" : "ies"}:`);
+      if (tag && tag.trim()) run({ action: "add_tag", tag }, (n) => `Tagged ${n}.`);
+    }
+    if (act === "export") {
+      if (!selection.size) return toast("Tap entries to select them first.");
+      exportShare({ entry_ids: [...selection].join(",") });
+    }
+    if (act === "trash" && selection.size && confirm(`Move ${selection.size} entr${selection.size === 1 ? "y" : "ies"} to the trash? You can restore them from the Trash.`)) {
+      run({ action: "trash" }, (n) => `Moved ${n} to the trash.`);
+    }
+  });
   await load();
+}
+
+async function viewTags(el) {
+  const tags = await api("/api/tags");
+  el.innerHTML = `<p><a href="#/archive" class="muted small">← Creative Archive</a></p>
+    <div class="view-head"><div><h1>Tags</h1><p class="lede">Rename a tag to fix a typo, or rename it to an existing tag to merge the two.
+      Deleting a tag removes it from every entry (the entries stay).</p></div></div>
+    ${tags.length ? `<ul class="tag-admin">${tags.map((t) => `<li>
+      <a href="#/archive" data-filter-tag="${esc(t.name)}" class="tag">${esc(t.name)}</a><span class="muted small">${t.count} entr${t.count === 1 ? "y" : "ies"}</span>
+      <span class="spacer"></span><button class="btn ghost small" data-rename="${esc(t.name)}">Rename</button>
+      <button class="btn ghost small danger" data-delete-tag="${esc(t.name)}">Delete</button></li>`).join("")}</ul>`
+      : `<p class="empty">No tags yet.</p>`}`;
+  $$("[data-filter-tag]", el).forEach((a) => (a.onclick = () => { archiveState.tag = a.dataset.filterTag; store("nexus.archiveFilters", JSON.stringify(archiveState)); }));
+  $$("[data-rename]", el).forEach((b) => (b.onclick = async () => {
+    const to = prompt(`Rename “${b.dataset.rename}” to:`, b.dataset.rename);
+    if (!to || !to.trim() || to.trim().toLowerCase() === b.dataset.rename) return;
+    try {
+      const r = await api(`/api/tags/${encodeURIComponent(b.dataset.rename)}`, { method: "PATCH", json: { new_name: to } });
+      toast(r.merged ? `Merged into “${to.trim().toLowerCase()}” (${r.changed} entries).` : `Renamed on ${r.changed} entries.`);
+      render();
+    } catch (err) { toast(err.message, true); }
+  }));
+  $$("[data-delete-tag]", el).forEach((b) => (b.onclick = async () => {
+    if (!confirm(`Remove the tag “${b.dataset.deleteTag}” from every entry? The entries themselves stay.`)) return;
+    try {
+      const r = await api(`/api/tags/${encodeURIComponent(b.dataset.deleteTag)}`, { method: "DELETE" });
+      toast(`Removed from ${r.changed} entries.`);
+      render();
+    } catch (err) { toast(err.message, true); }
+  }));
 }
 
 async function viewIdeas(el) {
@@ -2298,6 +2397,7 @@ const ROUTES = [
   [/^\/search$/, viewSearch, "search"],
   [/^\/ask$/, viewAsk, "ask"],
   [/^\/map$/, viewMap, "map"],
+  [/^\/tags$/, viewTags, "archive"],
   [/^\/settings$/, viewSettings, "settings"],
   [/^\/trash$/, viewTrash, "archive"],
   [/^\/art$/, viewArt, "art"],

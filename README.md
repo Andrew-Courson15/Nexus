@@ -230,6 +230,12 @@ Browsers only allow microphone access on `localhost` or HTTPS. Open NEXUS at
   behind it), and recently touched entries.
 - **Creative Archive**: every entry as a card. Filter by type, status, project, tag and date.
   Sort by newest, oldest, recently modified or alphabetical.
+  - **Select** lets you pick several entries (or **Select all shown**) and act on them together:
+    add them to a project, set their status, add a tag, export them as a `.nexus` file, or move them
+    to the trash. Each entry's history records the change.
+  - **Tags** lists every tag with its count. **Rename** fixes a typo everywhere; renaming onto an
+    existing tag merges the two. **Delete** removes a tag from every entry (AI tags removed this way
+    aren't added back).
 - **Projects**: create projects and capture straight into them. An entry can belong to many projects.
   - **Analyze this project**: the local AI reads every entry in the project (your words, notes,
     transcripts, and the art analyses of your sketches). It describes the **characters** and where
@@ -619,6 +625,8 @@ Transcription follows the same pattern in `services/transcription.py`: `Transcri
 | POST | `/api/share/import` | Multipart `file`: import a `.nexus` file. Returns `imported`, `already_had`, `project_id` |
 | GET | `/api/trash` | Entries in the trash |
 | POST | `/api/entries/{id}/revisions/{n}/restore` | Bring back version *n* (recorded as a new version) |
+| POST | `/api/entries/bulk` | `{entry_ids, action: add_to_project\|remove_from_project\|set_status\|add_tag\|trash, project_id?, status?, tag?}` |
+| PATCH · DELETE | `/api/tags/{name}` | Rename (merges into an existing tag) · remove from every entry |
 | GET/POST | `/api/projects` | List / create |
 | POST/GET | `/api/projects/{id}/analyses` | Start a project analysis (202 while running) / every version, newest first |
 | GET/PUT | `/api/projects/{id}` | Detail with entries / update |
