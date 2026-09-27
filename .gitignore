@@ -12,4 +12,5 @@ data/audio/*
 data/images/*
 data/exports/*
 data/*.log
+data/*.pid
 !data/*/.gitkeep

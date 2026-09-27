@@ -78,5 +78,8 @@ Say "Preparing Whisper for voice notes (one-time download)..."
 & $venvPy -c "from app.services.transcription import LocalWhisperProvider as W; W().load(); print('Whisper ready')"
 if ($LASTEXITCODE -ne 0) { Write-Host "Whisper isn't ready yet; voice notes will retry automatically. Text and images work." -ForegroundColor Yellow }
 
-Say "All set. Start NEXUS any time by double-clicking  scripts\start_windows.bat"
+# 7. A NEXUS icon on the desktop and in the Start menu (optional extra; never fail setup over it)
+try { & powershell -NoProfile -ExecutionPolicy Bypass -File scripts\make_windows_app.ps1 } catch { Write-Host "(Couldn't create the NEXUS icon; scripts\start_windows.bat still works.)" -ForegroundColor Yellow }
+
+Say "All set. Double-click the NEXUS icon on your desktop, or  scripts\start_windows.bat"
 Write-Host "(or run:  .venv\Scripts\python.exe run.py  and open http://localhost:8000)"

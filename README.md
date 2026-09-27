@@ -88,8 +88,14 @@ cd nexus
 powershell -ExecutionPolicy Bypass -File scripts\setup_windows.ps1
 ```
 
-**To start NEXUS,** double-click `scripts\start_windows.bat`. It opens http://localhost:8000 for you.
-To stop NEXUS, close its window.
+**To start NEXUS,** double-click the **NEXUS icon** on your desktop or in the Start menu. The setup
+creates it. NEXUS starts in the background and opens http://localhost:8000.
+- Double-click the icon again while NEXUS is running to open it or stop it.
+- The server log is in `data\nexus.log`.
+- To pin it to the taskbar: open Start, right-click NEXUS, and choose **Pin to taskbar**.
+- To add the icon again (for example, after moving the folder), run
+  `powershell -ExecutionPolicy Bypass -File scripts\make_windows_app.ps1`.
+- You can still use `scripts\start_windows.bat`, which keeps a visible window open. Close that window to stop NEXUS.
 
 Notes for Windows:
 - The setup script reports your graphics card's video memory. With less than 12 GB, use `gemma3:4b` for speed.
@@ -343,7 +349,7 @@ nexus/
 ├── static/css/style.css      Styles (dark/light, responsive)
 ├── static/js/app.js          Vanilla JS app (router, views, recorder)
 ├── data/{uploads,audio,images,exports}/
-├── scripts/                 setup_mac.sh, make_mac_app.sh, setup_windows.ps1, start_windows.bat, phone_setup_windows.ps1
+├── scripts/                 setup_mac.sh, make_mac_app.sh, setup_windows.ps1, make_windows_app.ps1, nexus_launcher.ps1, start_windows.bat, phone_setup_windows.ps1
 ├── static/sw.js, manifest.webmanifest, icons/   Installable phone app + offline support
 ├── tests/                    pytest suite (includes a fake Ollama)
 ├── requirements.txt          NEXUS itself
