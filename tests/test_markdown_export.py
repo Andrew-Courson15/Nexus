@@ -34,3 +34,26 @@ def test_export_has_readable_entries_projects_and_originals(client):
     assert any(n.endswith("projects/Night Wrestlers.md") for n in names)
     readme = zf.read(f"{root}/README.md").decode()
     assert "El Faro" in readme and "Gone" not in readme and "Night Wrestlers" in readme
+
+
+def test_export_follows_project_order_and_labels_ai_suggestions(client):
+    import io
+    import zipfile
+
+    from app.database import SessionLocal
+    from app.models import CreativeEntry
+
+    p = client.post("/api/projects", json={"name": "Night Wrestlers"}).json()
+    a = client.post("/api/entries", json={"original_text": "Cover", "title": "Cover", "project_ids": [p["id"]], "analyze": False}).json()
+    b = client.post("/api/entries", json={"original_text": "Page one", "title": "Page one", "project_ids": [p["id"]], "analyze": False}).json()
+    client.put(f"/api/projects/{p['id']}/order", json={"entry_ids": [a["id"], b["id"]]})
+    with SessionLocal() as db:
+        e = db.get(CreativeEntry, b["id"])
+        e.ai_metadata = {**(e.ai_metadata or {}), "developments": [{"directions": [{"name": "Told backwards", "description": "Start at the end."}],
+                                                                     "questions": ["Who wins?"], "next_step": "Sketch it.", "created_at": "2026-09-27T09:00:00"}]}
+        db.commit()
+    zf = zipfile.ZipFile(io.BytesIO(client.get("/api/export/markdown").content))
+    project = next(zf.read(n).decode() for n in zf.namelist() if n.endswith("projects/Night Wrestlers.md"))
+    assert project.index("Cover") < project.index("Page one")  # your order, not newest first
+    page = next(zf.read(n).decode() for n in zf.namelist() if "/entries/" in n and "Page one" in zf.read(n).decode())
+    assert "AI suggestions to develop this idea" in page and "options from the AI, not your words" in page

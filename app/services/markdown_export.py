@@ -86,6 +86,13 @@ def entry_markdown(db: Session, e: CreativeEntry, names: dict[int, str], links: 
     section("AI inference", e.ai_inference, "possibilities, not facts")
     if meta.get("uncertainties"):
         section("Unknown / uncertain", "\n".join(f"- {u}" for u in meta["uncertainties"]))
+    for dev in meta.get("developments") or []:
+        body = [f"- **{d.get('name', '')}**: {d.get('description', '')}" for d in dev.get("directions") or []]
+        body += [f"- {q}" for q in dev.get("questions") or []]
+        if dev.get("next_step"):
+            body.append(f"- Next step: {dev['next_step']}")
+        section(f"AI suggestions to develop this idea ({str(dev.get('created_at', ''))[:10]})", "\n".join(body),
+                "options from the AI, not your words")
     if links is None:  # one entry on its own: look its links up
         rels = relationships_for(db, e.id)
         others = [r.target_entry if r.source_entry_id == e.id else r.source_entry for r in rels]
@@ -136,8 +143,11 @@ def export_markdown(db: Session) -> tuple[Path, str]:
         if projects:
             index += ["", "## Projects", ""]
         for p in projects:
-            ids = set(db.scalars(select(ProjectEntry.entry_id).where(ProjectEntry.project_id == p.id)))
-            members = [e for e in entries if e.id in ids]
+            links_ = db.execute(select(ProjectEntry.entry_id, ProjectEntry.position).where(ProjectEntry.project_id == p.id)).all()
+            pos = {eid: position for eid, position in links_}
+            members = [e for e in entries if e.id in pos]
+            if any(v is not None for v in pos.values()):  # arranged: your order first, the rest newest first
+                members.sort(key=lambda e: (pos[e.id] is None, pos[e.id] if pos[e.id] is not None else 0))
             body = [f"# {p.name}", "", f"*{p.project_type} · {p.status}*", ""]
             if p.description:
                 body += [p.description, ""]
