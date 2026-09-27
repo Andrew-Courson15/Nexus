@@ -18,7 +18,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import ArtworkAnalysis, CreativeEntry, Relationship, RelationshipStatus, utcnow
+from app.models import ArtworkAnalysis, CreativeEntry, ProjectEntry, Relationship, RelationshipStatus, utcnow
 from app.routes import art as art_routes
 from app.routes.entries import _LOAD
 from app.routes.projects import list_projects
@@ -60,8 +60,15 @@ def build_snapshot(db: Session) -> dict:
     def lean(e):  # the provenance legend is the same for every entry; the app has its own copy
         return entry_detail(e).model_dump(mode="json", exclude={"provenance"})
 
+    orders: dict[int, list[int]] = defaultdict(list)  # projects you've arranged: entry ids in your order
+    for pe in db.scalars(select(ProjectEntry).where(ProjectEntry.position.is_not(None))
+                         .order_by(ProjectEntry.project_id, ProjectEntry.position)):
+        if pe.entry_id in alive:
+            orders[pe.project_id].append(pe.entry_id)
+
     return {
         "format": 2,
+        "orders": orders,
         "generated_at": utcnow(),
         "entries": _each(entries, lean, "entry"),
         "edges": edges,

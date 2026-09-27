@@ -14,6 +14,10 @@ The version is in `app/__init__.py` and shown in **Settings → This device**.
 - **Characters** and **Places & worlds**: each character or place with the sketches and scenes
   linked to it and the entries that mention its name, for all projects or one. Also on the phone
   when the PC is off.
+- **Arrange a project**: put its entries in your own order (story or page order).
+- **Phone copy refreshes a few seconds after any change** made from the phone, instead of up to 5
+  minutes later.
+- **Start a project from an entry**.
 - **Story bible**: print a project (or save it as a PDF), grouped into characters, places, story,
   art and notes, with your words and pictures.
 - **Split a PDF into pages**: a comic issue or scanned sketchbook becomes one picture entry per

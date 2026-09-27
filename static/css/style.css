@@ -607,3 +607,9 @@ a.cite:hover { border-color: var(--text); }
 .whats-new li { margin: 4px 0; }
 .phone-steps li { margin: 6px 0; } .phone-steps li.done { color: var(--ok); }
 .autostart { margin-top: 10px; }
+
+/* ---------- arranging a project ---------- */
+.arrange-list { list-style: decimal; padding-left: 28px; margin: 10px 0; }
+.arrange-list li { display: flex; align-items: center; gap: 10px; padding: 6px 0; border-bottom: 1px solid var(--border); }
+.arrange-list img, .arrange-list .nopic { width: 44px; height: 44px; object-fit: cover; border-radius: 6px; flex: none; background: var(--surface-2); }
+.arrange-list .t { flex: 1; min-width: 0; overflow-wrap: anywhere; }

@@ -328,6 +328,8 @@ Browsers only allow microphone access on `localhost` or HTTPS. Open NEXUS at
     entries (or ones tagged `place`, `world`, `location` or `setting`). Pick a project to see just
     its cast (a project's page has a **Characters** button). Both work on the phone offline.
 - **Projects**: create projects and capture straight into them. An entry can belong to many projects.
+  - **Arrange** puts a project's entries in your own order (story or page order) with ↑ ↓; the
+    story bible and the phone follow it. **Back to date order** undoes it.
   - **Analyze this project**: the local AI reads every entry in the project (your words, notes,
     transcripts, and the art analyses of your sketches). It describes the **characters** and where
     they appear, the **story threads**, the **world**, the **strongest ideas**, **contradictions**

@@ -162,6 +162,8 @@ class ProjectEntry(Base):
     project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), primary_key=True)
     entry_id: Mapped[int] = mapped_column(ForeignKey("creative_entries.id", ondelete="CASCADE"), primary_key=True)
     added_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
+    # Your own order inside the project (story or page order); None = by date.
+    position: Mapped[int | None] = mapped_column(Integer, nullable=True, default=None)
 
 
 class CreativeEntry(Base):

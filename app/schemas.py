@@ -238,6 +238,11 @@ class ProjectOut(BaseModel):
 
 class ProjectDetail(ProjectOut):
     entries: list[EntrySummary]
+    arranged: bool = False  # True when you've put the entries in your own order
+
+
+class ProjectOrder(BaseModel):
+    entry_ids: list[int] = Field(default_factory=list, max_length=5000)  # empty = back to date order
 
 
 class ProjectAnalysisOut(BaseModel):

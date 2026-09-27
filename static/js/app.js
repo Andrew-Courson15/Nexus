@@ -78,6 +78,9 @@ async function api(path, opts = {}) {
       showOfflineBar(false);
       if (method === "GET" && COPY_LISTS.includes(path)) offlineCopy.put("url:" + path, data).catch(() => {});
     }
+    if (HAS_OFFLINE_COPY && method !== "GET" && !["/api/search", "/api/ask"].includes(path) && !path.startsWith("/api/lock")) {
+      refreshCopySoon();  // a change made here: the saved copy shows it soon, not in 5 minutes
+    }
     return data;
   } catch (err) {
     if (!err.offline || !useCopy) throw err;
@@ -224,7 +227,12 @@ const offlineCopy = {
   },
 };
 
-let lastSync = 0, syncing = false, lastSyncError = "";
+let lastSync = 0, syncing = false, lastSyncError = "", refreshTimer = 0;
+/** Refresh the offline copy a few seconds after the last change (several changes: one refresh). */
+function refreshCopySoon() {
+  clearTimeout(refreshTimer);
+  refreshTimer = setTimeout(() => syncOfflineCopy({ force: true }), 5000);
+}
 /** Refresh the offline copy (at most every few minutes unless forced). Never throws. */
 async function syncOfflineCopy({ force = false } = {}) {
   if (!HAS_OFFLINE_COPY || syncing || (!force && Date.now() - lastSync < SYNC_EVERY_MS)) return;
@@ -423,6 +431,14 @@ function rediscoverFromCopy(snap, today) {
   return { today, on_this_day: onThisDay, resurfaced: stale.slice(0, 3) };
 }
 
+/** A project's entries in the order you arranged them (the rest after, in the order given). */
+function inProjectOrder(snap, projectId, entries) {
+  const order = snap.orders?.[projectId] || [];
+  if (!order.length) return entries;
+  const at = new Map(order.map((id, i) => [id, i]));
+  return entries.map((e, i) => [e, at.has(e.id) ? at.get(e.id) : order.length + i]).sort((a, b) => a[1] - b[1]).map(([e]) => e);
+}
+
 async function offlineAnswer(path, opts = {}) {
   const snap = await offlineCopy.snapshot();
   const [p, qs] = path.split("?");
@@ -440,11 +456,12 @@ async function offlineAnswer(path, opts = {}) {
     else if (p === "/api/projects") out = q.get("trashed") === "true" ? [] : snap.projects;
     else if ((m = p.match(/^\/api\/projects\/(\d+)$/))) {
       const proj = snap.projects.find((x) => x.id === +m[1]);
-      out = proj && { ...proj, entries: snap.entries.filter((e) => e.projects.some((x) => x.id === proj.id)) };
+      out = proj && { ...proj, entries: inProjectOrder(snap, proj.id, snap.entries.filter((e) => e.projects.some((x) => x.id === proj.id))),
+        arranged: !!snap.orders?.[proj.id]?.length };
     } else if ((m = p.match(/^\/api\/projects\/(\d+)\/bible$/))) {
       const proj = snap.projects.find((x) => x.id === +m[1]);
-      out = proj && { project: proj, entries: snap.entries.filter((e) => e.projects.some((x) => x.id === proj.id))
-        .sort((a, b) => a.created_at.localeCompare(b.created_at) || a.id - b.id) };
+      out = proj && { project: proj, entries: inProjectOrder(snap, proj.id, snap.entries.filter((e) => e.projects.some((x) => x.id === proj.id))
+        .sort((a, b) => a.created_at.localeCompare(b.created_at) || a.id - b.id)) };
     } else if (p === "/api/trash") out = { items: [], total: 0 };
     else if (p === "/api/search") out = searchCopy(snap, opts.json?.query || "");
     else if (p === "/api/graph") out = graphFromCopy(snap, q);
@@ -1433,13 +1450,16 @@ async function viewProject(el, id) {
     <h1>${esc(p.name)}</h1>${p.description ? `<p class="lede">${esc(p.description)}</p>` : ""}</div></div>
     <section class="panel project-analysis" id="panalysis"><p class="loading">Loading…</p></section>
     <h2>Capture into this project</h2><div id="cap"></div>
-    <h2>${p.entry_count} entr${p.entry_count === 1 ? "y" : "ies"}</h2><div id="pentries">${gridHTML(p.entries, "No entries yet. Capture above, or add existing entries from their detail page.")}</div>
+    <div class="row"><h2>${p.entry_count} entr${p.entry_count === 1 ? "y" : "ies"}${p.arranged ? ` <span class="muted small">· in your order</span>` : ""}</h2>
+      <span class="spacer"></span>${p.entries.length > 1 ? `<button type="button" class="btn ghost small" data-act="arrange">Arrange</button>` : ""}</div>
+    <div id="pentries">${gridHTML(p.entries, "No entries yet. Capture above, or add existing entries from their detail page.")}</div>
     <p class="row" style="margin-top:32px"><a class="btn" href="#/map?project=${p.id}&all=1">See connections</a>
       <a class="btn" href="#/characters?project=${p.id}">Characters</a>
       <a class="btn" href="#/projects/${p.id}/print">Story bible (print)</a>
       <button class="btn" data-act="export-project">Export project (.nexus)</button>
       <button class="btn danger ghost" data-act="trash-project">Move project to trash</button></p>`;
   $("[data-act=export-project]", el).onclick = () => exportShare({ project_id: String(p.id) });
+  $("[data-act=arrange]", el)?.addEventListener("click", () => arrangeProject($("#pentries", el), p));
   mountProjectAnalysis($("#panalysis", el), p);
   mountCapture($("#cap", el), { projectId: p.id, onCaptured: () => render() });
   $("[data-act=trash-project]", el).onclick = async () => {
@@ -1450,6 +1470,34 @@ async function viewProject(el, id) {
       location.hash = "#/projects";
     } catch (err) { toast(err.message, true); }
   };
+}
+
+/** Put a project's entries in your own order (story or page order), with ↑ ↓ (works with a keyboard too). */
+function arrangeProject(box, p) {
+  const order = p.entries.map((e) => e.id), byId = new Map(p.entries.map((e) => [e.id, e]));
+  const draw = (focusId, dir) => {
+    box.innerHTML = `<p class="small muted">Move entries up or down, then save. New entries you add later come after these.</p>
+      <ol class="arrange-list">${order.map((id, i) => { const e = byId.get(id), pic = picOf(e);
+        return `<li>${pic ? `<img src="${esc(pic.thumb_url || pic.preview_url)}" alt="" loading="lazy">` : `<span class="nopic"></span>`}
+          <span class="t">${esc(e.title)}</span>
+          <button type="button" class="btn ghost small" data-up="${id}" aria-label="Move ${esc(e.title)} up"${i ? "" : " disabled"}>↑</button>
+          <button type="button" class="btn ghost small" data-down="${id}" aria-label="Move ${esc(e.title)} down"${i < order.length - 1 ? "" : " disabled"}>↓</button></li>`; }).join("")}</ol>
+      <div class="row"><button type="button" class="btn primary small" data-act="save-order">SAVE ORDER</button>
+        <button type="button" class="btn ghost small" data-act="cancel-order">Cancel</button>
+        ${p.arranged ? `<button type="button" class="btn ghost small" data-act="date-order">Back to date order</button>` : ""}</div>`;
+    const move = (id, by) => { const i = order.indexOf(id), j = i + by; [order[i], order[j]] = [order[j], order[i]]; draw(id, by < 0 ? "up" : "down"); };
+    $$("[data-up]", box).forEach((b) => (b.onclick = () => move(+b.dataset.up, -1)));
+    $$("[data-down]", box).forEach((b) => (b.onclick = () => move(+b.dataset.down, 1)));
+    if (focusId) ($(`[data-${dir}="${focusId}"]:not([disabled])`, box) || $(`[data-up="${focusId}"], [data-down="${focusId}"]`, box))?.focus();
+    const save = async (ids) => {
+      try { await api(`/api/projects/${p.id}/order`, { method: "PUT", json: { entry_ids: ids } }); toast(ids.length ? "Order saved." : "Back to date order."); render(); }
+      catch (err) { toast(err.message, true); }
+    };
+    $("[data-act=save-order]", box).onclick = () => save(order);
+    $("[data-act=cancel-order]", box).onclick = () => render();
+    $("[data-act=date-order]", box)?.addEventListener("click", () => save([]));
+  };
+  draw();
 }
 
 const BIBLE_SECTIONS = [

@@ -9,6 +9,7 @@ from app.database import get_db
 from app.models import CreativeEntry, EntryTag, Project, ProjectEntry, utcnow
 from app.routes.entries import load_entry
 from app.schemas import (
+    ProjectOrder,
     ProjectAnalysisOut,
     ProjectCreate,
     ProjectDetail,
@@ -48,10 +49,12 @@ def _detail(db: Session, project_id: int) -> ProjectDetail:
         .where(ProjectEntry.project_id == project_id, CreativeEntry.deleted_at.is_(None))
         .options(selectinload(CreativeEntry.entry_tags).selectinload(EntryTag.tag),
                  selectinload(CreativeEntry.projects), selectinload(CreativeEntry.attachments))
-        .order_by(CreativeEntry.created_at.desc())
+        .order_by(ProjectEntry.position.is_(None), ProjectEntry.position, CreativeEntry.created_at.desc())
     ).all()
+    arranged = db.scalar(select(func.count()).where(ProjectEntry.project_id == project_id,
+                                                    ProjectEntry.position.is_not(None))) > 0
     return ProjectDetail(**project_out(project, len(entries)).model_dump(),
-                         entries=[entry_summary(e) for e in entries])
+                         entries=[entry_summary(e) for e in entries], arranged=arranged)
 
 
 @router.get("", response_model=list[ProjectOut])
@@ -163,7 +166,26 @@ def project_bible(project_id: int, db: Session = Depends(get_db)):
         select(CreativeEntry)
         .join(ProjectEntry, ProjectEntry.entry_id == CreativeEntry.id)
         .where(ProjectEntry.project_id == project_id, CreativeEntry.deleted_at.is_(None))
-        .options(*_LOAD).order_by(CreativeEntry.created_at, CreativeEntry.id)
+        .options(*_LOAD).order_by(ProjectEntry.position.is_(None), ProjectEntry.position,
+                                  CreativeEntry.created_at, CreativeEntry.id)
     ).all()
     return {"project": project_out(project, len(entries)).model_dump(mode="json"),
             "entries": [entry_detail(e).model_dump(mode="json", exclude={"provenance"}) for e in entries]}
+
+
+@router.put("/{project_id}/order", response_model=ProjectDetail)
+def arrange_project(project_id: int, payload: ProjectOrder, db: Session = Depends(get_db)):
+    """Put the project's entries in your own order (story or page order). Entries left out, and
+    ones added later, come after the arranged ones, newest first. An empty list goes back to date order."""
+    project = _get(db, project_id)
+    links = {pe.entry_id: pe for pe in db.scalars(select(ProjectEntry).where(ProjectEntry.project_id == project_id))}
+    unknown = [i for i in payload.entry_ids if i not in links]
+    if unknown:
+        raise HTTPException(400, f"Not in this project: {', '.join(map(str, unknown[:10]))}")
+    for pe in links.values():
+        pe.position = None
+    for position, entry_id in enumerate(dict.fromkeys(payload.entry_ids)):
+        links[entry_id].position = position
+    project.updated_at = utcnow()
+    db.commit()
+    return _detail(db, project_id)

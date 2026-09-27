@@ -220,3 +220,21 @@ def test_project_bible_has_full_entries_oldest_first(client):
     assert bible["project"]["name"] == "Night Wrestlers"
     assert [e["id"] for e in bible["entries"]] == [a["id"], b["id"]]
     assert bible["entries"][0]["original_text"] == long_text  # in full, not an excerpt
+
+
+def test_arranging_a_project(client):
+    p = client.post("/api/projects", json={"name": "Night Wrestlers"}).json()
+    ids = [client.post("/api/entries", json={"original_text": f"Page {i}", "project_ids": [p["id"]], "analyze": False}).json()["id"]
+           for i in (1, 2, 3)]
+    detail = client.get(f"/api/projects/{p['id']}").json()
+    assert [e["id"] for e in detail["entries"]] == ids[::-1] and detail["arranged"] is False  # newest first
+    r = client.put(f"/api/projects/{p['id']}/order", json={"entry_ids": [ids[0], ids[2]]}).json()
+    assert [e["id"] for e in r["entries"]] == [ids[0], ids[2], ids[1]] and r["arranged"]  # left-out ones after
+    bible = client.get(f"/api/projects/{p['id']}/bible").json()
+    assert [e["id"] for e in bible["entries"]] == [ids[0], ids[2], ids[1]]
+    late = client.post("/api/entries", json={"original_text": "Page 4", "project_ids": [p["id"]], "analyze": False}).json()
+    assert client.get(f"/api/projects/{p['id']}").json()["entries"][-1]["id"] in (late["id"], ids[1])
+    other = client.post("/api/entries", json={"original_text": "Not in it", "analyze": False}).json()
+    assert client.put(f"/api/projects/{p['id']}/order", json={"entry_ids": [other["id"]]}).status_code == 400
+    back = client.put(f"/api/projects/{p['id']}/order", json={"entry_ids": []}).json()
+    assert back["arranged"] is False and back["entries"][0]["id"] == late["id"]
