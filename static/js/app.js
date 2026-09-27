@@ -315,6 +315,7 @@ async function offlineAnswer(path, opts = {}) {
       out = proj && { ...proj, entries: snap.entries.filter((e) => e.projects.some((x) => x.id === proj.id)) };
     } else if (p === "/api/trash") out = { items: [], total: 0 };
     else if (p === "/api/search") out = searchCopy(snap, opts.json?.query || "");
+    else if (p === "/api/graph") out = graphFromCopy(snap, q);
   }
   if (out === undefined && COPY_LISTS.includes(path)) out = await offlineCopy.get("url:" + path).catch(() => undefined);
   if (out === undefined || out === null || out === false) return undefined;
@@ -764,7 +765,7 @@ async function viewArchive(el) {
   const f = archiveState;
   el.innerHTML = `<div class="view-head"><div><h1>Creative Archive</h1>
     <p class="lede">Everything you've captured. Your words are never altered.</p></div>
-    <div class="row"><span class="muted small" id="count"></span>${trash.total ? `<a class="btn ghost small" href="#/trash">Trash (${trash.total})</a>` : ""}</div></div>
+    <div class="row"><span class="muted small" id="count"></span><a class="btn ghost small" href="#/map">Connections map</a>${trash.total ? `<a class="btn ghost small" href="#/trash">Trash (${trash.total})</a>` : ""}</div></div>
     <details class="filterbox" ${matchMedia("(min-width: 641px)").matches ? "open" : ""}>
     <summary class="btn ghost small">Filters &amp; sort</summary>
     <form class="filters" id="filters">
@@ -851,7 +852,8 @@ async function viewProject(el, id) {
     <section class="panel project-analysis" id="panalysis"><p class="loading">Loading…</p></section>
     <h2>Capture into this project</h2><div id="cap"></div>
     <h2>${p.entry_count} entr${p.entry_count === 1 ? "y" : "ies"}</h2><div id="pentries">${gridHTML(p.entries, "No entries yet. Capture above, or add existing entries from their detail page.")}</div>
-    <p class="row" style="margin-top:32px"><button class="btn" data-act="export-project">Export project (.nexus)</button>
+    <p class="row" style="margin-top:32px"><a class="btn" href="#/map?project=${p.id}&all=1">See connections</a>
+      <button class="btn" data-act="export-project">Export project (.nexus)</button>
       <button class="btn danger ghost" data-act="trash-project">Move project to trash</button></p>`;
   $("[data-act=export-project]", el).onclick = () => exportShare({ project_id: String(p.id) });
   mountProjectAnalysis($("#panalysis", el), p);
@@ -986,6 +988,210 @@ async function mountBackups(box) {
     mountBackups(box);
   });
   if (b.running) setTimeout(() => box.isConnected && mountBackups(box), 3000);
+}
+
+/* ------------------------------------------------------- connections map */
+const TYPE_PALETTE = ["#e8a33d", "#8e6bd6", "#3f8fd2", "#2fa58c", "#d0573f", "#5fae4a", "#c9559b", "#8a8f98",
+  "#d98c2b", "#4aa3b5", "#b5883f", "#6d7fd6"];
+const typeColor = (t) => TYPE_PALETTE[[...String(t)].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7) % TYPE_PALETTE.length];
+
+/** Spread nodes out (Fruchterman-Reingold): linked ideas pull together, all ideas push apart. */
+function forceLayout(nodes, edges) {
+  const n = nodes.length, idx = new Map(nodes.map((d, i) => [d.id, i]));
+  const x = new Float64Array(n), y = new Float64Array(n);
+  nodes.forEach((_, i) => { const r = 34 * Math.sqrt(i + 1), a = i * 2.39996; x[i] = r * Math.cos(a); y[i] = r * Math.sin(a); });
+  const links = edges.map((e) => [idx.get(e.source), idx.get(e.target)]).filter(([a, b]) => a !== undefined && b !== undefined && a !== b);
+  const k = 95, iterations = n > 400 ? 120 : 320;
+  for (let it = 0; it < iterations; it++) {
+    const temp = 4 + 50 * (1 - it / iterations);
+    const fx = new Float64Array(n), fy = new Float64Array(n);
+    for (let i = 0; i < n; i++) {
+      for (let j = i + 1; j < n; j++) {
+        const dx = x[i] - x[j], dy = y[i] - y[j], d2 = dx * dx + dy * dy + 0.01, f = (k * k) / d2;
+        fx[i] += dx * f; fy[i] += dy * f; fx[j] -= dx * f; fy[j] -= dy * f;
+      }
+    }
+    for (const [a, b] of links) {
+      const dx = x[b] - x[a], dy = y[b] - y[a], f = Math.sqrt(dx * dx + dy * dy) / k;
+      fx[a] += dx * f; fy[a] += dy * f; fx[b] -= dx * f; fy[b] -= dy * f;
+    }
+    for (let i = 0; i < n; i++) {
+      fx[i] -= x[i] * 0.03; fy[i] -= y[i] * 0.03;  // gentle pull to the middle keeps islands close
+      const d = Math.hypot(fx[i], fy[i]) || 1, step = Math.min(d, temp);
+      x[i] += (fx[i] / d) * step; y[i] += (fy[i] / d) * step;
+    }
+  }
+  nodes.forEach((d, i) => { d.x = x[i]; d.y = y[i]; });
+}
+
+/** The same graph, built from the phone's offline copy. */
+function graphFromCopy(snap, q) {
+  const pid = q.get("project_id"), withSuggested = q.get("include_suggested") === "true";
+  const entries = snap.entries.filter((e) => !pid || e.projects.some((p) => String(p.id) === pid));
+  const ids = new Set(entries.map((e) => e.id)), edges = new Map();
+  for (const [eid, rels] of Object.entries(snap.relationships)) {
+    for (const r of rels) {
+      if (!(r.status === "accepted" || (withSuggested && r.status === "suggested"))) continue;
+      const [source, target] = r.direction === "outgoing" ? [+eid, r.other.id] : [r.other.id, +eid];
+      if (ids.has(source) && ids.has(target)) edges.set(r.id, { id: r.id, source, target, type: r.relationship_type,
+        origin: r.origin, status: r.status, yours: r.origin === "user" || r.status === "accepted" });
+    }
+  }
+  return { nodes: entries.map((e) => ({ id: e.id, title: e.title, entry_type: e.entry_type, status: e.status,
+    thumb_url: picOf(e)?.thumb_url || null, project_ids: e.projects.map((p) => p.id), shared_by: e.shared_from?.by || null })),
+    edges: [...edges.values()] };
+}
+
+async function viewMap(el, _id, query) {
+  const projects = await api("/api/projects");
+  const pid = query.get("project") || "", suggested = query.get("suggested") === "1", everything = query.get("all") === "1";
+  const focus = +query.get("focus") || null;
+  el.innerHTML = `<div class="view-head"><div><h1>Connections</h1>
+    <p class="lede">How your ideas link up. Lines are links you made or accepted${suggested ? "; dashed lines are AI suggestions" : ""}. Tap an idea to open it.</p></div></div>
+    <form class="filters map-filters" id="mapf">
+      <label class="field">Project<select name="project"><option value="">All projects</option>${projects.map((p) =>
+        `<option value="${p.id}"${String(p.id) === pid ? " selected" : ""}>${esc(p.name)}</option>`).join("")}</select></label>
+      <label class="check"><input type="checkbox" name="suggested"${suggested ? " checked" : ""}> Show AI suggestions</label>
+      <label class="check"><input type="checkbox" name="all"${everything ? " checked" : ""}> Show ideas without links</label>
+    </form>
+    <div class="map-wrap"><svg id="map" role="img" aria-label="Map of linked ideas"></svg>
+      <div class="map-zoom"><button type="button" class="btn small" data-zoom="1.3" aria-label="Zoom in">+</button>
+      <button type="button" class="btn small" data-zoom="0.77" aria-label="Zoom out">−</button>
+      <button type="button" class="btn small" data-zoom="fit">Fit</button></div></div>
+    <div class="map-legend small" id="map-legend"></div>`;
+  $("#mapf", el).onchange = () => {
+    const f = new FormData($("#mapf", el)), qs = new URLSearchParams();
+    if (f.get("project")) qs.set("project", f.get("project"));
+    if (f.get("suggested")) qs.set("suggested", "1");
+    if (f.get("all")) qs.set("all", "1");
+    location.hash = "#/map" + (qs.toString() ? "?" + qs : "");
+  };
+  const params = new URLSearchParams({ include_suggested: String(suggested) });
+  if (pid) params.set("project_id", pid);
+  const g = await api("/api/graph?" + params);
+  const degree = new Map();
+  g.edges.forEach((e) => { degree.set(e.source, (degree.get(e.source) || 0) + 1); degree.set(e.target, (degree.get(e.target) || 0) + 1); });
+  const nodes = g.nodes.filter((n) => everything || degree.has(n.id) || n.id === focus);
+  const svg = $("#map", el);
+  if (!nodes.length) {
+    $(".map-wrap", el).innerHTML = `<p class="empty">No links yet${pid ? " in this project" : ""}. Link ideas from an entry's page
+      (<em>Related ideas → Link to another idea</em>), accept AI suggestions, or tick <em>Show ideas without links</em>.</p>`;
+    return;
+  }
+  forceLayout(nodes, g.edges);
+  const byId = new Map(nodes.map((n) => [n.id, n]));
+  const edges = g.edges.filter((e) => byId.has(e.source) && byId.has(e.target));
+  const radius = (n) => 9 + 2.2 * Math.sqrt(degree.get(n.id) || 0);
+  const short = (t) => (t.length > 24 ? t.slice(0, 22) + "…" : t);
+  const NS = "http://www.w3.org/2000/svg";
+  svg.innerHTML = `<defs>${nodes.filter((n) => n.thumb_url).map((n) =>
+      `<clipPath id="clip${n.id}"><circle cx="${n.x}" cy="${n.y}" r="${radius(n) + 5}"/></clipPath>`).join("")}</defs>
+    <g class="edges">${edges.map((e) => { const a = byId.get(e.source), b = byId.get(e.target);
+      return `<line x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" data-a="${a.id}" data-b="${b.id}"
+        class="edge ${e.yours ? "yours" : "suggested"} ${e.type === "contradicts" ? "contradicts" : ""}"><title>${esc(a.title)} — ${esc(label(e.type))} → ${esc(b.title)}${e.yours ? "" : " (AI suggestion)"}</title></line>`; }).join("")}</g>
+    <g class="nodes">${nodes.map((n) => { const r = radius(n);
+      return `<g class="node${n.id === focus ? " focus" : ""}" data-id="${n.id}" tabindex="0" role="link" aria-label="${esc(n.title)}">
+        <title>${esc(n.title)} · ${esc(label(n.entry_type))}${n.shared_by ? ` · from ${esc(n.shared_by)}` : ""}</title>
+        ${n.thumb_url ? `<image href="${esc(n.thumb_url)}" x="${n.x - r - 5}" y="${n.y - r - 5}" width="${2 * r + 10}" height="${2 * r + 10}"
+            preserveAspectRatio="xMidYMid slice" clip-path="url(#clip${n.id})"/>
+          <circle cx="${n.x}" cy="${n.y}" r="${r + 5}" class="ring" stroke="${typeColor(n.entry_type)}"/>`
+          : `<circle cx="${n.x}" cy="${n.y}" r="${r}" fill="${typeColor(n.entry_type)}" class="dot"/>`}
+        <text x="${n.x}" y="${n.y + r + (n.thumb_url ? 19 : 14)}">${esc(short(n.title))}</text></g>`; }).join("")}</g>`;
+  const types = [...new Set(nodes.map((n) => n.entry_type))].sort();
+  $("#map-legend", el).innerHTML = types.map((t) => `<span><i style="background:${typeColor(t)}"></i>${esc(label(t))}</span>`).join("")
+    + `<span><b class="ln yours"></b>your link</span>${suggested ? `<span><b class="ln suggested"></b>AI suggestion</span>` : ""}
+       <span><b class="ln contradicts"></b>contradicts</span> · ${nodes.length} idea${nodes.length === 1 ? "" : "s"}, ${edges.length} link${edges.length === 1 ? "" : "s"}`;
+
+  // --- view box: fit, zoom, pan (mouse, touch and pinch)
+  const xs = nodes.map((n) => n.x), ys = nodes.map((n) => n.y), padX = 120, padY = 60;  // room for labels at the sides
+  const fit = { x: Math.min(...xs) - padX, y: Math.min(...ys) - padY,
+    w: Math.max(...xs) - Math.min(...xs) + 2 * padX, h: Math.max(...ys) - Math.min(...ys) + 2 * padY };
+  let vb = { ...fit };
+  const apply = () => {
+    svg.setAttribute("viewBox", `${vb.x} ${vb.y} ${vb.w} ${vb.h}`);
+    // Labels stay a readable size on screen, however far the map is zoomed out (phones especially).
+    const r = svg.getBoundingClientRect(), perPx = Math.max(vb.w / (r.width || 1), vb.h / (r.height || 1));
+    svg.style.setProperty("--label", `${Math.min(11 * perPx, 40).toFixed(1)}px`);
+  };
+  const zoomAt = (f, cx = vb.x + vb.w / 2, cy = vb.y + vb.h / 2) => {
+    const w = Math.min(Math.max(vb.w / f, 80), fit.w * 6), s = w / vb.w;
+    vb = { x: cx - (cx - vb.x) * s, y: cy - (cy - vb.y) * s, w, h: vb.h * s };
+    apply();
+  };
+  apply();
+  if (focus && byId.has(focus)) { const f = byId.get(focus); vb = { x: f.x - 250, y: f.y - 180, w: 500, h: 360 }; apply(); }
+  const toSvg = (ev) => { const r = svg.getBoundingClientRect(); return { x: vb.x + ((ev.clientX - r.left) / r.width) * vb.w, y: vb.y + ((ev.clientY - r.top) / r.height) * vb.h }; };
+  $$("[data-zoom]", el).forEach((b) => (b.onclick = () => { if (b.dataset.zoom === "fit") { vb = { ...fit }; apply(); } else zoomAt(+b.dataset.zoom); }));
+  svg.addEventListener("wheel", (ev) => { ev.preventDefault(); const p = toSvg(ev); zoomAt(ev.deltaY < 0 ? 1.15 : 0.87, p.x, p.y); }, { passive: false });
+  const pointers = new Map();
+  let moved = 0, pinch = null;
+  svg.addEventListener("pointerdown", (ev) => { pointers.set(ev.pointerId, ev); moved = 0; svg.setPointerCapture(ev.pointerId);
+    if (pointers.size === 2) { const [a, b] = [...pointers.values()]; pinch = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY); } });
+  svg.addEventListener("pointermove", (ev) => {
+    const last = pointers.get(ev.pointerId);
+    if (!last) return;
+    pointers.set(ev.pointerId, ev);
+    if (pointers.size === 2 && pinch) {
+      const [a, b] = [...pointers.values()], d = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+      zoomAt(d / pinch); pinch = d; moved += 10; return;
+    }
+    const r = svg.getBoundingClientRect(), dx = ev.clientX - last.clientX, dy = ev.clientY - last.clientY;
+    moved += Math.abs(dx) + Math.abs(dy);
+    vb.x -= (dx / r.width) * vb.w; vb.y -= (dy / r.height) * vb.h; apply();
+  });
+  const up = (ev) => {
+    pointers.delete(ev.pointerId);
+    if (pointers.size < 2) pinch = null;
+    if (moved < 6 && ev.type === "pointerup") {
+      const node = document.elementFromPoint(ev.clientX, ev.clientY)?.closest(".node");
+      if (node) location.hash = `#/entry/${node.dataset.id}`;
+    }
+  };
+  svg.addEventListener("pointerup", up);
+  svg.addEventListener("pointercancel", up);
+  // Highlight an idea's own links on hover / keyboard focus.
+  const highlight = (id) => {
+    svg.classList.toggle("dim", !!id);
+    $$(".edge", svg).forEach((l) => l.classList.toggle("hot", !!id && (l.dataset.a === id || l.dataset.b === id)));
+    const near = new Set([id, ...$$(".edge.hot", svg).flatMap((l) => [l.dataset.a, l.dataset.b])]);
+    $$(".node", svg).forEach((n) => n.classList.toggle("hot", !!id && near.has(n.dataset.id)));
+  };
+  $$(".node", svg).forEach((n) => {
+    n.addEventListener("pointerenter", () => highlight(n.dataset.id));
+    n.addEventListener("pointerleave", () => highlight(null));
+    n.addEventListener("focus", () => highlight(n.dataset.id));
+    n.addEventListener("keydown", (ev) => { if (ev.key === "Enter") location.hash = `#/entry/${n.dataset.id}`; });
+  });
+  if (focus) highlight(String(focus));
+}
+
+/* ---------------------------------------------------------- manual links */
+/** "Link to another idea": find an entry by title/words, pick how they're related, link. */
+function mountLinker(el, e, rels) {
+  const q = $("#link-q", el), out = $("#link-results", el);
+  if (!q) return;
+  let all = null;
+  const linked = new Set(rels.map((r) => r.other.id));
+  const show = async () => {
+    if (!all) {
+      try { all = (await api("/api/entries?limit=500&sort=modified")).items.filter((x) => x.id !== e.id); }
+      catch (err) { out.innerHTML = `<p class="small muted">${esc(err.message)}</p>`; return; }
+    }
+    const words = q.value.toLowerCase().split(/\s+/).filter(Boolean);
+    const hits = all.filter((x) => words.every((w) => `${x.title} ${x.excerpt || ""} ${x.ai_summary || ""}`.toLowerCase().includes(w))).slice(0, 8);
+    out.innerHTML = hits.length ? hits.map((x) => `<button type="button" class="link-hit" data-link="${x.id}">
+        <strong>${esc(x.title)}</strong> <span class="muted small">${esc(label(x.entry_type))}${linked.has(x.id) ? " · already linked" : ""}</span></button>`).join("")
+      : `<p class="small muted">No entries match.</p>`;
+    $$("[data-link]", out).forEach((b) => (b.onclick = async () => {
+      const type = $("#link-type", el).value;
+      try {
+        await api(`/api/entries/${e.id}/relationships`, { method: "POST", json: { target_entry_id: +b.dataset.link, relationship_type: type } });
+        toast("Linked."); render();
+      } catch (err) { toast(err.message, true); }
+    }));
+  };
+  q.addEventListener("input", show);
+  $(".linker", el).addEventListener("toggle", (ev) => { if (ev.target.open) { show(); q.focus(); } });
 }
 
 /* ------------------------------------------------------ project analysis */
@@ -1374,13 +1580,25 @@ async function viewEntry(el, id) {
     <div class="panel"><h3>Related ideas</h3>
       ${rels.length ? rels.map((r) => `<div class="rel ${esc(r.status)}">
         <div class="row small"><span class="source-badge ${r.origin}">${esc(r.label)}</span><span class="spacer"></span><span class="confidence">${pct(r.confidence)}</span></div>
-        <div><span class="muted small">${esc(label(r.relationship_type))} →</span> <a href="#/entry/${r.other.id}">${esc(r.other.title)}</a></div>
+        <div>${r.direction === "incoming"
+          ? `<a href="#/entry/${r.other.id}">${esc(r.other.title)}</a> <span class="muted small">${esc(label(r.relationship_type))} → this</span>`
+          : `<span class="muted small">${esc(label(r.relationship_type))} →</span> <a href="#/entry/${r.other.id}">${esc(r.other.title)}</a>`}</div>
         ${r.rationale ? `<div class="why">${esc(r.rationale)}</div>` : ""}
         ${r.origin === "ai" && r.status !== "accepted" ? `<div class="row">
           <button class="btn small" data-rel="${r.id}" data-status="accepted">Accept</button>
           <button class="btn small ghost" data-rel="${r.id}" data-status="rejected">Reject</button>
-          ${r.status !== "ignored" ? `<button class="btn small ghost" data-rel="${r.id}" data-status="ignored">Ignore</button>` : ""}</div>` : ""}
-      </div>`).join("") : `<span class="muted small">No related entries found yet.</span>`}</div>
+          ${r.status !== "ignored" ? `<button class="btn small ghost" data-rel="${r.id}" data-status="ignored">Ignore</button>` : ""}</div>`
+          : `<div class="row"><button class="btn small ghost" data-rel="${r.id}" data-status="rejected" data-unlink>Remove link</button></div>`}
+      </div>`).join("") : `<span class="muted small">No related entries found yet.</span>`}
+      <p class="small"><a href="#/map?focus=${e.id}${rels.some((r) => r.status === "suggested") ? "&suggested=1" : ""}">See it on the connections map →</a></p>
+      <details class="linker"><summary class="btn small ghost">+ Link to another idea</summary>
+        <div class="linker-body">
+          <input type="search" id="link-q" placeholder="Find an entry by title or words" aria-label="Find an entry to link" autocomplete="off">
+          <div id="link-results" class="link-results"></div>
+          <div class="row"><select id="link-type" aria-label="How they're related">${s.vocab.relationship_types.map((t) =>
+            `<option value="${esc(t)}"${t === "related_to" ? " selected" : ""}>${esc(label(t))}</option>`).join("")}</select></div>
+          <p class="small muted">A link you make is yours: the AI never removes it or suggests it again.</p>
+        </div></details></div>
 
     ${hasImage ? `<div class="panel" id="evopanel"></div>` : ""}
 
@@ -1468,9 +1686,14 @@ async function viewEntry(el, id) {
     toast("Removed from project."); render();
   }));
   $$("[data-rel]", el).forEach((b) => (b.onclick = async () => {
-    try { await api(`/api/relationships/${b.dataset.rel}`, { method: "PATCH", json: { status: b.dataset.status } }); toast(`Relationship ${b.dataset.status}.`); render(); }
-    catch (err) { toast(err.message, true); }
+    if (b.hasAttribute("data-unlink") && !confirm("Remove this link? The AI won't suggest it again.")) return;
+    try {
+      await api(`/api/relationships/${b.dataset.rel}`, { method: "PATCH", json: { status: b.dataset.status } });
+      toast(b.hasAttribute("data-unlink") ? "Link removed." : `Relationship ${b.dataset.status}.`);
+      render();
+    } catch (err) { toast(err.message, true); }
   }));
+  mountLinker(el, e, rels);
   if (hasImage) mountArtPanels(el, e);
   $$("[data-restore-version]", el).forEach((b) => (b.onclick = async () => {
     const v = b.dataset.restoreVersion;
@@ -1858,6 +2081,7 @@ const ROUTES = [
   [/^\/entry\/(\d+)$/, viewEntry, "archive"],
   [/^\/search$/, viewSearch, "search"],
   [/^\/ask$/, viewAsk, "ask"],
+  [/^\/map$/, viewMap, "map"],
   [/^\/settings$/, viewSettings, "settings"],
   [/^\/trash$/, viewTrash, "archive"],
   [/^\/art$/, viewArt, "art"],

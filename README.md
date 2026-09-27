@@ -228,6 +228,13 @@ Browsers only allow microphone access on `localhost` or HTTPS. Open NEXUS at
   `unfinished comic ideas`, `sketches with monsters`. NEXUS shows how it understood your query.
   It matches your **words** and, with the local embedding model, the **meaning**. For example,
   "forgetting who you are" finds an idea about memory loss. Each result shows how it matched.
+- **Map** (desktop menu; **Connections map** on the Archive page; **See connections** on a project):
+  - Your ideas appear as dots, colored by type (pictures show as their thumbnail), with lines for
+    their links. Linked ideas pull together, so clusters show which ideas belong together.
+  - Filter by project, show AI suggestions as dashed lines, or include ideas without links.
+  - Drag to move, pinch/scroll or **+ / −** to zoom, and click an idea to open it. Hovering an idea
+    highlights its own links.
+  - Works from the phone's offline copy too.
 - **Ask** (desktop menu, or **Ask a question instead** on the Search page): ask about your own
   ideas, such as "What villains have I come up with?" or "Which ideas involve memory?".
   - NEXUS finds the entries most likely to hold the answer.
@@ -246,6 +253,8 @@ Browsers only allow microphone access on `localhost` or HTTPS. Open NEXUS at
   - add and remove tags (a removed AI tag doesn't come back)
   - add the entry to projects
   - **accept / reject / ignore** AI-suggested relationships
+  - **link it to another idea yourself** (*Related ideas → Link to another idea*: find it, pick how
+    they're related, e.g. "character in"), or remove a link. A link you remove isn't suggested again.
   - re-run the organizer
   - browse the full revision history: each version shows what changed, and **Restore this version**
     brings an old one back as a new version, so nothing is lost
@@ -564,6 +573,7 @@ Transcription follows the same pattern in `services/transcription.py`: `Transcri
 | GET | `/api/uploads/{attachment_id}` | The original file |
 | POST | `/api/search` | `{"query": "...", "limit", "entry_types", "statuses", "date_from", "date_to"}`. Each result has `matched_by` (`words`, `meaning`, `filters`) and `similarity` |
 | POST | `/api/search/reindex` | Queue entries whose meaning index is missing or stale |
+| GET | `/api/graph` | Connections map: `nodes` and `edges` (`project_id`, `include_suggested`) |
 | POST | `/api/ask` | `{"question": "..."}` → an answer from the archive with `sources` (each `cited` or not). Read-only |
 | GET | `/api/uploads/{attachment_id}/preview` · `/thumb` | A viewable JPEG/PNG of any picture format · a small version for cards |
 | GET | `/api/offline/snapshot` | Everything the phone needs to browse the archive offline (gzip) |
@@ -597,7 +607,6 @@ Transcription follows the same pattern in `services/transcription.py`: `Transcri
 - Importing PDFs or ebooks into the art library (for now, paste the passages you care about).
 
 - Knowledge-graph entities beyond entries: people, places, themes and events.
-- A relationship graph visualisation, and manual linking in the UI (the API exists).
 - Tracking who created each entry when several people share *one* NEXUS (separate installs
   already mark shared entries with their author).
 - Alembic migrations for non-additive schema changes, and a PostgreSQL option.
