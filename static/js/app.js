@@ -1431,7 +1431,7 @@ async function viewProjects(el) {
   async function load() {
     const [projects, trashed] = await Promise.all([api("/api/projects"), api("/api/projects?trashed=true")]);
     $("#plist", el).innerHTML = projects.length
-      ? `<div class="grid">${projects.map((p) => `<a class="card" href="#/projects/${p.id}">
+      ? `<h2 class="sr-only">Your projects</h2><div class="grid">${projects.map((p) => `<a class="card" href="#/projects/${p.id}">
           <div class="meta"><span class="pill type">${esc(label(p.project_type))}</span><span class="pill">${esc(p.status)}</span>
           <span class="spacer"></span><span>${p.entry_count} entr${p.entry_count === 1 ? "y" : "ies"}</span></div>
           <h3>${esc(p.name)}</h3>${p.description ? `<p class="summary">${esc(p.description)}</p>` : ""}
@@ -1460,7 +1460,7 @@ async function viewProject(el, id) {
   el.innerHTML = `<p><a href="#/projects" class="muted small">← Projects</a></p>
     <div class="view-head"><div><div class="meta"><span class="pill type">${esc(label(p.project_type))}</span><span class="pill">${esc(p.status)}</span></div>
     <h1>${esc(p.name)}</h1>${p.description ? `<p class="lede">${esc(p.description)}</p>` : ""}</div></div>
-    <section class="panel project-analysis" id="panalysis"><p class="loading">Loading…</p></section>
+    <h2 class="sr-only">Project analysis</h2><section class="panel project-analysis" id="panalysis"><p class="loading">Loading…</p></section>
     <h2>Capture into this project</h2><div id="cap"></div>
     <div class="row"><h2>${p.entry_count} entr${p.entry_count === 1 ? "y" : "ies"}${p.arranged ? ` <span class="muted small">· in your order</span>` : ""}</h2>
       <span class="spacer"></span>${p.entries.length > 1 ? `<button type="button" class="btn ghost small" data-act="arrange">Arrange</button>` : ""}</div>
@@ -2627,7 +2627,7 @@ async function viewEntry(el, id) {
     <div class="panel"><h3>Projects</h3>
       ${e.projects.length ? e.projects.map((p) => `<div class="row"><a href="#/projects/${p.id}">${esc(p.name)}</a><span class="spacer"></span>
         <button class="btn ghost small" data-remove-project="${p.id}" aria-label="Remove from ${esc(p.name)}">×</button></div>`).join("") : `<span class="muted small">Not in a project.</span>`}
-      ${projects.some((p) => !inProjects.has(p.id)) ? `<div class="row"><select id="addproj" style="flex:1"><option value="">Add to project…</option>${projects
+      ${projects.some((p) => !inProjects.has(p.id)) ? `<div class="row"><select id="addproj" style="flex:1" aria-label="Add to project"><option value="">Add to project…</option>${projects
         .filter((p) => !inProjects.has(p.id)).map((p) => `<option value="${p.id}">${esc(p.name)}</option>`).join("")}</select></div>` : ""}
       <button type="button" class="btn ghost small" data-act="new-project">+ Start a project from this</button></div>
 
