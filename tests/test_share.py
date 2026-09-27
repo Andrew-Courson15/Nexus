@@ -129,3 +129,20 @@ def test_their_notes_stay_theirs(client, other_install):
     assert new["shared_from"]["notes"] == "Maybe they sing at dawn."
     assert "Maybe they sing at dawn." in {r["entry"]["id"]: r for r in client.post(
         "/api/search", json={"query": "dawn"}).json()["results"]}[new["id"]]["snippet"].replace("\x01", "").replace("\x02", "")
+
+
+def test_imported_files_get_their_type_from_what_they_are_not_the_label(client, other_install):
+    other_install()
+    out = io.BytesIO()
+    with zipfile.ZipFile(out, "w") as zf:
+        zf.writestr("manifest.json", json.dumps({
+            "format": "nexus-share", "version": 1, "install_id": "a" * 32, "by": "x",
+            "entries": [{"entry_id": 1, "source_type": "image", "attachments": [
+                {"file": "files/1/0-page.html", "kind": "image", "mime_type": "image/png", "original_filename": "page.html"}]}]}))
+        zf.writestr("files/1/0-page.html", "<script>alert(1)</script>")
+    r = do_import(client, out.getvalue())
+    assert r.status_code == 200, r.text
+    att = client.get(f"/api/entries/{r.json()['imported'][0]}").json()["attachments"][0]
+    assert att["kind"] == "file" and att["mime_type"] == "text/html"
+    served = client.get(att["url"])
+    assert "attachment" in served.headers["content-disposition"] and served.headers["content-security-policy"] == "sandbox"

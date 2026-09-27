@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import mimetypes
 import re
 import shutil
 import tempfile
@@ -43,7 +44,7 @@ from app.models import (
     utcnow,
 )
 from app.services.history import add_tag, record_revision
-from app.services.images import ensure_preview
+from app.services.images import classify_image, ensure_preview
 from app.services.search import index_entry
 
 FORMAT = "nexus-share"
@@ -296,8 +297,18 @@ def _import_entry(db: Session, zf: zipfile.ZipFile, names: set[str], item: dict,
         p = PurePosixPath(arc)
         if arc not in names or p.is_absolute() or ".." in p.parts or not arc.startswith("files/"):
             raise ShareError("The share file is damaged (a file is missing or has an unsafe name).")
-        kind = f.get("kind") if f.get("kind") in dirs else "file"
-        ext = Path(str(f.get("original_filename", ""))).suffix.lower()
+        # Don't trust the file's stated type: work it out again, as for a normal upload.
+        original_name = Path(str(f.get("original_filename") or "file")).name[:500] or "file"
+        stated = str(f.get("mime_type") or "").split(";")[0].strip().lower()
+        guessed = mimetypes.guess_type(original_name)[0] or "application/octet-stream"
+        if f.get("kind") == "audio" and (stated.startswith("audio/") or guessed.startswith("audio/")
+                                         or stated == "video/webm"):
+            kind, mime = "audio", stated if stated.startswith("audio/") or stated == "video/webm" else guessed
+        elif image_mime := classify_image(guessed if guessed != "application/octet-stream" else stated, original_name):
+            kind, mime = "image", image_mime
+        else:
+            kind, mime = "file", guessed
+        ext = Path(original_name).suffix.lower()
         ext = ext if re.fullmatch(r"\.[a-z0-9]{1,10}", ext) else ".bin"
         dest_dir = dirs[kind]
         dest_dir.mkdir(parents=True, exist_ok=True)
@@ -312,8 +323,7 @@ def _import_entry(db: Session, zf: zipfile.ZipFile, names: set[str], item: dict,
         if f.get("sha256") and digest.hexdigest() != f["sha256"]:
             raise ShareError(f"{f.get('original_filename')} was damaged on the way (its fingerprint doesn't match).")
         rel = dest.relative_to(settings.data_dir).as_posix()
-        att = Attachment(kind=kind, original_filename=str(f.get("original_filename") or dest.name)[:500],
-                         stored_path=rel, mime_type=str(f.get("mime_type") or "application/octet-stream")[:200],
+        att = Attachment(kind=kind, original_filename=original_name, stored_path=rel, mime_type=mime[:200],
                          size_bytes=size, sha256=digest.hexdigest())
         entry.attachments.append(att)
         if entry.source_file is None:
