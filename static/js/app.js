@@ -404,6 +404,10 @@ async function offlineAnswer(path, opts = {}) {
     else if ((m = p.match(/^\/api\/projects\/(\d+)$/))) {
       const proj = snap.projects.find((x) => x.id === +m[1]);
       out = proj && { ...proj, entries: snap.entries.filter((e) => e.projects.some((x) => x.id === proj.id)) };
+    } else if ((m = p.match(/^\/api\/projects\/(\d+)\/bible$/))) {
+      const proj = snap.projects.find((x) => x.id === +m[1]);
+      out = proj && { project: proj, entries: snap.entries.filter((e) => e.projects.some((x) => x.id === proj.id))
+        .sort((a, b) => a.created_at.localeCompare(b.created_at) || a.id - b.id) };
     } else if (p === "/api/trash") out = { items: [], total: 0 };
     else if (p === "/api/search") out = searchCopy(snap, opts.json?.query || "");
     else if (p === "/api/graph") out = graphFromCopy(snap, q);
@@ -1281,6 +1285,7 @@ async function viewProject(el, id) {
     <h2>Capture into this project</h2><div id="cap"></div>
     <h2>${p.entry_count} entr${p.entry_count === 1 ? "y" : "ies"}</h2><div id="pentries">${gridHTML(p.entries, "No entries yet. Capture above, or add existing entries from their detail page.")}</div>
     <p class="row" style="margin-top:32px"><a class="btn" href="#/map?project=${p.id}&all=1">See connections</a>
+      <a class="btn" href="#/projects/${p.id}/print">Story bible (print)</a>
       <button class="btn" data-act="export-project">Export project (.nexus)</button>
       <button class="btn danger ghost" data-act="trash-project">Move project to trash</button></p>`;
   $("[data-act=export-project]", el).onclick = () => exportShare({ project_id: String(p.id) });
@@ -1294,6 +1299,37 @@ async function viewProject(el, id) {
       location.hash = "#/projects";
     } catch (err) { toast(err.message, true); }
   };
+}
+
+const BIBLE_SECTIONS = [
+  ["Characters", (e) => e.entry_type === "character"],
+  ["Places & worlds", (e) => e.entry_type === "worldbuilding"],
+  ["Story", (e) => ["story", "scene", "dialogue", "comic", "movie", "short_film"].includes(e.entry_type)],
+  ["Art", (e) => ["sketch", "artwork"].includes(e.entry_type) || !!picOf(e)],
+  ["Notes & ideas", () => true],
+];
+
+/** A clean, printable "story bible" of a project: your material, grouped, oldest first. */
+async function viewBible(el, id) {
+  const { project: p, entries } = await api(`/api/projects/${id}/bible`);
+  const groups = BIBLE_SECTIONS.map(([name]) => [name, []]);
+  for (const e of entries) groups[BIBLE_SECTIONS.findIndex(([, test]) => test(e))][1].push(e);
+  const block = (labelText, body) => body ? `<div class="bible-text"><span class="bible-label">${labelText}</span>${esc(body)}</div>` : "";
+  const draw = (withAI) => groups.filter(([, list]) => list.length).map(([name, list]) => `<section class="bible-section"><h2>${esc(name)}</h2>
+    ${list.map((e) => { const pic = picOf(e);
+      return `<article class="bible-entry"><h3>${esc(e.title)}</h3>
+        <p class="small muted">${esc(label(e.entry_type))} · ${fmtDate(e.created_at)}${e.tags.length ? ` · ${e.tags.map((t) => esc(t.name)).join(", ")}` : ""}</p>
+        ${pic ? `<img src="${esc(pic.preview_url)}" alt="${esc(pic.original_filename)}" loading="lazy">` : ""}
+        ${block("Your words", e.original_text)}${block("Your notes", e.user_notes)}${block("Transcript", e.transcript)}
+        ${withAI && e.ai_summary ? block("AI summary (not your words)", e.ai_summary) : ""}</article>`; }).join("")}</section>`).join("");
+  el.innerHTML = `<div class="no-print"><p class="row"><a href="#/projects/${p.id}" class="muted small">← ${esc(p.name)}</a></p>
+    <div class="row"><button type="button" class="btn primary" data-act="print">PRINT / SAVE AS PDF</button>
+      <label class="check small"><input type="checkbox" id="bible-ai"> Include AI summaries (labelled)</label></div></div>
+    <div class="bible"><h1>${esc(p.name)}</h1>${p.description ? `<p class="lede">${esc(p.description)}</p>` : ""}
+      <p class="small muted">${entries.length} entr${entries.length === 1 ? "y" : "ies"} · ${esc(label(p.project_type))} · printed ${fmtDate(new Date().toISOString())}</p>
+      <div id="bible-body">${draw(false)}</div>${entries.length ? "" : `<p class="empty">This project has no entries yet.</p>`}</div>`;
+  $("#bible-ai", el).onchange = (ev) => ($("#bible-body", el).innerHTML = draw(ev.target.checked));
+  $("[data-act=print]", el).onclick = () => window.print();
 }
 
 const SEARCH_EXAMPLES = ["memory", "villains", "ideas about alternate realities", "unfinished comic ideas", "sketches with monsters"];
@@ -2760,6 +2796,7 @@ const ROUTES = [
   [/^\/ideas$/, viewIdeas, "ideas"],
   [/^\/projects$/, viewProjects, "projects"],
   [/^\/projects\/(\d+)$/, viewProject, "projects"],
+  [/^\/projects\/(\d+)\/print$/, viewBible, "projects"],
   [/^\/entry\/(\d+)$/, viewEntry, "archive"],
   [/^\/search$/, viewSearch, "search"],
   [/^\/ask$/, viewAsk, "ask"],

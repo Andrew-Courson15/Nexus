@@ -150,3 +150,20 @@ def list_project_analyses(project_id: int, db: Session = Depends(get_db)):
     _get(db, project_id)
     return db.scalars(select(ProjectAnalysis).where(ProjectAnalysis.project_id == project_id)
                       .order_by(ProjectAnalysis.version.desc())).all()
+
+
+@router.get("/{project_id}/bible")
+def project_bible(project_id: int, db: Session = Depends(get_db)):
+    """Everything in a project in full, oldest first, for the printable story bible."""
+    from app.routes.entries import _LOAD
+    from app.schemas import entry_detail
+
+    project = _get(db, project_id)
+    entries = db.scalars(
+        select(CreativeEntry)
+        .join(ProjectEntry, ProjectEntry.entry_id == CreativeEntry.id)
+        .where(ProjectEntry.project_id == project_id, CreativeEntry.deleted_at.is_(None))
+        .options(*_LOAD).order_by(CreativeEntry.created_at, CreativeEntry.id)
+    ).all()
+    return {"project": project_out(project, len(entries)).model_dump(mode="json"),
+            "entries": [entry_detail(e).model_dump(mode="json", exclude={"provenance"}) for e in entries]}

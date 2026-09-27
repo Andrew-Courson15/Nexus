@@ -9,6 +9,8 @@ The version is in `app/__init__.py` and shown in **Settings → This device**.
 - **Timeline**: the whole archive month by month, as picture tiles (Creative Archive → Timeline).
 - **Characters** and **Places & worlds**: each character or place with the sketches and scenes
   linked to it and the entries that mention its name. Also on the phone when the PC is off.
+- **Story bible**: print a project (or save it as a PDF), grouped into characters, places, story,
+  art and notes, with your words and pictures.
 - **Split a PDF into pages**: a comic issue or scanned sketchbook becomes one picture entry per
   page, linked to the PDF, with previous/next page links, and can then be read as a comic
   sequence six pages at a time. The PDF is never changed.

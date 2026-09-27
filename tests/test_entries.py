@@ -208,3 +208,15 @@ def test_blank_project_names_are_rejected(client):
     p = client.post("/api/projects", json={"name": "  The   Hollow Sun "}).json()
     assert p["name"] == "The Hollow Sun"
     assert client.put(f"/api/projects/{p['id']}", json={"name": "  "}).status_code == 422
+
+
+def test_project_bible_has_full_entries_oldest_first(client):
+    p = client.post("/api/projects", json={"name": "Night Wrestlers"}).json()
+    long_text = "El Faro " + "keeps the light burning. " * 30
+    a = client.post("/api/entries", json={"original_text": long_text, "project_ids": [p["id"]], "analyze": False}).json()
+    b = client.post("/api/entries", json={"original_text": "Second", "project_ids": [p["id"]], "analyze": False}).json()
+    client.post("/api/entries", json={"original_text": "Not in it", "analyze": False})
+    bible = client.get(f"/api/projects/{p['id']}/bible").json()
+    assert bible["project"]["name"] == "Night Wrestlers"
+    assert [e["id"] for e in bible["entries"]] == [a["id"], b["id"]]
+    assert bible["entries"][0]["original_text"] == long_text  # in full, not an excerpt

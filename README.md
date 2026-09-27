@@ -321,6 +321,9 @@ Browsers only allow microphone access on `localhost` or HTTPS. Open NEXUS at
   - Every point links to the entries behind it.
   - It's a reading of your material, not canon: your entries stay the source of truth.
   - Each run is kept as a version, so you can compare how the project grew.
+  - **Story bible (print)**: the whole project on one clean page, grouped into characters, places
+    & worlds, story, art and notes, with your words and pictures (AI summaries only if you tick
+    them, and labelled). Print it or save it as a PDF. Works on the phone offline too.
 - **Ideas**: the **Idea Incubator**, meaning everything whose status is `raw` or `exploring`. Nothing here is turned into a task.
 - **Search**: natural queries such as `memory`, `villains`, `ideas about alternate realities`,
   `unfinished comic ideas`, `sketches with monsters`. NEXUS shows how it understood your query.
