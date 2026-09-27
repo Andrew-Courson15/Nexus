@@ -261,11 +261,11 @@ def rediscover(today: date | None = None, tz_offset: int = Query(0, ge=-900, le=
             "resurfaced": [entry_summary(e).model_dump(mode="json") for e in resurfaced]}
 
 
-def _only_here(request: Request) -> None:
+def _only_here(request: Request, why: str = "Updates are checked and started on the computer NEXUS runs on.") -> None:
     from app.services import lock
 
     if not lock.is_local(request.client.host if request.client else None, request.headers):
-        raise HTTPException(403, "Updates are checked and started on the computer NEXUS runs on.")
+        raise HTTPException(403, why)
 
 
 @router.get("/update")
@@ -311,3 +311,27 @@ def whats_new():
         elif line.startswith("  ") and current is not None and line.strip():
             items[-1] = f"{items[-1]} {line.strip()}"
     return {"version": __version__, "items": items}
+
+
+@router.get("/phone-setup")
+def phone_setup_status(request: Request):
+    """Is Tailscale ready for phone access? (On the computer NEXUS runs on only.)"""
+    from app.services import phone
+
+    _only_here(request, "Phone access is set up on the computer NEXUS runs on.")
+    try:
+        return phone.status()
+    except phone.PhoneSetupError as exc:
+        return {"installed": True, "running": False, "name": None, "next": "error", "error": str(exc)}
+
+
+@router.post("/phone-setup")
+def phone_setup_turn_on(request: Request):
+    """Turn on the private phone link (the same steps as the phone setup script)."""
+    from app.services import phone
+
+    _only_here(request, "Phone access is set up on the computer NEXUS runs on.")
+    try:
+        return phone.turn_on()
+    except phone.PhoneSetupError as exc:
+        raise HTTPException(400, str(exc)) from exc

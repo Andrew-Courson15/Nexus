@@ -35,7 +35,17 @@ async def lifespan(_app: FastAPI):
 app = FastAPI(title="NEXUS", version=__version__, lifespan=lifespan,
               description="Private, local-first creative knowledge archive.")
 # Only answer to local host names (guards against DNS-rebinding from web pages).
-app.add_middleware(TrustedHostMiddleware, allowed_hosts=get_settings().allowed_hosts)
+class _TrustedHosts(TrustedHostMiddleware):
+    """Only answer to known names (so other sites can't reach NEXUS through the browser). The list is
+    read on every request, so turning on phone access in Settings works without a restart."""
+
+    async def __call__(self, scope, receive, send):
+        self.allowed_hosts = list(get_settings().allowed_hosts)
+        self.allow_any = "*" in self.allowed_hosts
+        await super().__call__(scope, receive, send)
+
+
+app.add_middleware(_TrustedHosts, allowed_hosts=get_settings().allowed_hosts)
 
 from app.services import lock as passcode_lock  # noqa: E402
 

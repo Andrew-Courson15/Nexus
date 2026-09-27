@@ -56,8 +56,9 @@ can make; the rest is engineering.
     certificate. Without them, both systems warn users away.
 - **Updates without Git.** 0.14 has an in-app "Check for updates / Update now" (Settings →
   Updates), still using git underneath. A public release would swap git for a signed download.
-- **Simpler phone setup.** Tailscale works well but is a separate app and account. Options:
-  guide it inside NEXUS (show a QR code of the address), or later a paid relay service.
+- **Simpler phone setup.** Done in 0.14: Settings → Your phone guides through Tailscale and turns
+  on access with one button, then shows a QR code. Tailscale is still a separate app and account;
+  a later option is a paid relay service.
 - **Model management in the app.** Download, switch and remove Ollama models from Preferences
   with a progress bar, and recommend a model based on the computer's memory and graphics card.
 - **Testing on real hardware.** Measure speed and quality on several Windows PCs (NVIDIA / AMD

@@ -144,7 +144,18 @@ def get_settings() -> Settings:
         backup_keep=max(1, int(os.getenv("NEXUS_BACKUP_KEEP", "4"))),
         owner_name=os.getenv("NEXUS_OWNER_NAME", "").strip()[:80],
     )
-    return _with_preferences(base)
+    return _with_phone_host(_with_preferences(base))
+
+
+def _with_phone_host(base: Settings) -> Settings:
+    """The private phone address turned on in Settings → Your phone (kept in <data>/phone.json)."""
+    try:
+        host = json.loads((base.data_dir / "phone.json").read_text(encoding="utf-8")).get("host")
+    except (OSError, ValueError, AttributeError):
+        return base
+    if not isinstance(host, str) or not host.endswith(".ts.net") or host in base.allowed_hosts:
+        return base
+    return replace(base, allowed_hosts=[*base.allowed_hosts, host])
 
 
 # Settings the app itself may change (Settings > Preferences), with how to read them back.

@@ -501,9 +501,34 @@ async function mountPhone(box) {
           <li>Point the phone's camera at this code (or type <code>${esc(d.url)}</code> into Safari).</li>
           <li>Tap <strong>Share → Add to Home Screen</strong>.</li>
         </ol></div>`
-    : `<h3>Your phone</h3><p class="small muted">To use NEXUS on your phone from anywhere, privately: install Tailscale on this
-      computer, then run this once in the nexus folder:</p><p><code>${esc(d.setup_command)}</code></p>
-      <p class="small muted">Afterwards a QR code to scan with your phone appears here.</p>`;
+    : `<h3>Your phone</h3><p class="small muted">Use NEXUS on your phone from anywhere, privately: Tailscale gives this computer an
+      address only your own devices can open.</p><div id="phone-steps"><p class="loading">Checking…</p></div>`;
+  if (!d.url) mountPhoneSteps(box, d);
+}
+
+/** Step by step to phone access: install Tailscale, sign in, then one button (no script needed). */
+async function mountPhoneSteps(box, d) {
+  const steps = $("#phone-steps", box);
+  let st;
+  try { st = await api("/api/phone-setup", { noCopy: true }); }
+  catch { steps.innerHTML = `<p class="small muted">Or run this once in the nexus folder: <code>${esc(d.setup_command)}</code></p>`; return; }
+  const step = (done, text) => `<li class="${done ? "done" : ""}">${done ? "✓ " : ""}${text}</li>`;
+  steps.innerHTML = `<ol class="small phone-steps">
+      ${step(st.installed, st.installed ? "Tailscale is installed." : `Install Tailscale on this computer:
+        <a href="https://tailscale.com/download" target="_blank" rel="noopener">tailscale.com/download</a> (free).`)}
+      ${step(st.running, st.running ? "Signed in to Tailscale." : "Open Tailscale and sign in (any Google, Microsoft or Apple account).")}
+      ${step(false, st.next === "magicdns" ? `Turn on MagicDNS and HTTPS Certificates at
+        <a href="https://login.tailscale.com/admin/dns" target="_blank" rel="noopener">login.tailscale.com/admin/dns</a>.`
+        : "Turn on phone access here. A QR code to scan with your phone appears.")}</ol>
+    ${st.next === "turn_on" ? `<button type="button" class="btn primary small" data-act="phone-on">TURN ON PHONE ACCESS</button>`
+      : `<button type="button" class="btn small" data-act="phone-check">Check again</button>`}
+    <p class="small" id="phone-msg" role="status"></p>`;
+  $("[data-act=phone-check]", steps)?.addEventListener("click", () => mountPhoneSteps(box, d));
+  $("[data-act=phone-on]", steps)?.addEventListener("click", async (ev) => {
+    ev.target.disabled = true; ev.target.textContent = "Turning on…";
+    try { await api("/api/phone-setup", { method: "POST", timeout: 60000 }); mountPhone(box); }
+    catch (err) { $("#phone-msg", steps).textContent = err.message; ev.target.disabled = false; ev.target.textContent = "TURN ON PHONE ACCESS"; }
+  });
 }
 
 /** Settings panel: the passcode other devices need (set on the PC itself). */

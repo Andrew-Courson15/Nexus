@@ -605,3 +605,4 @@ a.cite:hover { border-color: var(--text); }
 .whats-new h2 { margin: 0; }
 .whats-new ul { margin: 10px 0 0; padding-left: 20px; }
 .whats-new li { margin: 4px 0; }
+.phone-steps li { margin: 6px 0; } .phone-steps li.done { color: var(--ok); }
