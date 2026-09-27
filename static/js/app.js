@@ -3016,7 +3016,7 @@ document.addEventListener("keydown", (ev) => {
     if (location.hash === go || (go === "#/" && !location.hash)) render(); else location.hash = go;
     setTimeout(() => $("#view input[type=search], #view #cap-text, #view #aform input")?.focus(), 150);
   } else if (ev.key === "?") {
-    toast("Shortcuts: / search · n new capture · a ask · m map · t today · Ctrl/⌘+Enter capture");
+    toast("Shortcuts: / search · n new capture · a ask · m map · t today · ← → previous/next entry · Ctrl/⌘+Enter capture");
   }
 });
 /** True if the service worker just had to open the app from its saved copy (NEXUS unreachable). */

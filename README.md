@@ -298,6 +298,7 @@ Browsers only allow microphone access on `localhost` or HTTPS. Open NEXUS at
 - **First run**: the home screen welcomes you and checks whether this computer is ready (AI
   model, voice notes, search by meaning), each with a green or red light and what to do.
 - **Keyboard shortcuts** (desktop): `/` search, `n` new capture, `a` ask, `m` map, `t` today,
+  `←` / `→` previous / next entry,
   `?` shows the list. Ctrl/⌘+Enter captures.
 - **Today**: what you captured today, recurring patterns (each shown with the entries
   behind it), and recently touched entries.
