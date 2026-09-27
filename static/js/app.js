@@ -348,13 +348,14 @@ function listFromCopy(snap, q) {
 /** Answer a read request from the offline copy. `undefined` means the copy can't answer it. */
 /** /api/characters from the offline copy (same rules as the server: links, then whole-word name mentions). */
 const KIND_OF = { character: ["character", ["character"]], world: ["worldbuilding", ["world", "place", "location", "setting", "worldbuilding"]] };
-function charactersFromCopy(snap, kind = "character") {
+function charactersFromCopy(snap, kind = "character", projectId = null) {
   const [kindType, kindTags] = KIND_OF[kind] || KIND_OF.character;
   const MAX = 24, entries = snap.entries, byId = snap._byId ??= new Map(entries.map((e) => [e.id, e]));
   const ref = (e) => { const pic = picOf(e);
     return { id: e.id, title: e.title, entry_type: e.entry_type, created_at: e.created_at, thumb_url: pic?.thumb_url || null, excerpt: e.excerpt || e.ai_summary }; };
   const edges = snap.edges || [];
-  return entries.filter((e) => e.entry_type === kindType || e.tags.some((t) => kindTags.includes(t.name))).map((c) => {
+  return entries.filter((e) => (e.entry_type === kindType || e.tags.some((t) => kindTags.includes(t.name)))
+    && (!projectId || e.projects.some((p) => p.id === projectId))).map((c) => {
     const seen = new Set([c.id]), links = [];
     for (const [, source, target, type, origin, status] of edges) {
       const other = source === c.id ? target : target === c.id ? source : null;
@@ -412,7 +413,7 @@ async function offlineAnswer(path, opts = {}) {
     } else if (p === "/api/trash") out = { items: [], total: 0 };
     else if (p === "/api/search") out = searchCopy(snap, opts.json?.query || "");
     else if (p === "/api/graph") out = graphFromCopy(snap, q);
-    else if (p === "/api/characters") out = charactersFromCopy(snap, q.get("kind") || "character");
+    else if (p === "/api/characters") out = charactersFromCopy(snap, q.get("kind") || "character", +q.get("project_id") || null);
     else if (p === "/api/insights/rediscover") out = rediscoverFromCopy(snap, q.get("today") || localISODate());
   }
   if (out === undefined && COPY_LISTS.includes(path)) out = await offlineCopy.get("url:" + path).catch(() => undefined);
@@ -1171,14 +1172,18 @@ function tileHtml(r, note) {
 
 async function viewCharacters(el) {
   const params = new URLSearchParams(location.hash.split("?")[1] || "");
-  const world = params.get("kind") === "world";
-  const chars = await api(`/api/characters${world ? "?kind=world" : ""}`);
+  const world = params.get("kind") === "world", pid = params.get("project") || "";
+  const qs = (k, proj) => { const q = new URLSearchParams(); if (k) q.set("kind", "world"); if (proj) q.set("project", proj); return q.toString() ? `?${q}` : ""; };
+  const apiQs = new URLSearchParams({ kind: world ? "world" : "character", ...(pid ? { project_id: pid } : {}) });
+  const [chars, projects] = await Promise.all([api(`/api/characters?${apiQs}`), api("/api/projects")]);
   const linkNote = (x, who) => `${x.direction === "incoming" ? `${esc(label(x.relationship_type))} → ${esc(who)}` : `${esc(who)} ${esc(label(x.relationship_type))} →`}${
     x.origin === "ai" && x.status !== "accepted" ? " · AI suggested" : ""}`;
   el.innerHTML = `<p><a href="#/archive" class="muted small">← Creative Archive</a></p>
     <div class="view-head"><div><h1>${world ? "Places &amp; worlds" : "Characters"}</h1>
     <p class="lede">${world ? "Each place and world with the sketches, scenes and notes set there." : "Each character with the sketches, scenes and notes connected to them."}</p></div>
-    <div class="seg" role="group" aria-label="Show"><a class="btn small ${world ? "ghost" : ""}" href="#/characters" ${world ? "" : 'aria-current="page"'}>Characters</a><a class="btn small ${world ? "" : "ghost"}" href="#/characters?kind=world" ${world ? 'aria-current="page"' : ""}>Places &amp; worlds</a></div></div>
+    <div class="seg" role="group" aria-label="Show"><a class="btn small ${world ? "ghost" : ""}" href="#/characters${qs(false, pid)}" ${world ? "" : 'aria-current="page"'}>Characters</a><a class="btn small ${world ? "" : "ghost"}" href="#/characters${qs(true, pid)}" ${world ? 'aria-current="page"' : ""}>Places &amp; worlds</a>
+      ${projects.length ? `<select id="char-project" aria-label="Project"><option value="">All projects</option>${projects.map((p) =>
+        `<option value="${p.id}"${String(p.id) === pid ? " selected" : ""}>${esc(p.name)}</option>`).join("")}</select>` : ""}</div></div>
     ${chars.length ? `<nav class="month-jump" aria-label="${world ? "Places" : "Characters"}">${chars.map((c) =>
       `<a href="#/characters" data-char="${c.character.id}">${esc(c.character.title)} <span class="muted">${c.link_count + c.mention_count}</span></a>`).join("")}</nav>` : ""}
     ${chars.map((c) => { const e = c.character, pic = picOf(e);
@@ -1200,6 +1205,7 @@ async function viewCharacters(el) {
       || (world ? `<p class="empty">No places or worlds yet. Capture one and set its type to <b>worldbuilding</b> (or tag it “place” or “world”), then link scenes to it.</p>`
         : `<p class="empty">No characters yet. Capture one and set its type to <b>character</b> (or tag it “character”), then link sketches and scenes to it.</p>`)}`;
   $$("[data-char]", el).forEach((a) => (a.onclick = (ev) => { ev.preventDefault(); $(`#c-${a.dataset.char}`, el)?.scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" }); }));
+  $("#char-project", el)?.addEventListener("change", (ev) => (location.hash = `#/characters${qs(world, ev.target.value)}`));
   const wanted = new URLSearchParams(location.hash.split("?")[1] || "").get("c");
   if (wanted) $(`#c-${CSS.escape(wanted)}`, el)?.scrollIntoView();
 }
@@ -1321,6 +1327,7 @@ async function viewProject(el, id) {
     <h2>Capture into this project</h2><div id="cap"></div>
     <h2>${p.entry_count} entr${p.entry_count === 1 ? "y" : "ies"}</h2><div id="pentries">${gridHTML(p.entries, "No entries yet. Capture above, or add existing entries from their detail page.")}</div>
     <p class="row" style="margin-top:32px"><a class="btn" href="#/map?project=${p.id}&all=1">See connections</a>
+      <a class="btn" href="#/characters?project=${p.id}">Characters</a>
       <a class="btn" href="#/projects/${p.id}/print">Story bible (print)</a>
       <button class="btn" data-act="export-project">Export project (.nexus)</button>
       <button class="btn danger ghost" data-act="trash-project">Move project to trash</button></p>`;

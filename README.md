@@ -317,7 +317,8 @@ Browsers only allow microphone access on `localhost` or HTTPS. Open NEXUS at
     with everything linked to it (sketches, scenes, "character in" links) and every entry whose own
     words mention its name. Links show whether you made them or the AI suggested them; name
     mentions are a plain text match, not AI. **Places & worlds** does the same for `worldbuilding`
-    entries (or ones tagged `place`, `world`, `location` or `setting`). Both work on the phone offline.
+    entries (or ones tagged `place`, `world`, `location` or `setting`). Pick a project to see just
+    its cast (a project's page has a **Characters** button). Both work on the phone offline.
 - **Projects**: create projects and capture straight into them. An entry can belong to many projects.
   - **Analyze this project**: the local AI reads every entry in the project (your words, notes,
     transcripts, and the art analyses of your sketches). It describes the **characters** and where

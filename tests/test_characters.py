@@ -52,3 +52,11 @@ def test_places_and_worlds(client):
     assert {w["character"]["id"] for w in worlds} == {town["id"], tagged["id"]}
     assert [m["id"] for m in worlds[0]["mentions"]] == [scene["id"]]
     assert [c["character"]["title"] for c in client.get("/api/characters").json()] == ["Nova"]
+
+
+def test_filter_by_project(client):
+    p = client.post("/api/projects", json={"name": "Night Wrestlers"}).json()
+    faro = cap(client, "luchador", title="El Faro", entry_type="character", project_ids=[p["id"]])
+    cap(client, "other comic hero", title="Nova", entry_type="character")
+    assert [c["character"]["id"] for c in client.get("/api/characters", params={"project_id": p["id"]}).json()] == [faro["id"]]
+    assert len(client.get("/api/characters").json()) == 2

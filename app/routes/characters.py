@@ -61,11 +61,13 @@ def _text(e: CreativeEntry) -> str:
 
 
 @router.get("/characters")
-def list_characters(kind: Literal["character", "world"] = "character", db: Session = Depends(get_db)) -> list[dict]:
+def list_characters(kind: Literal["character", "world"] = "character", project_id: int | None = None,
+                    db: Session = Depends(get_db)) -> list[dict]:
     entries = db.scalars(select(CreativeEntry).where(CreativeEntry.deleted_at.is_(None)).options(*_LOAD)
                          .order_by(CreativeEntry.created_at.desc(), CreativeEntry.id.desc())).all()
     by_id = {e.id: e for e in entries}
-    characters = [e for e in entries if is_kind(e, kind)]
+    characters = [e for e in entries if is_kind(e, kind)
+                  and (project_id is None or any(p.id == project_id for p in e.projects))]
     if not characters:
         return []
     wanted = {c.id for c in characters}
