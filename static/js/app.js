@@ -938,7 +938,8 @@ async function viewToday(el) {
         <p class="body">${esc(p.observation)}</p>
         <div class="small muted">Evidence (${p.count} entries):</div>
         <ul class="small">${p.evidence.map((ev) => `<li><a href="#/entry/${ev.id}">${esc(ev.title || "Untitled")}</a>
-          <span class="muted">· ${esc(label(ev.entry_type))} · ${fmtDate(ev.created_at)}</span></li>`).join("")}</ul>`,
+          <span class="muted">· ${esc(label(ev.entry_type))} · ${fmtDate(ev.created_at)}</span></li>`).join("")}
+          ${p.count > p.evidence.length ? `<li class="muted">…and ${p.count - p.evidence.length} more</li>` : ""}</ul>`,
         "computed from your entries")).join("")
     : `<p class="empty">No recurring patterns yet. Patterns appear once three or more entries share a concept — always with the entries that support them.</p>`;
 }

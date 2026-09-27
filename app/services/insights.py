@@ -13,6 +13,9 @@ from sqlalchemy.orm import Session
 from app.models import CreativeEntry
 
 
+MAX_EVIDENCE = 12
+
+
 def find_patterns(db: Session, min_count: int = 3, limit: int = 10) -> list[dict]:
     entries = db.scalars(
         select(CreativeEntry).where(CreativeEntry.deleted_at.is_(None)).order_by(CreativeEntry.created_at)
@@ -40,7 +43,7 @@ def find_patterns(db: Session, min_count: int = 3, limit: int = 10) -> list[dict
             "label": "AI inference from your archive",
             "evidence": [
                 {"id": e.id, "title": e.title, "entry_type": e.entry_type, "created_at": e.created_at.isoformat()}
-                for e in reversed(evidence)
+                for e in list(reversed(evidence))[:MAX_EVIDENCE]  # the most recent; "count" has them all
             ],
         })
     # Concepts before themes (themes are one inference step further removed).

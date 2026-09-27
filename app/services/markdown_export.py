@@ -24,7 +24,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from app.config import get_settings
-from app.models import CreativeEntry, EntryTag, Project, ProjectEntry
+from app.models import CreativeEntry, EntryTag, Project, ProjectEntry, Relationship
 from app.services.relationships import relationships_for
 
 _UNSAFE = re.compile(r'[\\/:*?"<>|\x00-\x1f]+')
@@ -46,7 +46,8 @@ def entry_filename(e: CreativeEntry) -> str:
     return f"{e.created_at:%Y-%m-%d} {_safe(e.title or 'Untitled')} (#{e.id}).md"
 
 
-def entry_markdown(db: Session, e: CreativeEntry, names: dict[int, str]) -> str:
+def entry_markdown(db: Session, e: CreativeEntry, names: dict[int, str], links: dict | None = None,
+                   titles: dict[int, str] | None = None) -> str:
     tags = sorted(et.tag.name for et in e.entry_tags)
     meta = e.ai_metadata or {}
     lines = ["---", f"id: {e.id}", f"title: {_yaml(e.title or 'Untitled')}",
@@ -85,16 +86,18 @@ def entry_markdown(db: Session, e: CreativeEntry, names: dict[int, str]) -> str:
     section("AI inference", e.ai_inference, "possibilities, not facts")
     if meta.get("uncertainties"):
         section("Unknown / uncertain", "\n".join(f"- {u}" for u in meta["uncertainties"]))
-    rels = relationships_for(db, e.id)
-    if rels:
+    if links is None:  # one entry on its own: look its links up
+        rels = relationships_for(db, e.id)
+        others = [r.target_entry if r.source_entry_id == e.id else r.source_entry for r in rels]
+        links = {e.id: [(o.id, r.relationship_type, r.origin, r.status) for o, r in zip(others, rels)]}
+        titles = {**(titles or {}), **{o.id: o.title for o in others}}
+    mine = [x for x in links.get(e.id, []) if x[0] in names]
+    if mine:
         lines.append("## Related")
-        for r in rels:
-            other = r.target_entry if r.source_entry_id == e.id else r.source_entry
-            if other.id not in names:
-                continue
-            arrow = r.relationship_type.replace("_", " ")
-            who_linked = "you" if r.origin == "user" or r.status == "accepted" else "AI suggestion"
-            lines.append(f"- {arrow}: [{other.title or 'Untitled'}]({quote(names[other.id])}) ({who_linked})")
+        for other_id, rtype, origin, status in mine:
+            who_linked = "you" if origin == "user" or status == "accepted" else "AI suggestion"
+            title = (titles or {}).get(other_id) or "Untitled"
+            lines.append(f"- {rtype.replace('_', ' ')}: [{title}]({quote(names[other_id])}) ({who_linked})")
         lines.append("")
     return "\n".join(lines)
 
@@ -107,13 +110,22 @@ def export_markdown(db: Session) -> tuple[Path, str]:
                                   selectinload(CreativeEntry.projects), selectinload(CreativeEntry.attachments))
                          .order_by(CreativeEntry.created_at.desc(), CreativeEntry.id.desc())).all()
     names = {e.id: entry_filename(e) for e in entries}
+    titles = {e.id: e.title for e in entries}
+    links: dict[int, list] = {}  # every link, loaded once
+    for rid, src, dst, rtype, origin, status in db.execute(
+            select(Relationship.id, Relationship.source_entry_id, Relationship.target_entry_id,
+                   Relationship.relationship_type, Relationship.origin, Relationship.status)
+            .where(Relationship.status != "rejected")
+            .order_by(Relationship.confidence.desc().nullslast(), Relationship.id)):
+        links.setdefault(src, []).append((dst, rtype, origin, status))
+        links.setdefault(dst, []).append((src, rtype, origin, status))
     root = f"NEXUS export {datetime.now():%Y-%m-%d}"
     tmp = Path(tempfile.mkstemp(suffix=".zip")[1])
     with zipfile.ZipFile(tmp, "w", compression=zipfile.ZIP_DEFLATED) as zf:
         index = [f"# {root}", "", f"{len(entries)} entries, newest first. Each file keeps your words, your notes "
                  "and the AI's layers in separate, labeled sections.", ""]
         for e in entries:
-            zf.writestr(f"{root}/entries/{names[e.id]}", entry_markdown(db, e, names))
+            zf.writestr(f"{root}/entries/{names[e.id]}", entry_markdown(db, e, names, links, titles))
             index.append(f"- {e.created_at:%Y-%m-%d} · {e.entry_type} · [{e.title or 'Untitled'}]"
                          f"(entries/{quote(names[e.id])})")
             for n, a in enumerate(e.attachments):
