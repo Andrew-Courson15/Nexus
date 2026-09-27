@@ -34,9 +34,11 @@ def graph(project_id: int | None = None, include_suggested: bool = False, db: Se
     entries = db.scalars(stmt).all()
     ids = {e.id for e in entries}
     wanted = [RelationshipStatus.accepted.value] + ([RelationshipStatus.suggested.value] if include_suggested else [])
-    rels = db.scalars(select(Relationship).where(Relationship.source_entry_id.in_(ids),
-                                                 Relationship.target_entry_id.in_(ids),
-                                                 Relationship.status.in_(wanted))).all()
+    # plain columns, filtered here: much faster than loading thousands of link objects
+    rels = [r for r in db.execute(select(Relationship.id, Relationship.source_entry_id, Relationship.target_entry_id,
+                                         Relationship.relationship_type, Relationship.origin, Relationship.status)
+                                  .where(Relationship.status.in_(wanted)))
+            if r.source_entry_id in ids and r.target_entry_id in ids]
     return {
         "nodes": [{"id": e.id, "title": e.title or "Untitled", "entry_type": e.entry_type, "status": e.status,
                    "thumb_url": _thumb(e), "project_ids": [p.id for p in e.projects if p.deleted_at is None],

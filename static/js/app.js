@@ -1424,10 +1424,24 @@ function forceLayout(nodes, edges) {
   for (let it = 0; it < iterations; it++) {
     const temp = 4 + 50 * (1 - it / iterations);
     const fx = new Float64Array(n), fy = new Float64Array(n);
-    for (let i = 0; i < n; i++) {
-      for (let j = i + 1; j < n; j++) {
-        const dx = x[i] - x[j], dy = y[i] - y[j], d2 = dx * dx + dy * dy + 0.01, f = (k * k) / d2;
-        fx[i] += dx * f; fy[i] += dy * f; fx[j] -= dx * f; fy[j] -= dy * f;
+    const push = (i, j) => {
+      const dx = x[i] - x[j], dy = y[i] - y[j], d2 = dx * dx + dy * dy + 0.01, f = (k * k) / d2;
+      fx[i] += dx * f; fy[i] += dy * f; fx[j] -= dx * f; fy[j] -= dy * f;
+    };
+    if (n <= 300) {
+      for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) push(i, j);
+    } else {
+      // Big maps: only nearby ideas push each other apart (a grid of cells), so the layout stays fast.
+      const cell = k * 3, grid = new Map(), key = (cx, cy) => cx * 100003 + cy;
+      for (let i = 0; i < n; i++) {
+        const c = key(Math.floor(x[i] / cell), Math.floor(y[i] / cell));
+        (grid.get(c) || grid.set(c, []).get(c)).push(i);
+      }
+      for (let i = 0; i < n; i++) {
+        const cx = Math.floor(x[i] / cell), cy = Math.floor(y[i] / cell);
+        for (let ox = -1; ox <= 1; ox++) for (let oy = -1; oy <= 1; oy++) {
+          for (const j of grid.get(key(cx + ox, cy + oy)) || []) if (j > i) push(i, j);
+        }
       }
     }
     for (const [a, b] of links) {
