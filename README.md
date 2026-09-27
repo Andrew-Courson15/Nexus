@@ -226,6 +226,10 @@ Browsers only allow microphone access on `localhost` or HTTPS. Open NEXUS at
   **CAPTURE** (or Ctrl/⌘+Enter). **Record Idea** records audio in the browser;
   **Upload image / file** (or drag and drop) stores sketches, images, audio and documents.
   Unsent text is kept as a draft in your browser, so a refresh doesn't lose it.
+- **First run**: the home screen welcomes you and checks whether this computer is ready (AI
+  model, voice notes, search by meaning), each with a green or red light and what to do.
+- **Keyboard shortcuts** (desktop): `/` search, `n` new capture, `a` ask, `m` map, `t` today,
+  `?` shows the list. Ctrl/⌘+Enter captures.
 - **Today**: what you captured today, recurring patterns (each shown with the entries
   behind it), and recently touched entries.
 - **Creative Archive**: every entry as a card. Filter by type, status, project, tag and date.

@@ -809,12 +809,15 @@ function mountCapture(root, opts = {}) {
 /* ------------------------------------------------------------------ views */
 async function viewHome(el) {
   el.innerHTML = `<div id="cap"></div>
+    <div id="welcome"></div>
     <div id="just"></div>
     <h2>Recently captured</h2><div id="recent"><p class="loading">Loading…</p></div>`;
   const loadRecent = async () => {
     try {
       const data = await api("/api/entries?limit=9");
       $("#recent", el).innerHTML = gridHTML(data.items, "Nothing captured yet. Your first idea goes in the box above.");
+      if (!data.total && !store("nexus.welcomeDone")) mountWelcome($("#welcome", el));
+      else $("#welcome", el).innerHTML = "";
     } catch (err) {
       if (!err.offline) throw err;
       $("#recent", el).innerHTML = `<p class="empty">NEXUS isn't reachable right now, but you can still capture.
@@ -836,6 +839,41 @@ async function viewHome(el) {
   });
   cap.focus();
   await loadRecent();
+}
+
+/** First run: what NEXUS is, and whether this computer is ready (AI, voice, search). */
+async function mountWelcome(box) {
+  if (box.dataset.shown) return;
+  box.dataset.shown = "1";
+  box.innerHTML = `<section class="panel welcome">
+    <div class="row"><h2 style="margin:0">Welcome to NEXUS</h2><span class="spacer"></span>
+      <button class="btn ghost small" data-act="welcome-done">Got it</button></div>
+    <ul class="welcome-points">
+      <li><strong>Capture anything</strong>: type, record a voice note, or drop in sketches and photos. It's saved instantly.</li>
+      <li><strong>A local AI organizes it</strong> in the background: title, type, tags, summary and links to related ideas. Nothing leaves this computer.</li>
+      <li><strong>Your words are never changed.</strong> ${["user", "ai", "infer", "unknown"].map((k) =>
+        `<span class="legend-dot ${k}"></span>${{ user: "your words", ai: "AI interpretation", infer: "AI inference", unknown: "unknown" }[k]}`).join(" ")}</li>
+    </ul>
+    <h3>Is this computer ready?</h3><div id="welcome-check"><p class="loading">Checking…</p></div>
+  </section>`;
+  $("[data-act=welcome-done]", box).onclick = () => { store("nexus.welcomeDone", "1"); box.innerHTML = ""; };
+  try {
+    const st = await getSettings(true);
+    const rows = [
+      ["AI model", st.ai_provider.health, "Organizes your ideas and reads your sketches."],
+      ["Voice notes", st.transcription_provider.health, "Turns recordings into text, on this computer."],
+      ["Search by meaning", st.search.health, "Finds ideas by what they're about."],
+    ];
+    $("#welcome-check", box).innerHTML = `<ul class="setup-check">${rows.map(([name, h, what]) => `<li>
+      <span class="health ${h?.ok ? "ok" : "bad"}"><span class="dot"></span><strong>${name}</strong></span>
+      <span class="small muted">${esc(h?.ok ? what : h?.detail || "Not ready.")}</span></li>`).join("")}</ul>
+      ${rows.every(([, h]) => h?.ok) ? `<p class="small">All set. Capture your first idea above.</p>`
+        : `<p class="small muted">You can capture right away: anything not ready yet is done later (use <em>Re-run AI organizer</em> on an entry).
+           See the README's setup section, or <a href="#/settings">Settings</a>.</p>`}
+      <p class="small muted">Next: put NEXUS on your phone (README → "NEXUS on your phone"), and set a passcode in Settings.</p>`;
+  } catch {
+    $("#welcome-check", box).innerHTML = `<p class="small muted">Couldn't check right now.</p>`;
+  }
 }
 
 async function viewToday(el) {
@@ -2436,6 +2474,19 @@ async function render() {
 }
 
 window.addEventListener("hashchange", () => { render(); window.scrollTo(0, 0); });
+
+// Keyboard shortcuts (desktop): / search, n new capture, a ask, m map, ? list them.
+document.addEventListener("keydown", (ev) => {
+  if (ev.ctrlKey || ev.metaKey || ev.altKey || ev.target.closest?.("input, textarea, select, [contenteditable]")) return;
+  const go = { "/": "#/search", n: "#/", a: "#/ask", m: "#/map", t: "#/today" }[ev.key];
+  if (go) {
+    ev.preventDefault();
+    if (location.hash === go || (go === "#/" && !location.hash)) render(); else location.hash = go;
+    setTimeout(() => $("#view input[type=search], #view #cap-text, #view #aform input")?.focus(), 150);
+  } else if (ev.key === "?") {
+    toast("Shortcuts: / search · n new capture · a ask · m map · t today · Ctrl/⌘+Enter capture");
+  }
+});
 /** True if the service worker just had to open the app from its saved copy (NEXUS unreachable). */
 async function pageCameFromCopy() {
   try {

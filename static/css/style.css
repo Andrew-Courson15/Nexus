@@ -484,3 +484,15 @@ a.cite:hover { border-color: var(--text); }
 .tag-admin { list-style: none; padding: 0; display: grid; gap: 6px; }
 .tag-admin li { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
 #results.selecting .card > .meta:first-of-type { padding-right: 30px; }
+
+/* ---------- first run ---------- */
+.welcome { margin: 18px 0; }
+.welcome-points { padding-left: 18px; line-height: 1.6; }
+.welcome-points li { margin: 6px 0; }
+.legend-dot { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin: 0 4px 0 10px; vertical-align: -1px; }
+.legend-dot.user { background: var(--user); } .legend-dot.ai { background: var(--ai); }
+.legend-dot.infer { background: var(--infer); } .legend-dot.unknown { background: var(--unknown); }
+.setup-check { list-style: none; padding: 0; display: grid; gap: 8px; }
+.setup-check li { display: grid; grid-template-columns: 190px 1fr; gap: 10px; align-items: baseline; }
+.setup-check .health { margin: 0; }
+@media (max-width: 640px) { .setup-check li { grid-template-columns: 1fr; gap: 2px; } }
