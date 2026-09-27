@@ -58,6 +58,7 @@ templates = Jinja2Templates(directory=APP_DIR / "templates")
 for module in (entries, organize, projects, search, uploads, system, art, offline, backups, share, graph, lock,
                characters):
     app.include_router(module.router)
+app.include_router(uploads.pages_router)
 
 
 @app.get("/sw.js", include_in_schema=False)

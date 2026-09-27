@@ -29,6 +29,7 @@ from app.services.processing import enqueue
 from app.services.search import index_entry
 
 router = APIRouter(prefix="/api/uploads", tags=["uploads"])
+pages_router = APIRouter(prefix="/api", tags=["uploads"])
 
 _CHUNK = 1024 * 1024
 _EXT_RE = re.compile(r"^\.[A-Za-z0-9]{1,10}$")
@@ -216,3 +217,20 @@ def get_file(attachment_id: int, db: Session = Depends(get_db)):
         content_disposition_type="inline" if inline else "attachment",
         headers={"X-Content-Type-Options": "nosniff", "Content-Security-Policy": "sandbox"},
     )
+
+
+@pages_router.post("/entries/{entry_id}/split-pages", response_model=list[EntryDetail])
+async def split_pages(entry_id: int, analyze: bool = False, db: Session = Depends(get_db)):
+    """Turn a multi-page PDF into one picture entry per page (the PDF stays as it is). Safe to repeat."""
+    from app.services.pdf_pages import SplitError, split_pdf
+
+    entry = load_entry(db, entry_id)
+    try:
+        pages = await run_in_threadpool(split_pdf, db, entry)
+    except SplitError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    if analyze:
+        for p in pages:
+            if p.processing_status in (None, "failed"):
+                enqueue(db, p, transcribe=False, analyze=True)
+    return [entry_detail(load_entry(db, p.id)) for p in pages]

@@ -2105,6 +2105,8 @@ async function viewEntry(el, id) {
   const userBlock = e.original_text
     ? prov("user", who ? `${who}'s material` : "User material", `<div class="body">${esc(e.original_text)}</div>`,
         who ? `exactly as ${who} wrote it · never modified` : "exactly as you captured it · never modified")
+    : m.page_of ? prov("unknown", "User material", `<div class="body">This picture is page ${m.page_of.page} of your PDF, drawn from it by NEXUS.
+        <a href="#/entry/${m.page_of.id}">The PDF</a> is the original, kept exactly as you saved it.</div>`)
     : prov("unknown", "User material", `<div class="body">No words were written with this ${esc(label(e.source_type))} capture. The original file above is the user material.</div>`);
 
   const canTranscribe = e.source_type === "voice" && e.attachments.some((a) => a.kind === "audio") && !isBusy(e);
@@ -2149,6 +2151,14 @@ async function viewEntry(el, id) {
     : isBusy(e) ? ""
     : prov("unknown", "Not analysed", `<div class="body">${esc(m.analysis_error || "The AI organizer hasn't looked at this entry yet.")}</div>`);
 
+  const isPdf = e.attachments.some((a) => a.mime_type === "application/pdf");
+  const pagesBlock = m.page_of ? `<nav class="row small page-nav" id="page-nav" aria-label="Pages">Page ${m.page_of.page} of ${m.page_of.pages} ·
+      <a href="#/entry/${m.page_of.id}">the whole PDF</a></nav>`
+    : isPdf && m.pages?.length ? `<nav class="page-list small" aria-label="Pages"><span class="muted">Pages as entries:</span> ${m.pages.map((pid, i) =>
+      `<a href="#/entry/${pid}">${i + 1}</a>`).join(" ")}</nav>`
+    : isPdf ? `<div class="row small split-pages"><button type="button" class="btn small" data-act="split-pages">Split into pages</button>
+      <label class="check"><input type="checkbox" id="split-analyze"> Analyze each page (slower)</label>
+      <span class="muted">One picture entry per page, linked to this PDF. The PDF stays as it is.</span></div>` : "";
   const inProjects = new Set(e.projects.map((p) => p.id));
   el.innerHTML = `<p class="row"><a href="javascript:history.back()" class="muted small">← Back</a><span class="spacer"></span>${LEGEND}</p>
   <div class="detail"><div>
@@ -2165,6 +2175,7 @@ async function viewEntry(el, id) {
     ${!e.user_confirmed && (e.title_source === "ai" || e.entry_type_source === "ai") && e.analyzed_at
       ? `<p class="small muted">The title and type above were chosen by the AI. <button class="btn small" data-act="confirm">Confirm them</button> to keep them fixed.</p>` : ""}
     ${media}
+    ${pagesBlock}
     ${userBlock}
     ${e.shared_from?.notes ? prov("user", `${who}'s notes`, `<div class="body">${esc(e.shared_from.notes)}</div>`, `came with the share · never modified`) : ""}
     ${prov("user", "Your notes", `<div class="body" id="notes-view">${e.user_notes ? esc(e.user_notes) : `<span class="muted">No notes yet.</span>`}</div>
@@ -2248,6 +2259,20 @@ async function viewEntry(el, id) {
   $("#type", el).onchange = (ev) => put({ entry_type: ev.target.value }, "Type set by you.");
   $("#status", el).onchange = (ev) => put({ status: ev.target.value }, "Status updated.");
   $("[data-act=confirm]", el)?.addEventListener("click", () => put({ user_confirmed: true }, "Confirmed."));
+  $("[data-act=split-pages]", el)?.addEventListener("click", async (ev) => {
+    ev.target.disabled = true; ev.target.textContent = "Splitting…";
+    try {
+      const pages = await api(`/api/entries/${e.id}/split-pages?analyze=${$("#split-analyze", el).checked}`, { method: "POST", timeout: 120000 });
+      toast(`${pages.length} pages saved as entries.`);
+      render();
+    } catch (err) { toast(err.message, true); ev.target.disabled = false; ev.target.textContent = "Split into pages"; }
+  });
+  if (m.page_of) api(`/api/entries/${m.page_of.id}`).then((pdf) => {  // previous / next page
+    const ids = pdf.ai_metadata?.pages || [], i = ids.indexOf(e.id), nav = $("#page-nav", el);
+    if (!nav || i < 0) return;
+    nav.insertAdjacentHTML("afterbegin", i > 0 ? `<a href="#/entry/${ids[i - 1]}" rel="prev">← Page ${i}</a> · ` : "");
+    nav.insertAdjacentHTML("beforeend", i < ids.length - 1 ? ` · <a href="#/entry/${ids[i + 1]}" rel="next">Page ${i + 2} →</a>` : "");
+  }).catch(() => {});
   $("[data-act=edit-title]", el).onclick = () => {
     const v = prompt("Title (leave empty to use the AI's suggestion):", e.title);
     if (v !== null) put({ title: v }, "Title saved.");
