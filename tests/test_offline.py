@@ -18,10 +18,17 @@ def test_snapshot_has_entries_relationships_and_projects(client):
     assert ids == [b["id"], a["id"]]  # newest first, trash left out
     first = snap["entries"][1]
     assert first["original_text"] == "A sword that eats memories." and first["projects"][0]["name"] == "Hollow Sun"
-    for e in (a, b):  # exactly what the entry page shows when NEXUS is on
-        assert snap["relationships"][str(e["id"])] == client.get(f"/api/entries/{e['id']}/relationships").json()
-    assert b["id"] in [r["other"]["id"] for r in snap["relationships"][str(a["id"])]]
-    assert snap["entries"][0] == client.get(f"/api/entries/{b['id']}").json()
+    # each link once, compactly; the phone rebuilds the per-entry view from these
+    api = client.get(f"/api/entries/{a['id']}/relationships").json()
+    edges = {x[0]: x for x in snap["edges"]}
+    for r in api:
+        edge = edges[r["id"]]
+        assert edge[3] == r["relationship_type"] and edge[4] == r["origin"] and edge[5] == r["status"]
+        assert r["other"]["id"] in (edge[1], edge[2]) and a["id"] in (edge[1], edge[2])
+    assert any(x[1] == a["id"] and x[2] == b["id"] and x[4] == "user" for x in snap["edges"])
+    full = client.get(f"/api/entries/{b['id']}").json()
+    full.pop("provenance")
+    assert snap["entries"][0] == full and snap["format"] == 2
     assert snap["projects"][0]["name"] == "Hollow Sun" and snap["projects"][0]["entry_count"] == 1
     assert snap["generated_at"]
 

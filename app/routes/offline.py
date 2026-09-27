@@ -15,14 +15,14 @@ from collections import defaultdict
 from fastapi import APIRouter, Depends, Request, Response
 from fastapi.encoders import jsonable_encoder
 from sqlalchemy import select
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models import ArtworkAnalysis, CreativeEntry, Relationship, RelationshipStatus, utcnow
 from app.routes import art as art_routes
 from app.routes.entries import _LOAD
 from app.routes.projects import list_projects
-from app.schemas import entry_detail, relationship_out
+from app.schemas import entry_detail
 
 router = APIRouter(prefix="/api/offline", tags=["offline"])
 log = logging.getLogger("nexus.offline")
@@ -44,24 +44,27 @@ def build_snapshot(db: Session) -> dict:
                          .order_by(CreativeEntry.created_at.desc(), CreativeEntry.id.desc())).all()
     alive = {e.id for e in entries}
 
-    relationships: dict[int, list] = defaultdict(list)
-    rels = db.scalars(select(Relationship).where(Relationship.status != RelationshipStatus.rejected.value)
-                      .options(selectinload(Relationship.source_entry), selectinload(Relationship.target_entry))
-                      .order_by(Relationship.confidence.desc().nullslast(), Relationship.id)).all()
-    for r in rels:
-        if r.source_entry_id in alive and r.target_entry_id in alive:
-            for eid in (r.source_entry_id, r.target_entry_id):
-                relationships[eid].extend(_each([r], lambda x, eid=eid: relationship_out(x, eid), "link"))
+    # Each link once, compactly: [id, source, target, type, origin, status, confidence, rationale].
+    # The phone rebuilds what the entry page shows (direction, the other entry, the label) from these.
+    edges = [[r.id, r.source_entry_id, r.target_entry_id, r.relationship_type, r.origin, r.status,
+              r.confidence, r.rationale]
+             for r in db.scalars(select(Relationship).where(Relationship.status != RelationshipStatus.rejected.value)
+                                 .order_by(Relationship.confidence.desc().nullslast(), Relationship.id))
+             if r.source_entry_id in alive and r.target_entry_id in alive]
 
     art: dict[int, list] = defaultdict(list)
     for a in db.scalars(select(ArtworkAnalysis).where(ArtworkAnalysis.entry_id.in_(alive))
                         .order_by(ArtworkAnalysis.analysis_version.desc())):
         art[a.entry_id].extend(_each([a], lambda x: art_routes._out(db, x), "art analysis"))
 
+    def lean(e):  # the provenance legend is the same for every entry; the app has its own copy
+        return entry_detail(e).model_dump(mode="json", exclude={"provenance"})
+
     return {
+        "format": 2,
         "generated_at": utcnow(),
-        "entries": _each(entries, entry_detail, "entry"),
-        "relationships": relationships,
+        "entries": _each(entries, lean, "entry"),
+        "edges": edges,
         "art": art,
         "projects": list_projects(False, db),
     }

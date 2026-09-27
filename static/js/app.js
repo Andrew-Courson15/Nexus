@@ -214,6 +214,7 @@ const offlineCopy = {
     return this._snap;
   },
   async save(snap) {
+    delete snap._byId;
     this._snap = snap;
     await this.put("snapshot", snap);
   },
@@ -276,6 +277,22 @@ const STOP_WORDS = new Set(["the", "a", "an", "and", "or", "of", "to", "in", "on
   "is", "are", "was", "it", "that", "this", "ideas", "idea", "things", "stuff", "any", "all", "some"]);
 const stem = (w) => w.replace(/(ings|ing|ies|es|ed|s)$/, "") || w;
 
+const AI_LINK_LABELS = { suggested: "AI suggested relationship", accepted: "Confirmed by you (AI suggested)",
+  ignored: "AI suggestion — ignored", rejected: "AI suggestion — rejected" };
+
+/** An entry's links from the offline copy, shaped like /api/entries/{id}/relationships. */
+function relsFromCopy(snap, eid) {
+  if (!snap.edges) return snap.relationships?.[eid] || [];  // a copy saved by an older NEXUS
+  const byId = snap._byId ??= new Map(snap.entries.map((e) => [e.id, e]));
+  return snap.edges.filter((x) => x[1] === eid || x[2] === eid).map(([id, source, target, type, origin, status, confidence, rationale]) => {
+    const other = byId.get(source === eid ? target : source);
+    return other && { id, relationship_type: type, confidence, origin, status, rationale,
+      direction: source === eid ? "outgoing" : "incoming",
+      other: { id: other.id, title: other.title, entry_type: other.entry_type, status: other.status },
+      label: origin === "ai" ? AI_LINK_LABELS[status] : "Created by you" };
+  }).filter(Boolean);
+}
+
 /** Word search over the offline copy (search by meaning needs NEXUS). */
 function searchCopy(snap, query) {
   const terms = [...new Set((query.toLowerCase().match(/[\p{L}\p{N}]+/gu) || [])
@@ -334,7 +351,7 @@ async function offlineAnswer(path, opts = {}) {
   if (snap) {
     if (p === "/api/entries") out = listFromCopy(snap, q);
     else if ((m = p.match(/^\/api\/entries\/(\d+)$/))) out = entry(m[1]);
-    else if ((m = p.match(/^\/api\/entries\/(\d+)\/relationships$/))) out = entry(m[1]) && (snap.relationships[m[1]] || []);
+    else if ((m = p.match(/^\/api\/entries\/(\d+)\/relationships$/))) out = entry(m[1]) && relsFromCopy(snap, +m[1]);
     else if ((m = p.match(/^\/api\/entries\/(\d+)\/revisions$/))) out = entry(m[1]) && [];
     else if ((m = p.match(/^\/api\/entries\/(\d+)\/art$/))) out = entry(m[1]) && (snap.art[m[1]] || []);
     else if ((m = p.match(/^\/api\/entries\/(\d+)\/evolution$/))) out = entry(m[1]) && [entry(m[1])];
@@ -1431,12 +1448,20 @@ function graphFromCopy(snap, q) {
   const pid = q.get("project_id"), withSuggested = q.get("include_suggested") === "true";
   const entries = snap.entries.filter((e) => !pid || e.projects.some((p) => String(p.id) === pid));
   const ids = new Set(entries.map((e) => e.id)), edges = new Map();
-  for (const [eid, rels] of Object.entries(snap.relationships)) {
-    for (const r of rels) {
-      if (!(r.status === "accepted" || (withSuggested && r.status === "suggested"))) continue;
-      const [source, target] = r.direction === "outgoing" ? [+eid, r.other.id] : [r.other.id, +eid];
-      if (ids.has(source) && ids.has(target)) edges.set(r.id, { id: r.id, source, target, type: r.relationship_type,
-        origin: r.origin, status: r.status, yours: r.origin === "user" || r.status === "accepted" });
+  const wanted = (status) => status === "accepted" || (withSuggested && status === "suggested");
+  if (snap.edges) {
+    for (const [id, source, target, type, origin, status] of snap.edges) {
+      if (wanted(status) && ids.has(source) && ids.has(target)) edges.set(id, { id, source, target, type, origin, status,
+        yours: origin === "user" || status === "accepted" });
+    }
+  } else {  // a copy saved by an older NEXUS
+    for (const [eid, rels] of Object.entries(snap.relationships || {})) {
+      for (const r of rels) {
+        if (!wanted(r.status)) continue;
+        const [source, target] = r.direction === "outgoing" ? [+eid, r.other.id] : [r.other.id, +eid];
+        if (ids.has(source) && ids.has(target)) edges.set(r.id, { id: r.id, source, target, type: r.relationship_type,
+          origin: r.origin, status: r.status, yours: r.origin === "user" || r.status === "accepted" });
+      }
     }
   }
   return { nodes: entries.map((e) => ({ id: e.id, title: e.title, entry_type: e.entry_type, status: e.status,
