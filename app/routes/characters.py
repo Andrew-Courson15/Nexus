@@ -7,7 +7,6 @@ Two kinds of connection, kept apart so it's always clear where each came from:
 from __future__ import annotations
 
 import re
-
 from typing import Literal
 
 from fastapi import APIRouter, Depends
@@ -76,19 +75,19 @@ def list_characters(kind: Literal["character", "world"] = "character", project_i
                              Relationship.origin, Relationship.status, Relationship.confidence)
                       .where(Relationship.status != RelationshipStatus.rejected.value)
                       .order_by(Relationship.confidence.desc().nullslast(), Relationship.id)).all()
-    for src, tgt, kind, origin, status, _conf in rows:
+    for src, tgt, rel_type, origin, status, _conf in rows:
         for me, other in ((src, tgt), (tgt, src)):
             if me in wanted and other in by_id:
-                links[me].append((other, kind, "outgoing" if me == src else "incoming", origin, status))
+                links[me].append((other, rel_type, "outgoing" if me == src else "incoming", origin, status))
 
     out = []
     for c in characters:
         linked, seen = [], {c.id}
-        for other, kind, direction, origin, status in links[c.id]:
+        for other, rel_type, direction, origin, status in links[c.id]:
             if other in seen:
                 continue
             seen.add(other)
-            linked.append({"entry": other, "relationship_type": kind, "direction": direction, "origin": origin,
+            linked.append({"entry": other, "relationship_type": rel_type, "direction": direction, "origin": origin,
                            "status": status})
         mentions = []
         name = name_of(c)

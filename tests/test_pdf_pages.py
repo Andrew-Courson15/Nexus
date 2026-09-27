@@ -53,3 +53,14 @@ def test_single_page_and_non_pdf_are_refused(client):
     assert r.status_code == 400 and "only one page" in r.json()["detail"]
     text = client.post("/api/entries", json={"original_text": "x", "analyze": False}).json()
     assert client.post(f"/api/entries/{text['id']}/split-pages").status_code == 400
+
+
+def test_restoring_an_old_version_of_the_pdf_never_duplicates_pages(client):
+    pdf = _upload(client, _pdf(2))
+    pages = client.post(f"/api/entries/{pdf['id']}/split-pages").json()
+    first = client.get(f"/api/entries/{pdf['id']}/revisions").json()[-1]["version_number"]
+    client.post(f"/api/entries/{pdf['id']}/revisions/{first}/restore")
+    again = client.post(f"/api/entries/{pdf['id']}/split-pages").json()
+    assert [p["id"] for p in again] == [p["id"] for p in pages]
+    assert client.get(f"/api/entries/{pdf['id']}").json()["ai_metadata"]["pages"] == [p["id"] for p in pages]
+    assert client.get("/api/entries").json()["total"] == 3

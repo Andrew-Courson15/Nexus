@@ -10,6 +10,7 @@ import hashlib
 import uuid
 from pathlib import Path
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
@@ -41,6 +42,16 @@ def page_count(path: Path) -> int:
         raise SplitError(f"the PDF couldn't be opened ({exc})") from exc
 
 
+def existing_pages(db: Session, entry: CreativeEntry) -> list[CreativeEntry]:
+    """Page entries made from this PDF earlier (found by their links, so it survives restoring an
+    older version of the PDF entry), in page order."""
+    rows = db.scalars(select(CreativeEntry).join(Relationship, Relationship.source_entry_id == CreativeEntry.id)
+                      .where(Relationship.target_entry_id == entry.id, Relationship.relationship_type == "part_of",
+                             CreativeEntry.deleted_at.is_(None))).all()
+    pages = [p for p in rows if ((p.ai_metadata or {}).get("page_of") or {}).get("id") == entry.id]
+    return sorted(pages, key=lambda p: p.ai_metadata["page_of"].get("page", 0))
+
+
 def split_pdf(db: Session, entry: CreativeEntry) -> list[CreativeEntry]:
     """Create the page entries (once). Returns them in page order."""
     import pymupdf
@@ -49,10 +60,11 @@ def split_pdf(db: Session, entry: CreativeEntry) -> list[CreativeEntry]:
     att = pdf_attachment(entry)
     if att is None:
         raise SplitError("This entry has no PDF.")
-    done = (entry.ai_metadata or {}).get("pages")
-    if done:
-        pages = [db.get(CreativeEntry, i) for i in done]
-        return [p for p in pages if p is not None]
+    if pages := existing_pages(db, entry):  # split before: never make the pages twice
+        if (entry.ai_metadata or {}).get("pages") != [p.id for p in pages]:
+            entry.ai_metadata = {**(entry.ai_metadata or {}), "pages": [p.id for p in pages]}
+            db.commit()
+        return pages
     source = settings.data_dir / att.stored_path
     count = page_count(source)
     if count < 2:
