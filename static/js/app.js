@@ -218,6 +218,7 @@ const offlineCopy = {
   },
   async save(snap) {
     delete snap._byId;
+    delete snap._vocab;
     this._snap = snap;
     await this.put("snapshot", snap);
   },
@@ -297,6 +298,39 @@ function relsFromCopy(snap, eid) {
 }
 
 /** Word search over the offline copy (search by meaning needs NEXUS). */
+/** Edit distance between two short words (for "Did you mean …?"). */
+function editDistance(a, b) {
+  let prev = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i++) {
+    const cur = [i];
+    for (let j = 1; j <= b.length; j++) cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    prev = cur;
+  }
+  return prev[b.length];
+}
+
+/** The query with misspelled words replaced by the closest words in the saved copy, or null. */
+function suggestFromCopy(snap, query) {
+  const vocab = snap._vocab ??= new Set(snap.entries.flatMap((e) => [e.title, e.original_text, e.user_notes, e.transcript,
+    e.ai_summary, e.tags.map((t) => t.name).join(" ")].filter(Boolean).join(" ").toLowerCase().match(/\p{L}{3,}/gu) || []));
+  let changed = false;
+  const fixed = query.replace(/\p{L}{4,}/gu, (w) => {
+    const low = w.toLowerCase();
+    if (vocab.has(low) || STOP_WORDS.has(low)) return w;
+    const limit = low.length >= 7 ? 2 : 1;
+    let best = null, bestD = limit + 1;
+    for (const v of vocab) {
+      if (Math.abs(v.length - low.length) > limit) continue;
+      const d = editDistance(low, v);
+      if (d < bestD) { bestD = d; best = v; }
+    }
+    if (!best) return w;
+    changed = true;
+    return best;
+  });
+  return changed ? fixed : null;
+}
+
 function searchCopy(snap, query) {
   const terms = [...new Set((query.toLowerCase().match(/[\p{L}\p{N}]+/gu) || [])
     .filter((t) => t.length > 1 && !STOP_WORDS.has(t)))];
@@ -318,7 +352,8 @@ function searchCopy(snap, query) {
     results.push({ entry: e, score, snippet, matched_by: ["words"], similarity: null });
   }
   results.sort((a, b) => b.score - a.score);
-  return { query, mode: "offline", semantic_enabled: false, relaxed: false,
+  const suggestion = terms.length && !results.length ? suggestFromCopy(snap, query) : null;
+  return { query, mode: "offline", semantic_enabled: false, relaxed: false, suggestion,
     interpreted: { terms, entry_types: [], statuses: [], source_types: [] },
     note: "Searching the copy saved on this phone (matching words only). Search by meaning works when NEXUS is on.",
     results: terms.length ? results.slice(0, 50) : [] };
