@@ -12,7 +12,8 @@ The version is in `app/__init__.py` and shown in **Settings → This device**.
   ideas you haven't touched for a month.
 - **Timeline**: the whole archive month by month, as picture tiles (Creative Archive → Timeline).
 - **Characters** and **Places & worlds**: each character or place with the sketches and scenes
-  linked to it and the entries that mention its name. Also on the phone when the PC is off.
+  linked to it and the entries that mention its name, for all projects or one. Also on the phone
+  when the PC is off.
 - **Story bible**: print a project (or save it as a PDF), grouped into characters, places, story,
   art and notes, with your words and pictures.
 - **Split a PDF into pages**: a comic issue or scanned sketchbook becomes one picture entry per
@@ -28,6 +29,9 @@ The version is in `app/__init__.py` and shown in **Settings → This device**.
   out camera names like IMG_2041. Existing entries are re-indexed once, in about a second.
 - **Duplicates page** (Creative Archive → Duplicates): identical files grouped, extra copies moved to
   the Trash in one click (restorable). Copies with your own words are marked.
+- **Archive filter by kind**: pictures, voice notes, written, files.
+- **First-run check** links to Ollama when it's missing and downloads the AI model in one click.
+- **What's new** (this list) shows once on Home after an update.
 - **Theme** per device (Settings → This device): same as the device, dark, or light.
 - **Tag suggestions** while typing a tag.
 - **Previous / Next** on an entry opened from a grid (Archive, Timeline, a project, Art…): buttons,

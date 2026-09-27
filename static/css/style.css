@@ -601,3 +601,7 @@ a.cite:hover { border-color: var(--text); }
 .panel.dup-group h3 { text-transform: none; letter-spacing: 0; font-size: 15px; color: var(--text); overflow-wrap: anywhere; }
 .dup-copy { display: grid; gap: 6px; align-content: start; }
 .dup-copy .btn { justify-self: start; }
+.whats-new { margin: 16px 0; }
+.whats-new h2 { margin: 0; }
+.whats-new ul { margin: 10px 0 0; padding-left: 20px; }
+.whats-new li { margin: 4px 0; }

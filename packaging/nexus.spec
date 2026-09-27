@@ -10,7 +10,8 @@ from PyInstaller.utils.hooks import collect_all, collect_submodules
 
 ROOT = os.path.abspath(os.path.join(SPECPATH, ".."))  # noqa: F821 - SPECPATH is set by PyInstaller
 
-datas = [(os.path.join(ROOT, "static"), "static"), (os.path.join(ROOT, "app", "templates"), os.path.join("app", "templates"))]
+datas = [(os.path.join(ROOT, "static"), "static"), (os.path.join(ROOT, "app", "templates"), os.path.join("app", "templates")),
+         (os.path.join(ROOT, "CHANGELOG.md"), ".")]
 binaries = []
 hiddenimports = collect_submodules("app") + collect_submodules("uvicorn") + ["python_multipart", "multipart"]
 # Optional parts: bundled when they're installed on the build machine (voice notes, HEIC, PDF, tray icon).

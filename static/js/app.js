@@ -947,7 +947,8 @@ async function viewHome(el) {
     try {
       const data = await api("/api/entries?limit=9");
       $("#recent", el).innerHTML = gridHTML(data.items, "Nothing captured yet. Your first idea goes in the box above.");
-      if (!data.total && !store("nexus.welcomeDone")) mountWelcome($("#welcome", el));
+      if (!data.total && !store("nexus.welcomeDone")) { mountWelcome($("#welcome", el)); store("nexus.seenVersion", APP_VERSION); }
+      else if (APP_VERSION && store("nexus.seenVersion") !== APP_VERSION) mountWhatsNew($("#welcome", el));
       else $("#welcome", el).innerHTML = "";
     } catch (err) {
       if (!err.offline) throw err;
@@ -1027,6 +1028,19 @@ async function mountWelcome(box) {
   } catch {
     $("#welcome-check", box).innerHTML = `<p class="small muted">Couldn't check right now.</p>`;
   }
+}
+
+/** Once after an update: what changed in this version (from the changelog). */
+async function mountWhatsNew(box) {
+  let r;
+  try { r = await api("/api/whats-new", { noCopy: true }); } catch { return; }
+  if (!r.items.length) { store("nexus.seenVersion", APP_VERSION); return; }
+  const md = (t) => esc(t).replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>").replace(/`(.+?)`/g, "<code>$1</code>")
+    .replace(/(^|[^*])\*([^*]+)\*/g, "$1<em>$2</em>");
+  box.innerHTML = `<section class="panel whats-new"><div class="row"><h2>New in NEXUS ${esc(r.version)}</h2><span class="spacer"></span>
+      <button type="button" class="btn ghost small" data-act="seen">Got it</button></div>
+    <ul class="small">${r.items.map((i) => `<li>${md(i)}</li>`).join("")}</ul></section>`;
+  $("[data-act=seen]", box).onclick = () => { store("nexus.seenVersion", APP_VERSION); box.innerHTML = ""; };
 }
 
 async function viewToday(el) {

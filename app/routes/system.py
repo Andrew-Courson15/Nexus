@@ -1,6 +1,7 @@
 """Settings, tags and creative-intelligence endpoints."""
 from __future__ import annotations
 
+import re
 from datetime import date, datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -290,3 +291,23 @@ def update_start(request: Request):
     except updates.UpdateError as exc:
         raise HTTPException(400, str(exc)) from exc
     return {"started": True, "from_version": __version__}
+
+
+@router.get("/whats-new")
+def whats_new():
+    """This version's notes from CHANGELOG.md, shown once on Home after an update."""
+    from app.config import BASE_DIR
+
+    try:
+        text_ = (BASE_DIR / "CHANGELOG.md").read_text(encoding="utf-8")
+    except OSError:
+        return {"version": __version__, "items": []}
+    section = re.search(rf"^## {re.escape(__version__)}\b.*?\n(.*?)(?=^## |\Z)", text_, re.S | re.M)
+    items, current = [], None
+    for line in (section.group(1) if section else "").splitlines():
+        if line.startswith("- "):
+            current = line[2:].strip()
+            items.append(current)
+        elif line.startswith("  ") and current is not None and line.strip():
+            items[-1] = f"{items[-1]} {line.strip()}"
+    return {"version": __version__, "items": items}

@@ -146,3 +146,12 @@ def test_packaged_app_keeps_data_in_the_user_app_folder(monkeypatch, tmp_path):
     monkeypatch.setattr(config.sys, "platform", "darwin")
     assert config._user_dir() == Path.home() / "Library" / "Application Support" / "NEXUS"
     assert config.FROZEN is False and config.USER_DIR == config.BASE_DIR  # running from the source folder
+
+
+def test_whats_new_lists_this_versions_changes(client):
+    from app import __version__
+
+    r = client.get("/api/whats-new").json()
+    assert r["version"] == __version__ and len(r["items"]) >= 5
+    assert any(i.startswith("**Timeline**") for i in r["items"])
+    assert all("\n" not in i for i in r["items"])  # continuation lines are joined
