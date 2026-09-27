@@ -46,6 +46,9 @@ ollama pull "$EMBED"
 say "Preparing Whisper for voice notes (one-time download)…"
 .venv/bin/python -c "from app.services.transcription import LocalWhisperProvider as W; W().load(); print('Whisper ready')"
 
-say "All set. Start NEXUS any time with:"
+# 6. A NEXUS icon on the Desktop and in the Dock (optional extra; never fail setup over it).
+./scripts/make_mac_app.sh || echo "(Couldn't create the NEXUS icon; you can still start NEXUS from Terminal.)"
+
+say "All set. Click the NEXUS icon, or start NEXUS from Terminal with:"
 echo "    source .venv/bin/activate && python run.py"
 echo "then open http://localhost:8000"

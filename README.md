@@ -54,6 +54,14 @@ python run.py
 
 Open **http://localhost:8000**. The **Settings** page shows a green dot when Ollama and Whisper are ready.
 
+**Or use the NEXUS icon.** The setup puts a NEXUS icon on your Desktop and in your Dock. You can
+also add it at any time with `./scripts/make_mac_app.sh`, or run it with `--no-dock` to skip the
+Dock.
+- Click the icon to start NEXUS in the background and open it in your browser.
+- Click it again while NEXUS is running to open it or stop it.
+- The server log is written to `data/nexus.log`.
+- If you move the `nexus` folder, run the script again.
+
 **What to expect:**
 - **Captures save instantly.** Transcription and organizing happen in the background, and the
   entry updates by itself when they finish.
@@ -335,7 +343,7 @@ nexus/
 ├── static/css/style.css      Styles (dark/light, responsive)
 ├── static/js/app.js          Vanilla JS app (router, views, recorder)
 ├── data/{uploads,audio,images,exports}/
-├── scripts/                 setup_mac.sh, setup_windows.ps1, start_windows.bat, phone_setup_windows.ps1
+├── scripts/                 setup_mac.sh, make_mac_app.sh, setup_windows.ps1, start_windows.bat, phone_setup_windows.ps1
 ├── static/sw.js, manifest.webmanifest, icons/   Installable phone app + offline support
 ├── tests/                    pytest suite (includes a fake Ollama)
 ├── requirements.txt          NEXUS itself
