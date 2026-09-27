@@ -114,7 +114,7 @@ exposed to the public internet.
 1. Install Tailscale from https://tailscale.com/download/windows and sign in.
 2. In PowerShell, in the nexus folder:
    ```powershell
-   powershell -ExecutionPolicy Bypass -File scripts\phone_setup_windows.ps1
+   powershell -ExecutionPolicy Bypass -File scripts\phone_setup_windows.ps1, phone_setup_mac.sh
    ```
    The script:
    - finds the PC's private address (for example `https://gaming-pc.tail1234.ts.net`)
@@ -122,6 +122,12 @@ exposed to the public internet.
    - turns on the private HTTPS link
    - can start NEXUS automatically when Windows starts
 3. Restart NEXUS.
+
+**If NEXUS runs on a Mac instead:** install Tailscale from the Mac App Store and sign in, then in
+Terminal run `cd ~/nexus && ./scripts/phone_setup_mac.sh`. It does the same steps and can start
+NEXUS when you log in. Then stop and start NEXUS once with the NEXUS icon. The phone reaches a
+Mac only while it's awake, so leave it plugged in with sleep prevented if you want to capture
+from away; when it's asleep, the phone app still works from its saved copy.
 
 **On the iPhone:**
 1. Install **Tailscale** from the App Store and sign in with the **same account**.
