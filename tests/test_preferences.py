@@ -155,3 +155,12 @@ def test_whats_new_lists_this_versions_changes(client):
     assert r["version"] == __version__ and len(r["items"]) >= 5
     assert any(i.startswith("**Timeline**") for i in r["items"])
     assert all("\n" not in i for i in r["items"])  # continuation lines are joined
+
+
+def test_model_recommendation_follows_memory(client):
+    from app.services import preferences
+
+    assert preferences.recommended_model(8) == "gemma3:4b"
+    assert preferences.recommended_model(16) == "gemma3:12b" and preferences.recommended_model(None) is None
+    machine = client.get("/api/preferences").json()["machine"]
+    assert set(machine) == {"memory_gb", "recommended_model"}

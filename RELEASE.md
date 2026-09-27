@@ -59,8 +59,9 @@ can make; the rest is engineering.
 - **Simpler phone setup.** Done in 0.14: Settings → Your phone guides through Tailscale and turns
   on access with one button, then shows a QR code. Tailscale is still a separate app and account;
   a later option is a paid relay service.
-- **Model management in the app.** Download, switch and remove Ollama models from Preferences
-  with a progress bar, and recommend a model based on the computer's memory and graphics card.
+- **Model management in the app.** Done: download and switch models in Preferences with a progress
+  bar, with a recommendation based on the computer's memory (0.14). Still to do: removing models,
+  and taking the graphics card into account.
 - **Testing on real hardware.** Measure speed and quality on several Windows PCs (NVIDIA / AMD
   / none) and Macs (8 / 16 / 24 GB), and tune the default models per machine.
 - **Accessibility.** Done in 0.14: contrast in both themes (checked with axe), screen-reader

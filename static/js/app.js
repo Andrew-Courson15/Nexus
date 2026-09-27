@@ -1656,7 +1656,9 @@ async function mountPreferences(box) {
       ${d.from_app.length ? `<button type="button" class="btn ghost small" data-act="prefs-reset">Reset to defaults</button>` : ""}</div>
     <form id="prefs-form" class="prefs-grid">
       <label class="field">Your name <input type="text" name="owner_name" maxlength="80" value="${esc(v.owner_name)}" placeholder="shown when you share with a friend"></label>
-      <label class="field">AI model ${modelField("ollama_model", v.ollama_model)}</label>
+      <label class="field">AI model ${modelField("ollama_model", v.ollama_model)}${d.machine?.recommended_model ? `<span class="small muted">This computer has
+        ${Math.round(d.machine.memory_gb)} GB of memory: <strong>${esc(d.machine.recommended_model)}</strong> fits it${
+        sameModel(v.ollama_model, d.machine.recommended_model) ? " (in use)" : ""}.</span>` : ""}</label>
       <label class="field">Model for pictures ${modelField("ollama_vision_model", v.ollama_vision_model, true)}</label>
       <label class="field">Search-by-meaning model ${modelField("embedding_model", v.embedding_model)}</label>
       <label class="field">Speech-to-text model <select name="whisper_model">${d.choices.whisper_models.map((m) =>

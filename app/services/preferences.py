@@ -128,6 +128,45 @@ def update(changes: dict) -> dict:
     return describe()
 
 
+def memory_gb() -> float | None:
+    """This computer's memory (RAM) in GB, or None if it can't be read."""
+    import sys
+
+    try:
+        if sys.platform == "win32":
+            import ctypes
+
+            class Status(ctypes.Structure):
+                _fields_ = [("length", ctypes.c_ulong), ("load", ctypes.c_ulong), ("total", ctypes.c_ulonglong),
+                            ("avail", ctypes.c_ulonglong), ("page_total", ctypes.c_ulonglong),
+                            ("page_avail", ctypes.c_ulonglong), ("virtual_total", ctypes.c_ulonglong),
+                            ("virtual_avail", ctypes.c_ulonglong), ("extended", ctypes.c_ulonglong)]
+
+            st = Status()
+            st.length = ctypes.sizeof(Status)
+            ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(st))
+            return round(st.total / 2**30, 1)
+        if sys.platform == "darwin":
+            import subprocess
+
+            return round(int(subprocess.run(["sysctl", "-n", "hw.memsize"], capture_output=True, text=True,
+                                            timeout=5).stdout.strip()) / 2**30, 1)
+        with open("/proc/meminfo", encoding="ascii") as fh:
+            for line in fh:
+                if line.startswith("MemTotal:"):
+                    return round(int(line.split()[1]) / 2**20, 1)
+    except Exception:
+        return None
+    return None
+
+
+def recommended_model(mem: float | None) -> str | None:
+    """The AI model that fits this computer: the 12b model needs about 16 GB (or a big graphics card)."""
+    if mem is None:
+        return None
+    return "gemma3:12b" if mem >= 14 else "gemma3:4b"
+
+
 def describe() -> dict:
     """Current values, where each comes from, and the choices to offer."""
     s = get_settings()
@@ -150,6 +189,7 @@ def describe() -> dict:
         "from_app": sorted(saved),
         "labels": LABELS,
         "choices": {"installed_models": installed, "whisper_models": WHISPER_MODELS, "suggested_models": SUGGESTED_MODELS},
+        "machine": {"memory_gb": (mem := memory_gb()), "recommended_model": recommended_model(mem)},
         "file": str(preferences_file(s.data_dir)),
     }
 

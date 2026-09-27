@@ -37,6 +37,7 @@ The version is in `app/__init__.py` and shown in **Settings → This device**.
 - **Duplicates page** (Creative Archive → Duplicates): identical files grouped, extra copies moved to
   the Trash in one click (restorable). Copies with your own words are marked.
 - **Archive filter by kind**: pictures, voice notes, written, files.
+- **Preferences recommend an AI model** that fits this computer's memory.
 - **First-run check** links to Ollama when it's missing and downloads the AI model in one click.
 - **Help** (Settings → Help, or press `h`): how NEXUS works and fixes for common problems. Also
   works on the phone when the computer is off.
