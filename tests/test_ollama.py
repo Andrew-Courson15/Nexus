@@ -180,3 +180,14 @@ def test_vision_check_is_retried_after_ollama_comes_up(tmp_path):
     assert p._supports_vision("test-model") is None
     fake.reachable = True
     assert p._supports_vision("test-model") is True
+
+
+def test_ask_prompt_fits_the_context_window():
+    from app.services.ollama import ASK_BUDGET_CHARS, ask_listing
+
+    long = [ctx("word " * 5000, id=i) for i in range(12)]
+    for c in long:
+        c.transcript, c.user_notes, c.summary = "talk " * 5000, "note " * 5000, "sum " * 5000
+    listing = ask_listing(long)
+    assert len(listing) < ASK_BUDGET_CHARS * 1.1
+    assert all(f"[#{i}]" in listing for i in range(12))  # every entry still present and citable

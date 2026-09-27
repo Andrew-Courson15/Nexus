@@ -319,9 +319,16 @@ characters, sketches and voice notes). Use ONLY the entries provided; never inve
 - Be concise: one or two sentences, then a short bullet list when listing several things. Plain text, no headings."""
 
 
+# The model's context is 8192 tokens (num_ctx). Entries get ~4-5k tokens between them, so the
+# instructions and the question are never pushed out by long transcripts.
+ASK_BUDGET_CHARS = 18_000
+
+
 def ask_listing(context: list[EntryContext], max_entries: int = 12) -> str:
     blocks = []
-    for c in context[:max_entries]:
+    context = context[:max_entries]
+    per_entry = max(400, ASK_BUDGET_CHARS // max(1, len(context)))
+    for c in context:
         lines = [f"ENTRY [#{c.id}] ({c.entry_type}, {c.source_type} capture) \"{c.title or 'Untitled'}\""]
         for label, body in (("USER'S WORDS", c.original_text), ("USER NOTES", c.user_notes),
                             ("TRANSCRIPT", c.transcript), ("AI SUMMARY", c.summary)):
@@ -329,7 +336,8 @@ def ask_listing(context: list[EntryContext], max_entries: int = 12) -> str:
                 lines.append(f"{label}: {body.strip()[:1200]}")
         if c.concepts:
             lines.append("CONCEPTS: " + ", ".join(c.concepts[:10]))
-        blocks.append("\n".join(lines))
+        block = "\n".join(lines)
+        blocks.append(block if len(block) <= per_entry else block[:per_entry] + " [...]")
     return "\n\n".join(blocks)
 
 
