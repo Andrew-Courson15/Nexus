@@ -50,6 +50,27 @@ release still needs.
 
 ---
 
+## Easiest install (double-click)
+
+1. Get the NEXUS folder: **Code → Download ZIP** on GitHub, then unzip it. On Windows, put it in
+   your user folder. On a Mac, put it in your home folder.
+2. Double-click the installer for your computer:
+   - **Windows:** `Install NEXUS (Windows).bat`
+   - **Mac:** `Install NEXUS (Mac).command`. If the Mac says it can't be opened, right-click it and
+     choose **Open**.
+3. Answer the few questions and wait for the downloads.
+
+The installer:
+- installs anything missing (Python and Ollama, plus Homebrew on a Mac)
+- chooses a lighter AI model on computers with less memory
+- downloads the AI models (a one-time download, several GB)
+- sets NEXUS up and puts a **NEXUS icon** on your desktop
+- offers to set up your phone
+- opens NEXUS
+
+It's safe to run again, which also repairs a broken setup. The step-by-step instructions below do
+the same by hand.
+
 ## Setup on a Mac (recommended)
 
 **Install these once:**

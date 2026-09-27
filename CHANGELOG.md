@@ -2,6 +2,14 @@
 
 The version is in `app/__init__.py` and shown in **Settings → This device**.
 
+## 0.13.0 (2026-09-27)
+
+- **Double-click installers**: `Install NEXUS (Windows).bat` and `Install NEXUS (Mac).command`
+  install what's missing (Python, Ollama; Homebrew on a Mac), choose a lighter model on
+  low-memory computers, set NEXUS up with its icon, offer phone setup, and open it.
+- **Settings → Your phone**: the phone's private address as a QR code to scan.
+- **Preferences → Download a model**, with a progress bar (no terminal needed).
+
 ## 0.12.0 (2026-09-27)
 
 **Phone**
