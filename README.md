@@ -150,6 +150,15 @@ small thumbnails of up to 500 pictures. It refreshes about every 5 minutes while
 - When the PC is back, the banner goes away on its own and waiting captures are sent.
 - The copy lives only on your phone. On the PC itself, NEXUS always reads straight from its database.
 
+**Passcode (optional, recommended).** On the PC, go to **Settings → Passcode for other devices**
+and choose a passcode.
+- Your phone (or any other device) asks for it once and then stays unlocked.
+- The PC itself never asks.
+- Wrong guesses get slower and slower.
+- **Sign out all devices** makes every device enter it again.
+- Only the PC can set, change or remove the passcode.
+- Captures made on a locked phone wait on the phone until it's unlocked.
+
 If the script says HTTPS certificates are off, open https://login.tailscale.com/admin/dns, turn
 on **MagicDNS** and **HTTPS Certificates**, and run it again.
 
@@ -412,13 +421,21 @@ They're saved in `data/preferences.json` and override the same settings in `.env
 
 ## Security
 
-- NEXUS binds to `127.0.0.1` and **has no login**. Do not expose it to a network or the internet.
+- NEXUS binds to `127.0.0.1`. Do not expose it to a network or the internet.
   For phone access, use the Tailscale setup above: it keeps NEXUS on `127.0.0.1` and only your own
   signed-in devices can reach it.
+- **Optional passcode** for every device except the computer NEXUS runs on:
+  - The passcode is stored only as a salted PBKDF2 hash.
+  - Unlocked devices get a signed, HttpOnly, SameSite=Strict cookie.
+  - Signing everyone out replaces the signing key.
+  - Guessing is rate-limited, and only the local computer can change the passcode.
   `run.py` warns you if the host isn't a loopback address.
 - Requests with unexpected `Host` headers are rejected, which protects against DNS-rebinding attacks from web pages.
 - The AI and transcription run on your machine. NEXUS only talks to the Ollama address you configure, and never through a proxy. No cloud AI service is contacted (none are implemented).
 - Whisper downloads its speech model once from Hugging Face on first use. No audio is sent anywhere.
+- Shared `.nexus` files are checked before import: paths are validated, each file's SHA-256 must
+  match, sizes are limited, and file types are worked out from the files themselves, not from the
+  labels inside the share.
 - Uploaded files are saved under random names inside `data/` and served with `nosniff` and a
   sandboxing CSP. Original filenames are only kept as metadata.
 - `.env` and everything in `data/` are git-ignored.
@@ -591,6 +608,7 @@ Transcription follows the same pattern in `services/transcription.py`: `Transcri
 | GET | `/api/uploads/{attachment_id}` | The original file |
 | POST | `/api/search` | `{"query": "...", "limit", "entry_types", "statuses", "date_from", "date_to"}`. Each result has `matched_by` (`words`, `meaning`, `filters`) and `similarity` |
 | POST | `/api/search/reindex` | Queue entries whose meaning index is missing or stale |
+| GET · POST · PUT/DELETE | `/api/lock` · `/api/lock/unlock` · `/api/lock/passcode` | Passcode status · unlock this device · set/remove the passcode (this computer only) |
 | GET/PUT | `/api/preferences` | Everyday settings changed in the app (`null` resets one) |
 | GET | `/api/graph` | Connections map: `nodes` and `edges` (`project_id`, `include_suggested`) |
 | POST | `/api/ask` | `{"question": "..."}` → an answer from the archive with `sources` (each `cited` or not). Read-only |

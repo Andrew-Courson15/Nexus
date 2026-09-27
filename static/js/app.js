@@ -113,6 +113,12 @@ async function apiNetwork(path, opts = {}) {
   lastUnreachable = 0;
   if (res.status === 204) return null;
   const data = await res.json().catch(() => null);
+  if (res.status === 401 && data?.locked) {
+    showUnlock();
+    const err = new Error("NEXUS is locked on this device. Enter the passcode.");
+    err.locked = true;
+    throw err;
+  }
   if (!res.ok) {
     let msg = data?.detail ?? res.statusText;
     if (Array.isArray(msg)) msg = msg.map((d) => d.msg).join("; ");
@@ -344,6 +350,83 @@ async function offlineAnswer(path, opts = {}) {
   return out;
 }
 
+/* ------------------------------------------------------------ passcode lock */
+/** Full-screen "enter the passcode" when NEXUS is locked for this device. */
+function showUnlock() {
+  if ($("#unlock")) return;
+  document.body.insertAdjacentHTML("beforeend", `<div class="unlock" id="unlock" role="dialog" aria-modal="true" aria-labelledby="unlock-title">
+    <form class="unlock-card"><span class="brand-mark" aria-hidden="true"></span>
+      <h2 id="unlock-title">NEXUS is locked</h2>
+      <p class="small muted">Enter the passcode set on the computer NEXUS runs on. This device stays unlocked afterwards.</p>
+      <input type="password" name="passcode" autocomplete="current-password" aria-label="Passcode" required>
+      <button class="btn primary" type="submit">UNLOCK</button>
+      <p class="small" id="unlock-msg" role="alert"></p>
+      <p class="small muted">You can still <a href="#/" data-close>capture ideas</a>: they wait on this device until it's unlocked.</p>
+    </form></div>`);
+  const box = $("#unlock"), form = $("form", box);
+  $("input", form).focus();
+  $("[data-close]", box).onclick = () => box.remove();
+  form.onsubmit = async (ev) => {
+    ev.preventDefault();
+    try {
+      await apiNetwork("/api/lock/unlock", { method: "POST", json: { passcode: form.passcode.value } });
+      box.remove();
+      toast("Unlocked.");
+      flushOutbox();
+      syncOfflineCopy({ force: true });
+      render();
+    } catch (err) {
+      $("#unlock-msg", box).textContent = err.locked ? "That passcode isn't right." : err.message;
+      form.passcode.select();
+    }
+  };
+}
+
+/** Settings panel: the passcode other devices need (set on the PC itself). */
+async function mountLock(box) {
+  let st;
+  try { st = await api("/api/lock", { noCopy: true }); } catch { box.remove(); return; }
+  if (!st.this_computer) {
+    box.innerHTML = `<h3>Passcode</h3><p class="small muted">${st.enabled
+      ? "This device is unlocked. The passcode is managed on the computer NEXUS runs on."
+      : "No passcode is set. You can set one on the computer NEXUS runs on."}</p>
+      ${st.enabled ? `<button class="btn small ghost" data-act="lock-me">Lock this device</button>` : ""}`;
+    $("[data-act=lock-me]", box)?.addEventListener("click", async () => {
+      await api("/api/lock/sign-out", { method: "POST" });
+      showUnlock();
+    });
+    return;
+  }
+  box.innerHTML = `<h3>Passcode for other devices</h3>
+    <p class="health ${st.enabled ? "ok" : "bad"}"><span class="dot"></span>${st.enabled ? "On: phones and other devices must unlock once" : "Off"}</p>
+    <p class="small muted">Only you can reach NEXUS through Tailscale, but a passcode also protects it if someone picks up your
+      unlocked phone. This computer never needs it.</p>
+    <form class="row" id="lock-form"><input type="password" name="passcode" minlength="4" autocomplete="new-password"
+      placeholder="${st.enabled ? "New passcode" : "Choose a passcode (4+ characters)"}" aria-label="Passcode" style="flex:1">
+      <button class="btn small primary" type="submit">${st.enabled ? "Change" : "Set passcode"}</button></form>
+    ${st.enabled ? `<div class="row" style="margin-top:8px"><button class="btn small ghost" data-act="sign-out-all">Sign out all devices</button>
+      <button class="btn small ghost danger" data-act="remove-lock">Remove passcode</button></div>` : ""}`;
+  $("#lock-form", box).onsubmit = async (ev) => {
+    ev.preventDefault();
+    try {
+      await api("/api/lock/passcode", { method: "PUT", json: { passcode: ev.target.passcode.value } });
+      toast(st.enabled ? "Passcode changed." : "Passcode set. Other devices will ask for it once.");
+      mountLock(box);
+    } catch (err) { toast(err.message, true); }
+  };
+  $("[data-act=sign-out-all]", box)?.addEventListener("click", async () => {
+    if (!confirm("Sign out every phone and other device? They'll need the passcode again.")) return;
+    await api("/api/lock/sign-out-all", { method: "POST" });
+    toast("All other devices are signed out.");
+  });
+  $("[data-act=remove-lock]", box)?.addEventListener("click", async () => {
+    if (!confirm("Remove the passcode? Devices on your Tailscale network can then open NEXUS without it.")) return;
+    await api("/api/lock/passcode", { method: "DELETE" });
+    toast("Passcode removed.");
+    mountLock(box);
+  });
+}
+
 /* ------------------------------------------------------------ offline outbox
  * When NEXUS can't be reached (phone away from the PC, PC asleep), captures
  * are kept in this device's IndexedDB and sent later. Each capture carries a
@@ -408,7 +491,7 @@ async function captureOrQueue(fields) {
     if (item.file && !(await reachable())) throw unreachable();
     return { entry: await sendCapture(item, item.file ? undefined : 5000) };
   } catch (err) {
-    if (!err.offline) throw err;
+    if (!err.offline && !err.locked) throw err;  // locked: keep it here until this device is unlocked
     try {
       await outbox.add(item);
     } catch {
@@ -432,7 +515,7 @@ async function flushOutbox({ quiet = true } = {}) {
         await outbox.remove(item.client_id);
         sent++;
       } catch (err) {
-        if (err.offline) break;  // still unreachable: try again later
+        if (err.offline || err.locked) break;  // unreachable or locked: try again later
         // Rejected by the server (e.g. file too large): keep it, but say why.
         item.error = err.message;
         await outbox.add(item);
@@ -1502,12 +1585,14 @@ async function viewSettings(el) {
       <div class="panel" id="backups"><h3>Backups</h3><p class="loading">Loading…</p></div>
       <div class="panel" id="import"></div>
       <div class="panel" id="device"></div>
+      <div class="panel" id="lock"></div>
     </div>`;
   el.querySelector(".view-head").insertAdjacentHTML("afterend", `<section class="panel prefs" id="prefs"><p class="loading">Loading…</p></section>`);
   mountPreferences($("#prefs", el));
   mountBackups($("#backups", el));
   mountImport($("#import", el));
   mountDevice($("#device", el));
+  mountLock($("#lock", el));
   $("[data-act=reindex]", el)?.addEventListener("click", async (ev) => {
     ev.target.disabled = true;
     try {
