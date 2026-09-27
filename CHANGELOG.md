@@ -4,6 +4,8 @@ The version is in `app/__init__.py` and shown in **Settings → This device**.
 
 ## 0.14.0 (2026-09-27)
 
+- **A downloadable app, first step**: `scripts/build_app_windows.ps1` / `scripts/build_app_mac.sh` build
+  NEXUS as a standalone app (no Python or Git needed). See RELEASE.md.
 - **Update from inside NEXUS**: Settings → Updates checks for a newer version, lists what's new,
   and updates in one click on the computer NEXUS runs on. The page reloads by itself afterwards.
 - **Rediscover** on Today: ideas from this day in earlier months or years, and a few unfinished

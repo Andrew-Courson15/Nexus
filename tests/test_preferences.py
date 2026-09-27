@@ -133,3 +133,16 @@ def test_problem_report_has_health_and_log_but_not_entry_text(client):
     text = client.get("/api/problem-report").json()["text"]
     assert text.startswith("NEXUS ") and "Entries: 1" in text and "ERROR something broke" in text
     assert "secret comic plot" not in text
+
+
+def test_packaged_app_keeps_data_in_the_user_app_folder(monkeypatch, tmp_path):
+    from pathlib import Path
+
+    from app import config
+
+    monkeypatch.setattr(config.sys, "platform", "win32")
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    assert config._user_dir() == tmp_path / "NEXUS"
+    monkeypatch.setattr(config.sys, "platform", "darwin")
+    assert config._user_dir() == Path.home() / "Library" / "Application Support" / "NEXUS"
+    assert config.FROZEN is False and config.USER_DIR == config.BASE_DIR  # running from the source folder

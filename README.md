@@ -272,6 +272,14 @@ A desktop with an NVIDIA RTX 3060 generates text faster than a laptop. To let th
 
 Ollama has **no password**, so only do this on your own home network, never on public Wi-Fi.
 
+### Build the downloadable app (for other people)
+
+`scripts\build_app_windows.ps1` (on Windows) or `./scripts/build_app_mac.sh` (on a Mac) builds
+NEXUS as a standalone app in `dist/`, zipped, that runs without Python or Git: unzip and
+double-click. Its data lives in the per-user app folder (`%LOCALAPPDATA%\NEXUS` or
+`~/Library/Application Support/NEXUS`), not next to the app. Ollama is still installed
+separately. Details and what's still missing for a public release: `RELEASE.md`.
+
 ### Run the tests
 
 ```bash

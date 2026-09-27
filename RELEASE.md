@@ -37,7 +37,15 @@ can make; the rest is engineering.
 
 ## Engineering still needed for non-technical users
 
-- **Real installers.** Today setup needs Python, Git and a terminal.
+- **Real installers.** Started in 0.14: `scripts/build_app_windows.ps1` and `scripts/build_app_mac.sh`
+  build a standalone app with PyInstaller (`packaging/nexus.spec`) that runs without Python or Git.
+  Unzip and double-click; data goes to the per-user app folder (`%LOCALAPPDATA%\NEXUS`,
+  `~/Library/Application Support/NEXUS`). Tested as a Linux build here (starts in about a second;
+  pictures, PDFs, search and the phone QR work); the Windows and Mac builds still need a first
+  run on real machines. About 150 MB, or about 490 MB with voice-note transcription included.
+  Still to do: a proper installer around it (Inno Setup on Windows, a `.dmg` on Mac), Ollama
+  guidance inside the first-run check, and signing.
+- **Previously:** setup needed Python, Git and a terminal.
   - A Windows installer (`.exe`/`.msi`) and a Mac app (`.dmg`) would bundle Python and NEXUS,
     install or guide Ollama, and start NEXUS at login.
   - Tools: PyInstaller or Briefcase.

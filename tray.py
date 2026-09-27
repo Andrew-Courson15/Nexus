@@ -17,7 +17,7 @@ import threading
 import webbrowser
 from pathlib import Path
 
-from app.config import BASE_DIR, get_settings
+from app.config import BASE_DIR, FROZEN, get_settings
 
 log = logging.getLogger("nexus.tray")
 
@@ -25,8 +25,34 @@ log = logging.getLogger("nexus.tray")
 def _server():
     import uvicorn
 
+    from app.main import app
+
     s = get_settings()
-    return uvicorn.Server(uvicorn.Config("app.main:app", host=s.host, port=s.port, log_level="info"))
+    return uvicorn.Server(uvicorn.Config(app, host=s.host, port=s.port, log_level="info"))
+
+
+def _already_running(url: str) -> bool:
+    """Is a NEXUS already answering here? (Starting the app twice just opens the running one.)"""
+    import urllib.request
+
+    try:
+        with urllib.request.urlopen(url + "/api/ping", timeout=1.5) as r:  # noqa: S310 - our own localhost
+            return r.status == 200
+    except Exception:
+        return False
+
+
+def _open_when_ready(url: str) -> None:
+    import time
+    import urllib.request
+
+    for _ in range(120):
+        try:
+            with urllib.request.urlopen(url + "/api/ping", timeout=1):  # noqa: S310 - our own localhost
+                webbrowser.open(url)
+                return
+        except Exception:
+            time.sleep(0.5)
 
 
 # -- "Start with Windows": a shortcut in the Startup folder that starts NEXUS quietly -------------
@@ -48,10 +74,13 @@ def set_start_with_windows(on: bool) -> None:
         return
     ps = str(Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32" / "WindowsPowerShell" / "v1.0" / "powershell.exe")
     args = f'-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "{BASE_DIR / "scripts" / "nexus_launcher.ps1"}" -NoBrowser'
+    target, workdir = ps, BASE_DIR
+    if FROZEN:  # the packaged app starts itself directly
+        target, args, workdir = sys.executable, "--no-browser", Path(sys.executable).parent
     script = ("$s = (New-Object -ComObject WScript.Shell).CreateShortcut($env:NEXUS_LNK); "
               "$s.TargetPath = $env:NEXUS_PS; $s.Arguments = $env:NEXUS_ARGS; $s.WorkingDirectory = $env:NEXUS_DIR; "
               "$s.IconLocation = $env:NEXUS_ICON; $s.WindowStyle = 7; $s.Save()")
-    env = {**os.environ, "NEXUS_LNK": str(link), "NEXUS_PS": ps, "NEXUS_ARGS": args, "NEXUS_DIR": str(BASE_DIR),
+    env = {**os.environ, "NEXUS_LNK": str(link), "NEXUS_PS": target, "NEXUS_ARGS": args, "NEXUS_DIR": str(workdir),
            "NEXUS_ICON": f"{BASE_DIR / 'static' / 'icons' / 'nexus.ico'},0"}
     subprocess.run([ps, "-NoProfile", "-Command", script], env=env, check=False, timeout=30,
                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
@@ -81,13 +110,18 @@ def main() -> None:
         out = open(s.data_dir / "nexus.log", "a", buffering=1, encoding="utf-8")  # noqa: SIM115
         sys.stdout = sys.stdout or out
         sys.stderr = sys.stderr or out
+    url = f"http://localhost:{s.port}"
+    if FROZEN and _already_running(url):  # double-clicked again: just show the running NEXUS
+        webbrowser.open(url)
+        return
     server = _server()
+    if FROZEN and "--no-browser" not in sys.argv:  # the packaged app opens itself once it's ready
+        threading.Thread(target=_open_when_ready, args=(url,), name="nexus-open", daemon=True).start()
     tray = _load_tray()
     if tray is None:
         server.run()
         return
     pystray, image = tray
-    url = f"http://localhost:{s.port}"
     thread = threading.Thread(target=server.run, name="nexus-server", daemon=True)
     thread.start()
 

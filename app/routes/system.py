@@ -212,7 +212,8 @@ def problem_report(db: Session = Depends(get_db)):
     search = info["search"]
     lines = [
         f"NEXUS {__version__}",
-        f"System: {platform.system()} {platform.release()} ({platform.machine()}), Python {sys.version.split()[0]}",
+        f"System: {platform.system()} {platform.release()} ({platform.machine()}), Python {sys.version.split()[0]}"
+        f"{', packaged app' if getattr(sys, 'frozen', False) else ''}",
         f"AI: {info['ai_provider']['name']} - {info['ai_provider']['health'].get('detail') or info['ai_provider']['health']}",
         f"Picture model: {s.ollama_vision_model or '(same as AI)'} | AI model: {s.ollama_model}",
         f"Speech to text: {info['transcription_provider']['name']} - {info['transcription_provider']['health'].get('detail', '')}",

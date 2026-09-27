@@ -13,7 +13,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from app.config import BASE_DIR, get_settings
+from app.config import BASE_DIR, FROZEN, get_settings
 
 GIT_TIMEOUT = 40
 
@@ -46,6 +46,10 @@ def check() -> dict:
     """Is a newer version available on the branch this copy follows?"""
     from app import __version__
 
+    if FROZEN:
+        return {"can_update": False, "current_version": __version__,
+                "reason": "This is the downloadable NEXUS app. To update it, download the newest version and install "
+                          "it over this one; your ideas and settings stay where they are."}
     if not (BASE_DIR / ".git").exists():
         return {"can_update": False, "current_version": __version__,
                 "reason": "This copy wasn't installed with git, so it can't update itself."}

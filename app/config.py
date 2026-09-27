@@ -8,19 +8,38 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from dataclasses import dataclass, replace
 from functools import lru_cache
 from pathlib import Path
 
 from dotenv import load_dotenv
 
-BASE_DIR = Path(__file__).resolve().parent.parent
-load_dotenv(BASE_DIR / ".env")
+#: True when NEXUS runs as a packaged app (one download, no Python needed), not from the source folder.
+FROZEN = bool(getattr(sys, "frozen", False))
+
+
+def _user_dir() -> Path:
+    """Where a packaged NEXUS keeps your data and .env: the usual per-user app folder."""
+    if sys.platform == "win32":
+        root = Path(os.environ.get("LOCALAPPDATA") or Path.home() / "AppData" / "Local")
+    elif sys.platform == "darwin":
+        root = Path.home() / "Library" / "Application Support"
+    else:
+        root = Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local" / "share")
+    return root / "NEXUS"
+
+
+# BASE_DIR: NEXUS's own files (app, static, scripts). USER_DIR: your data folder and .env live here.
+# From the source folder both are that folder, exactly as before.
+BASE_DIR = Path(getattr(sys, "_MEIPASS", "")).resolve() if FROZEN else Path(__file__).resolve().parent.parent
+USER_DIR = Path(os.environ.get("NEXUS_HOME") or _user_dir()).expanduser() if FROZEN else BASE_DIR
+load_dotenv(USER_DIR / ".env")
 
 
 def _resolve(path: str) -> Path:
     p = Path(path).expanduser()
-    return p if p.is_absolute() else (BASE_DIR / p).resolve()
+    return p if p.is_absolute() else (USER_DIR / p).resolve()
 
 
 @dataclass(frozen=True)
