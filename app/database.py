@@ -82,7 +82,7 @@ def ensure_unique_indexes(conn: Connection, metadata: MetaData) -> None:
 def init_db() -> None:
     """Create folders, tables and the full-text index (idempotent)."""
     from app import models  # noqa: F401  (register models on Base.metadata)
-    from app.services.search import ensure_search_index
+    from app.services.search import ensure_search_index, rebuild_if_outdated
 
     settings.ensure_dirs()
     Base.metadata.create_all(bind=engine)
@@ -90,3 +90,5 @@ def init_db() -> None:
         add_missing_columns(conn, Base.metadata)
         ensure_unique_indexes(conn, Base.metadata)
         ensure_search_index(conn)
+    with SessionLocal() as db:  # after an update that changed what's searchable
+        rebuild_if_outdated(db)

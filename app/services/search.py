@@ -29,6 +29,10 @@ _FTS_COLUMNS = (
 _BM25_WEIGHTS = "10.0, 6.0, 5.0, 5.0, 2.0, 1.0, 3.0, 3.0"
 
 _fts_available: bool | None = None
+# Bump when what goes into the index changes; entries are then re-indexed once on start.
+SEARCH_INDEX_VERSION = "2"  # 2: file names of uploads are searchable
+_GENERIC_NAME_WORDS = {"img", "image", "dsc", "dscn", "pxl", "photo", "scan", "screenshot", "screen", "shot",
+                       "recording", "untitled", "upload", "capture", "file", "copy", "final", "export", "page"}
 
 
 def ensure_search_index(conn: Connection) -> bool:
@@ -63,7 +67,7 @@ def index_entry(db: Session, entry: CreativeEntry) -> None:
     meta = entry.ai_metadata or {}
     values = {
         "id": entry.id,
-        "title": entry.title or "",
+        "title": " ".join(x for x in (entry.title or "", filename_words(entry)) if x),
         "original_text": entry.original_text or "",
         "user_notes": entry.combined_notes,
         "transcript": entry.transcript or "",
@@ -78,6 +82,37 @@ def index_entry(db: Session, entry: CreativeEntry) -> None:
     cols = ", ".join(_FTS_COLUMNS)
     params = ", ".join(":" + c for c in _FTS_COLUMNS)
     db.execute(text(f"INSERT INTO {FTS_TABLE} (rowid, {cols}) VALUES (:id, {params})"), values)
+
+
+def filename_words(entry: CreativeEntry) -> str:
+    """Words from the names of the files you uploaded ("el_faro-pose2.png" -> "el faro pose2"),
+    without camera-style noise such as "IMG_2041"."""
+    words: list[str] = []
+    for a in entry.attachments:
+        stem = a.original_filename.rsplit(".", 1)[0]
+        for w in re.split(r"[\W_]+", stem):
+            if w and not w.isdigit() and w.lower() not in _GENERIC_NAME_WORDS and w.lower() not in words:
+                words.append(w.lower())
+    return " ".join(words)
+
+
+def rebuild_if_outdated(db: Session) -> int:
+    """Re-index every entry once after an update changed what's indexed. Returns how many."""
+    if not fts_available():
+        return 0
+    db.execute(text("CREATE TABLE IF NOT EXISTS nexus_meta (key TEXT PRIMARY KEY, value TEXT)"))
+    current = db.execute(text("SELECT value FROM nexus_meta WHERE key = 'search_index_version'")).scalar()
+    if current == SEARCH_INDEX_VERSION:
+        return 0
+    entries = db.scalars(select(CreativeEntry).options(
+        selectinload(CreativeEntry.entry_tags).selectinload(EntryTag.tag),
+        selectinload(CreativeEntry.attachments))).all()
+    for entry in entries:
+        index_entry(db, entry)
+    db.execute(text("INSERT OR REPLACE INTO nexus_meta (key, value) VALUES ('search_index_version', :v)"),
+               {"v": SEARCH_INDEX_VERSION})
+    db.commit()
+    return len(entries)
 
 
 def visual_terms(visual: dict | None) -> list[str]:

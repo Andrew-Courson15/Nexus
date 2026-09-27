@@ -16,6 +16,8 @@ The version is in `app/__init__.py` and shown in **Settings → This device**.
   shows how many are saved.
 - **Uploading many files at once** shows its progress, and can date each picture by the file's
   own date, so older work lands in the right month on the Timeline.
+- **Search** finds pictures and files by their file name ("el_faro_pose.png" → *faro*), leaving
+  out camera names like IMG_2041. Existing entries are re-indexed once, in about a second.
 - **Map**: tapping just beside an idea opens it, which is much easier on a phone.
 - **Settings → Something not working?**: a problem report to paste when asking for help. You
   see it first and copy it yourself; nothing is sent.

@@ -53,3 +53,34 @@ def test_search_handles_fts_syntax_characters(client):
     cap(client, "Quotes and stars.")
     for q in ['"', "star*", "a OR", "NEAR(", "-x"]:
         assert client.post("/api/search", json={"query": q}).status_code == 200
+
+
+def test_uploaded_file_names_are_searchable(client):
+    import io
+
+    from PIL import Image
+
+    buf = io.BytesIO()
+    Image.new("RGB", (20, 20), "red").save(buf, "PNG")
+    e = client.post("/api/uploads", files={"file": ("el_faro-pose2.png", buf.getvalue(), "image/png")},
+                    data={"analyze": "false"}).json()
+    client.post("/api/uploads", files={"file": ("IMG_2041.png", buf.getvalue(), "image/png")}, data={"analyze": "false"})
+    hits = client.post("/api/search", json={"query": "faro"}).json()["results"]
+    assert [h["entry"]["id"] for h in hits] == [e["id"]]
+    assert client.post("/api/search", json={"query": "img"}).json()["results"] == []
+
+
+def test_index_is_rebuilt_once_after_an_update(client):
+    from sqlalchemy import text
+
+    from app.database import SessionLocal
+    from app.services import search
+
+    e = client.post("/api/entries", json={"original_text": "lantern keeper", "analyze": False}).json()
+    with SessionLocal() as db:
+        db.execute(text(f"DELETE FROM {search.FTS_TABLE}"))
+        db.execute(text("UPDATE nexus_meta SET value = 'old' WHERE key = 'search_index_version'"))
+        db.commit()
+        assert search.rebuild_if_outdated(db) == 1
+        assert search.rebuild_if_outdated(db) == 0
+    assert [h["entry"]["id"] for h in client.post("/api/search", json={"query": "lantern"}).json()["results"]] == [e["id"]]
