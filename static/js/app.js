@@ -1286,6 +1286,9 @@ async function mountBackups(box) {
     <p class="small muted">Each backup is one zip with your database and every original file.
       ${b.every_days > 0 ? `A new one is made every ${b.every_days} day${b.every_days === 1 ? "" : "s"}; ` : "Automatic backups are off; "}
       the newest ${b.keep} are kept. Folder: <code>${esc(b.folder)}</code></p>
+    <p class="small" style="margin-top:12px"><a class="btn small ghost" href="/api/export/markdown" download>Export as readable files</a></p>
+    <p class="small muted">A zip with a Markdown file for every entry and project (your words, notes and the AI's layers in
+      separate, labeled sections) plus every original file. It opens in any notes app, without NEXUS.</p>
     ${b.folder_is_inside_data ? `<p class="small notice">Tip: backups are on the same drive as NEXUS. Set <code>NEXUS_BACKUP_DIR</code>
       in <code>.env</code> to another drive, a USB stick or a OneDrive/iCloud folder, so one broken disk can't take both.</p>` : ""}`;
   $("[data-act=backup-now]", box)?.addEventListener("click", async () => {

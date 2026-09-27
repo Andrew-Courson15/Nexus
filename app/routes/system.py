@@ -120,3 +120,16 @@ def put_preferences(changes: dict):
         return preferences.update(changes)
     except preferences.PreferenceError as exc:
         raise HTTPException(400, str(exc)) from exc
+
+
+@router.get("/export/markdown")
+def export_markdown(db: Session = Depends(get_db)):
+    """Everything as readable files: a Markdown file per entry and project, plus every original file."""
+    from fastapi.responses import FileResponse
+    from starlette.background import BackgroundTask
+
+    from app.services.markdown_export import export_markdown as build
+
+    path, name = build(db)
+    return FileResponse(path, media_type="application/zip", filename=name,
+                        background=BackgroundTask(lambda: path.unlink(missing_ok=True)))

@@ -366,6 +366,16 @@ Your ideas and art are irreplaceable, so NEXUS backs them up.
   stick or a OneDrive/iCloud folder, so one broken disk can't take your archive and its
   backups together. For example, in `.env` on Windows: `NEXUS_BACKUP_DIR=D:\NEXUS Backups`.
 
+**Readable export.** **Settings → Backups → Export as readable files** gives you everything as
+plain files:
+- a Markdown file for every entry and project, with front matter (type, status, tags, projects) and
+  your words, notes, transcript and the AI's layers in separate, labeled sections
+- links between related entries
+- every original file
+
+It opens in any text editor or notes app (Obsidian, VS Code …), so your work never depends on
+NEXUS. (`GET /api/export/markdown`)
+
 **Restoring a backup.** Close NEXUS first, then run:
 
 ```powershell
