@@ -31,7 +31,7 @@ def test_split_makes_linked_page_entries_and_keeps_the_pdf(client):
     assert r.status_code == 200, r.text
     pages = r.json()
     assert [p["title"] for p in pages] == [f"Night Wrestlers — page {i}" for i in (1, 2, 3)]
-    assert all(p["attachments"][0]["mime_type"] == "image/png" and p["attachments"][0]["thumb_url"] for p in pages)
+    assert all(p["attachments"][0]["mime_type"] == "image/jpeg" and p["attachments"][0]["thumb_url"] for p in pages)
     assert all(p["projects"] == [{"id": proj["id"], "name": "Night Wrestlers"}] for p in pages)
     assert pages[1]["ai_metadata"]["page_of"] == {"id": pdf["id"], "page": 2, "pages": 3}
     rels = client.get(f"/api/entries/{pdf['id']}/relationships").json()

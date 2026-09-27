@@ -1,6 +1,6 @@
 """Split a multi-page PDF (a comic, a sketchbook scan, a storyboard) into one picture entry per page.
 
-The PDF itself is never changed. Each page is rendered to a new PNG and saved as its own entry,
+The PDF itself is never changed. Each page is rendered to a new JPEG and saved as its own entry,
 linked to the PDF entry ("part of"), in the same projects, so pages can be viewed, analyzed,
 compared and linked one by one.
 """
@@ -69,8 +69,9 @@ def split_pdf(db: Session, entry: CreativeEntry) -> list[CreativeEntry]:
             for number, page in enumerate(doc, start=1):
                 longest = max(page.rect.width, page.rect.height) or 1
                 zoom = min(4.0, max(0.5, PREVIEW_MAX_SIDE / longest))
-                data = page.get_pixmap(matrix=pymupdf.Matrix(zoom, zoom), alpha=False).tobytes("png")
-                dest = settings.images_dir / f"{uuid.uuid4().hex}.png"
+                pix = page.get_pixmap(matrix=pymupdf.Matrix(zoom, zoom), alpha=False)
+                data = pix.tobytes("jpeg", jpg_quality=90)  # a faithful rendering, far smaller than PNG
+                dest = settings.images_dir / f"{uuid.uuid4().hex}.jpg"
                 with dest.open("xb") as fh:
                     fh.write(data)
                 written.append(dest)
@@ -86,8 +87,8 @@ def split_pdf(db: Session, entry: CreativeEntry) -> list[CreativeEntry]:
                 )
                 page_entry.projects.extend(p for p in entry.projects if p.deleted_at is None)
                 page_entry.attachments.append(Attachment(
-                    kind="image", original_filename=f"{stem} - page {number}.png",
-                    stored_path=page_entry.source_file, mime_type="image/png", size_bytes=len(data),
+                    kind="image", original_filename=f"{stem} - page {number}.jpg",
+                    stored_path=page_entry.source_file, mime_type="image/jpeg", size_bytes=len(data),
                     sha256=hashlib.sha256(data).hexdigest(),
                 ))
                 db.add(page_entry)
