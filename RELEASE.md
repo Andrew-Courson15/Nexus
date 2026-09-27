@@ -68,7 +68,8 @@ can make; the rest is engineering.
   Still to do: a full screen-reader walkthrough (VoiceOver, NVDA).
 - **Crash reporting you control.** Started in 0.14: Settings → Something not working? shows a
   report to copy. A future version could offer to send it, with the same preview.
-- **Documentation.** Split this README into a user guide (website/help pages) and a developer guide.
+- **Documentation.** 0.14 has an in-app Help page for everyday use. Still to do: split this README
+  into a user guide (website) and a developer guide.
 - **Legal pages.** A privacy policy (short, since nothing leaves the device) and terms of use.
 
 ## Nice next features
