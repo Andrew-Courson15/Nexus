@@ -442,6 +442,7 @@ a.cite:hover { border-color: var(--text); }
 #map .node text { font-size: var(--label, 11px); fill: var(--text); text-anchor: middle; paint-order: stroke; stroke: var(--surface); stroke-width: 3px; }
 #map .node.focus .dot, #map .node.focus .ring { stroke: var(--user); stroke-width: 4; }
 #map .node:focus { outline: none; }
+#map .node:focus-visible .dot, #map .node:focus-visible .ring { stroke: var(--user); stroke-width: 4; }
 #map.dim .edge:not(.hot), #map.dim .node:not(.hot) { opacity: .18; }
 #map .edge.hot { stroke-opacity: 1; stroke-width: 2.4; }
 .map-zoom { position: absolute; right: 10px; top: 10px; display: flex; gap: 6px; }

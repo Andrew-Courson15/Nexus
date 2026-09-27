@@ -1696,7 +1696,15 @@ async function viewMap(el, _id, query) {
     if (pointers.size < 2) pinch = null;
     if (moved < 6 && ev.type === "pointerup") {
       const node = document.elementFromPoint(ev.clientX, ev.clientY)?.closest(".node");
-      if (node) location.hash = `#/entry/${node.dataset.id}`;
+      if (node) { location.hash = `#/entry/${node.dataset.id}`; return; }
+      // A near miss still counts (small dots on a phone): the closest idea within about a fingertip.
+      const p = toSvg(ev), perPx = vb.w / (svg.getBoundingClientRect().width || 1);
+      let best = null, bestPx = 22;
+      for (const n of nodes) {
+        const px = (Math.hypot(n.x - p.x, n.y - p.y) - radius(n)) / perPx;
+        if (px < bestPx) { bestPx = px; best = n; }
+      }
+      if (best) location.hash = `#/entry/${best.id}`;
     }
   };
   svg.addEventListener("pointerup", up);
