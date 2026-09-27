@@ -361,6 +361,7 @@ Browsers only allow microphone access on `localhost` or HTTPS. Open NEXUS at
   - on a **multi-page PDF** (a comic issue, a scanned sketchbook), **Split into pages**: each page
     becomes its own picture entry, linked to the PDF ("part of") and in the same projects, with
     previous/next page links. The PDF itself is never changed. Up to 80 pages.
+    Afterwards, **Pages 1–6** (and so on) reads the pages in order as a comic sequence with the local AI.
 - **Settings → Something not working?** makes a problem report (versions, whether the AI and
   search are healthy, counts, recent log lines, never your entries' text). You see it first and
   copy it yourself; nothing is sent anywhere.

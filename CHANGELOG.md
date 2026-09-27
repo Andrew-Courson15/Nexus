@@ -8,7 +8,8 @@ The version is in `app/__init__.py` and shown in **Settings → This device**.
 - **Characters** and **Places & worlds**: each character or place with the sketches and scenes
   linked to it and the entries that mention its name. Also on the phone when the PC is off.
 - **Split a PDF into pages**: a comic issue or scanned sketchbook becomes one picture entry per
-  page, linked to the PDF, with previous/next page links. The PDF is never changed.
+  page, linked to the PDF, with previous/next page links, and can then be read as a comic
+  sequence six pages at a time. The PDF is never changed.
 - **Phone**: keeps up to 2,000 pictures for when the PC is off (was 500). Settings → This device
   shows how many are saved.
 - **Map**: tapping just beside an idea opens it, which is much easier on a phone.

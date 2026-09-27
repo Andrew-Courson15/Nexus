@@ -2155,7 +2155,10 @@ async function viewEntry(el, id) {
   const pagesBlock = m.page_of ? `<nav class="row small page-nav" id="page-nav" aria-label="Pages">Page ${m.page_of.page} of ${m.page_of.pages} ·
       <a href="#/entry/${m.page_of.id}">the whole PDF</a></nav>`
     : isPdf && m.pages?.length ? `<nav class="page-list small" aria-label="Pages"><span class="muted">Pages as entries:</span> ${m.pages.map((pid, i) =>
-      `<a href="#/entry/${pid}">${i + 1}</a>`).join(" ")}</nav>`
+      `<a href="#/entry/${pid}">${i + 1}</a>`).join(" ")}</nav>
+      <div class="row small split-pages"><span class="muted">Read as a comic sequence (the local AI, 6 pages at a time):</span>
+      ${Array.from({ length: Math.ceil(m.pages.length / 6) }, (_, g) => { const from = g * 6, to = Math.min(from + 6, m.pages.length);
+        return `<button type="button" class="btn small ghost" data-seq="${m.pages.slice(from, to).join(",")}">Pages ${from + 1}–${to}</button>`; }).join("")}</div>`
     : isPdf ? `<div class="row small split-pages"><button type="button" class="btn small" data-act="split-pages">Split into pages</button>
       <label class="check"><input type="checkbox" id="split-analyze"> Analyze each page (slower)</label>
       <span class="muted">One picture entry per page, linked to this PDF. The PDF stays as it is.</span></div>` : "";
@@ -2267,6 +2270,12 @@ async function viewEntry(el, id) {
       render();
     } catch (err) { toast(err.message, true); ev.target.disabled = false; ev.target.textContent = "Split into pages"; }
   });
+  $$("[data-seq]", el).forEach((b) => (b.onclick = () => {
+    const [first, ...rest] = b.dataset.seq.split(",").map(Number);
+    if (!rest.length) return toast("A sequence needs at least two pages.", true);
+    b.disabled = true;
+    startArt(first, "sequence", rest).catch((err) => { toast(err.message, true); b.disabled = false; });
+  }));
   if (m.page_of) api(`/api/entries/${m.page_of.id}`).then((pdf) => {  // previous / next page
     const ids = pdf.ai_metadata?.pages || [], i = ids.indexOf(e.id), nav = $("#page-nav", el);
     if (!nav || i < 0) return;
