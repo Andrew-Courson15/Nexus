@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import io
 import logging
+import time
 import uuid
 import zipfile
 from pathlib import Path
@@ -51,6 +52,11 @@ _ZIP_PREVIEWS = {
 }
 
 
+RETRY_FAILED_AFTER_S = 3600  # a file that couldn't be converted isn't retried on every page view
+
+_failed: dict[str, tuple[float, str]] = {}  # stored_path -> (when, why)
+
+
 class PreviewError(RuntimeError):
     pass
 
@@ -71,7 +77,7 @@ def needs_preview(mime: str, size_bytes: int) -> bool:
     return mime.startswith("image/") or mime in ARTWORK_MIME or mime in DOCUMENT_PREVIEW_MIME or mime == "image/openraster"
 
 
-def _open_pillow(data: bytes | Path, mime: str):
+def _open_pillow(data: bytes | Path, mime: str, max_side: int | None = None):
     from PIL import Image
 
     Image.MAX_IMAGE_PIXELS = PREVIEW_MAX_PIXELS
@@ -83,6 +89,8 @@ def _open_pillow(data: bytes | Path, mime: str):
         except ImportError as exc:
             raise PreviewError("HEIC support isn't installed (pip install pillow-heif)") from exc
     img = Image.open(io.BytesIO(data) if isinstance(data, bytes) else data)
+    if max_side and img.format == "JPEG":
+        img.draft("RGB", (max_side, max_side))  # decode big photos at a reduced size: far less memory
     if mime in ("image/wmf", "image/emf"):
         img.load(dpi=144)  # Windows only: Pillow draws WMF/EMF with the Windows graphics system
     img.load()
@@ -127,7 +135,7 @@ def render(path: Path, mime: str):
     if mime in _ZIP_PREVIEWS:
         return _render_zip(path, mime)
     try:
-        return _open_pillow(path, mime)
+        return _open_pillow(path, mime, PREVIEW_MAX_SIDE)
     except PreviewError:
         raise
     except Exception as exc:
@@ -184,7 +192,7 @@ def thumbnail(attachment) -> tuple[Path, str] | None:
     if found is None or not found[0].is_file():
         return None
     try:
-        dest = _save_scaled(_open_pillow(found[0], found[1]), THUMB_MAX_SIDE, out_dir, stem, 82)
+        dest = _save_scaled(_open_pillow(found[0], found[1], THUMB_MAX_SIDE), THUMB_MAX_SIDE, out_dir, stem, 82)
     except Exception:  # an unreadable picture just has no thumbnail
         log.warning("Couldn't make a thumbnail for attachment %s", attachment.id, exc_info=True)
         return None
@@ -201,10 +209,16 @@ def ensure_preview(attachment) -> str | None:
     data_dir = get_settings().data_dir
     if attachment.preview_path and (data_dir / attachment.preview_path).is_file():
         return None
+    failed = _failed.get(attachment.stored_path)
+    if failed and time.monotonic() - failed[0] < RETRY_FAILED_AFTER_S:
+        return failed[1]
     try:
         dest = make_preview(data_dir / attachment.stored_path, attachment.mime_type)
     except PreviewError as exc:
-        return f"{attachment.original_filename}: {exc}"
+        problem = f"{attachment.original_filename}: {exc}"
+        _failed[attachment.stored_path] = (time.monotonic(), problem)
+        return problem
+    _failed.pop(attachment.stored_path, None)
     attachment.preview_path = dest.relative_to(data_dir).as_posix()
     attachment.preview_mime = "image/png" if dest.suffix == ".png" else "image/jpeg"
     return None

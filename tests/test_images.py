@@ -168,3 +168,24 @@ def test_no_thumbnail_for_unreadable_or_non_pictures(client):
     assert client.get(bad["attachments"][0]["thumb_url"]).status_code == 415
     txt = client.post("/api/uploads", files={"file": ("notes.txt", b"hello", "text/plain")}).json()
     assert txt["attachments"][0]["thumb_url"] is None
+
+
+def test_unconvertible_files_are_not_retried_on_every_view(client, monkeypatch):
+    calls = []
+    real = images.make_preview
+
+    def counting(path, mime):
+        calls.append(path)
+        return real(path, mime)
+    monkeypatch.setattr(images, "make_preview", counting)
+    e = client.post("/api/uploads", files={"file": ("broken.tga", b"nope", "application/octet-stream")}).json()
+    for _ in range(3):
+        assert client.get(e["attachments"][0]["thumb_url"]).status_code == 415
+    assert len(calls) == 1
+
+
+def test_big_photos_are_decoded_at_reduced_size(client, monkeypatch):
+    monkeypatch.setattr(images, "MAX_DIRECT_BYTES", 10)
+    e = client.post("/api/uploads", files={"file": ("huge.jpg", _pil("JPEG", size=(6000, 4000)), "image/jpeg")}).json()
+    p = client.get(e["attachments"][0]["preview_url"])
+    assert max(Image.open(io.BytesIO(p.content)).size) == images.PREVIEW_MAX_SIDE

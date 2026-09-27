@@ -380,7 +380,7 @@ function sendCapture(item, timeout) {
 async function captureOrQueue(fields) {
   const item = { client_id: newClientId(), captured_at: new Date().toISOString(), ...fields };
   try {
-    if (recentlyUnreachable()) throw unreachable();  // known offline: save instantly
+    if (recentlyUnreachable() || !$("#offline-bar").hidden) throw unreachable();  // known offline: save instantly
     // Files can take a while to upload, so check first; text just gets a short time limit.
     // (If a timed-out capture did arrive after all, its id stops the re-send duplicating it.)
     if (item.file && !(await reachable())) throw unreachable();
