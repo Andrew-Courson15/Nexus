@@ -1030,7 +1030,7 @@ async function viewArchive(el) {
           .map(([v, l]) => `<option value="${v}"${v === (f.sort || "newest") ? " selected" : ""}>${l}</option>`).join("")}</select></label>
       <button class="btn ghost small" type="reset">Clear</button>
     </form></details>
-    <div id="results"></div>`;
+    <h2 class="sr-only">Entries</h2><div id="results"></div>`;
   const form = $("#filters", el);
   async function load() {
     const fd = new FormData(form);
@@ -1228,7 +1228,7 @@ async function viewTags(el) {
 async function viewIdeas(el) {
   el.innerHTML = `<div class="view-head"><div><h1>Idea Incubator</h1>
     <p class="lede">Raw and exploring ideas. Nothing here is a task or a deadline — it's a place to keep ideas alive and let them grow.</p></div>
-    <a class="btn" href="#/">+ New idea</a></div><div id="ideas"></div>`;
+    <a class="btn" href="#/">+ New idea</a></div><h2 class="sr-only">Ideas</h2><div id="ideas"></div>`;
   const data = await api("/api/entries?status=raw,exploring&limit=300");
   $("#ideas", el).innerHTML = gridHTML(data.items, "The incubator is empty. Capture something half-formed.");
 }
@@ -1976,7 +1976,7 @@ async function viewSettings(el) {
           counts and recent log lines. It never includes what your entries say, and nothing is sent anywhere: you see it first and copy it yourself.</p>
         <button type="button" class="btn small" data-act="report">Make a problem report</button></div>
     </div>`;
-  el.querySelector(".view-head").insertAdjacentHTML("afterend", `<section class="panel prefs" id="prefs"><p class="loading">Loading…</p></section>`);
+  el.querySelector(".view-head").insertAdjacentHTML("afterend", `<h2 class="sr-only">Settings</h2><section class="panel prefs" id="prefs"><p class="loading">Loading…</p></section>`);
   mountPreferences($("#prefs", el));
   mountBackups($("#backups", el));
   mountImport($("#import", el));
@@ -2223,7 +2223,7 @@ async function viewEntry(el, id) {
       <span class="small muted">Regenerates AI data only. Your words, title and type choices are kept.</span></div>`}
   </div>
 
-  <aside class="side">
+  <aside class="side"><h2 class="sr-only">Tags, projects and links</h2>
     <div class="panel"><h3>Tags</h3>
       <div class="meta" id="tags">${e.tags.length ? tagsHTML(e.tags, true) : `<span class="muted small">No tags.</span>`}</div>
       <form class="row" id="addtag"><input type="text" name="tag" placeholder="Add tag" style="flex:1"><button class="btn small">Add</button></form>

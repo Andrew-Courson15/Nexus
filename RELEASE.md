@@ -52,8 +52,8 @@ can make; the rest is engineering.
 - **Testing on real hardware.** Measure speed and quality on several Windows PCs (NVIDIA / AMD
   / none) and Macs (8 / 16 / 24 GB), and tune the default models per machine.
 - **Accessibility.** Done in 0.14: contrast in both themes (checked with axe), screen-reader
-  names, keyboard focus, reduced motion, and easier tapping on the map. Still to do: a full
-  screen-reader walkthrough (VoiceOver, NVDA) and consistent heading levels on cards.
+  names, keyboard focus, reduced motion, and easier tapping on the map. axe reports no issues on any page.
+  Still to do: a full screen-reader walkthrough (VoiceOver, NVDA).
 - **Crash reporting you control.** Started in 0.14: Settings → Something not working? shows a
   report to copy. A future version could offer to send it, with the same preview.
 - **Documentation.** Split this README into a user guide (website/help pages) and a developer guide.
