@@ -1081,25 +1081,42 @@ async function viewArchive(el) {
 }
 
 async function viewTimeline(el) {
-  const data = await api("/api/entries?limit=500&sort=newest");
-  const months = new Map();
-  for (const e of data.items) {
-    const d = new Date(e.created_at), key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-    (months.get(key) || months.set(key, { label: d.toLocaleDateString(undefined, { month: "long", year: "numeric" }), items: [] }).get(key)).items.push(e);
-  }
-  el.innerHTML = `<div class="view-head"><div><h1>Timeline</h1>
-    <p class="lede">Everything you've captured, month by month, like flipping back through a sketchbook.</p></div>
-    <a class="btn ghost small" href="#/archive">Archive list</a></div>
-    ${months.size ? `<nav class="month-jump" aria-label="Months">${[...months].map(([k, m]) =>
-      `<a href="#/timeline" data-month="${k}">${esc(m.label)} <span class="muted">${m.items.length}</span></a>`).join("")}</nav>` : ""}
-    ${[...months].map(([k, m]) => `<section class="month" id="m-${k}"><h2>${esc(m.label)}</h2>
-      <div class="strip">${m.items.map((e) => { const pic = picOf(e);
-        return `<a class="tile${pic ? "" : " text"}" href="#/entry/${e.id}" title="${esc(e.title)}">
-          ${pic ? `<img src="${esc(pic.thumb_url || pic.preview_url)}" alt="" loading="lazy">` : `<span>${esc((e.excerpt || e.ai_summary || e.attachments[0]?.original_filename || label(e.entry_type)).slice(0, 120))}</span>`}
-          <b>${esc(e.title)}</b><i>${new Date(e.created_at).toLocaleDateString(undefined, { day: "numeric", month: "short" })} · ${esc(label(e.entry_type))}</i></a>`; }).join("")}</div></section>`).join("")
-      || `<p class="empty">Nothing captured yet.</p>`}
-    ${data.total > data.items.length ? `<p class="small muted">Showing the newest ${data.items.length} of ${data.total}. Older ones are in the <a href="#/archive">Creative Archive</a>.</p>` : ""}`;
-  $$("[data-month]", el).forEach((a) => (a.onclick = (ev) => { ev.preventDefault(); $(`#m-${a.dataset.month}`, el)?.scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" }); }));
+  const PAGE = 500, items = [];
+  let total = 0;
+  const more = async () => {
+    const data = await api(`/api/entries?limit=${PAGE}&offset=${items.length}&sort=newest`);
+    items.push(...data.items);
+    total = data.total;
+  };
+  const draw = () => {
+    const months = new Map();
+    for (const e of items) {
+      const d = new Date(e.created_at), key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+      (months.get(key) || months.set(key, { label: d.toLocaleDateString(undefined, { month: "long", year: "numeric" }), items: [] }).get(key)).items.push(e);
+    }
+    el.innerHTML = `<div class="view-head"><div><h1>Timeline</h1>
+      <p class="lede">Everything you've captured, month by month, like flipping back through a sketchbook.</p></div>
+      <a class="btn ghost small" href="#/archive">Archive list</a></div>
+      ${months.size ? `<nav class="month-jump" aria-label="Months">${[...months].map(([k, m]) =>
+        `<a href="#/timeline" data-month="${k}">${esc(m.label)} <span class="muted">${m.items.length}</span></a>`).join("")}</nav>` : ""}
+      ${[...months].map(([k, m]) => `<section class="month" id="m-${k}"><h2>${esc(m.label)}</h2>
+        <div class="strip">${m.items.map((e) => { const pic = picOf(e);
+          return tileHtml({ id: e.id, title: e.title, entry_type: e.entry_type, thumb_url: pic && (pic.thumb_url || pic.preview_url),
+            excerpt: e.excerpt || e.ai_summary || e.attachments[0]?.original_filename },
+            `${new Date(e.created_at).toLocaleDateString(undefined, { day: "numeric", month: "short" })} · ${esc(label(e.entry_type))}`); }).join("")}</div></section>`).join("")
+        || `<p class="empty">Nothing captured yet.</p>`}
+      ${total > items.length ? `<p class="row"><button type="button" class="btn" id="older">Show older (${total - items.length} more)</button></p>` : ""}`;
+    const scroll = (id) => $(`#m-${id}`, el)?.scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+    $$("[data-month]", el).forEach((a) => (a.onclick = (ev) => { ev.preventDefault(); scroll(a.dataset.month); }));
+    const older = $("#older", el);
+    if (older) older.onclick = async () => {
+      older.disabled = true; older.textContent = "Loading…";
+      const y = scrollY;
+      try { await more(); draw(); scrollTo(0, y); } catch (err) { toast(err.message); older.disabled = false; }
+    };
+  };
+  await more();
+  draw();
 }
 
 /** One small picture-or-text tile linking to an entry (Timeline, Characters). */
@@ -1136,6 +1153,8 @@ async function viewCharacters(el) {
       </section>`; }).join("")
       || `<p class="empty">No characters yet. Capture one and set its type to <b>character</b> (or tag it “character”), then link sketches and scenes to it.</p>`}`;
   $$("[data-char]", el).forEach((a) => (a.onclick = (ev) => { ev.preventDefault(); $(`#c-${a.dataset.char}`, el)?.scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" }); }));
+  const wanted = new URLSearchParams(location.hash.split("?")[1] || "").get("c");
+  if (wanted) $(`#c-${CSS.escape(wanted)}`, el)?.scrollIntoView();
 }
 
 async function viewTags(el) {
@@ -2147,6 +2166,7 @@ async function viewEntry(el, id) {
           : `<div class="row"><button class="btn small ghost" data-rel="${r.id}" data-status="rejected" data-unlink>Remove link</button></div>`}
       </div>`).join("") : `<span class="muted small">No related entries found yet.</span>`}
       <p class="small"><a href="#/map?focus=${e.id}${rels.some((r) => r.status === "suggested") ? "&suggested=1" : ""}">See it on the connections map →</a></p>
+      ${e.entry_type === "character" || e.tags.some((t) => t.name === "character") ? `<p class="small"><a href="#/characters?c=${e.id}">Everything about this character →</a></p>` : ""}
       <details class="linker"><summary class="btn small ghost">+ Link to another idea</summary>
         <div class="linker-body">
           <input type="search" id="link-q" placeholder="Find an entry by title or words" aria-label="Find an entry to link" autocomplete="off">

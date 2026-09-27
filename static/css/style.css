@@ -522,7 +522,7 @@ a.cite:hover { border-color: var(--text); }
 @media (max-width: 640px) { .strip { grid-template-columns: repeat(3, 1fr); gap: 6px; } .strip .tile i { display: none; } }
 
 /* ---------- characters ---------- */
-.character { margin-top: 18px; }
+.character { margin-top: 18px; scroll-margin-top: 70px; }
 .character h3 { margin: 16px 0 8px; font-size: 14px; }
 .char-head { display: flex; gap: 14px; align-items: flex-start; }
 .char-head img { width: 96px; height: 96px; object-fit: cover; border-radius: 12px; border: 1px solid var(--border); flex: none; }
