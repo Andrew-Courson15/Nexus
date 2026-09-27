@@ -964,13 +964,31 @@ async function mountWelcome(box) {
       ["Voice notes", st.transcription_provider.health, "Turns recordings into text, on this computer."],
       ["Search by meaning", st.search.health, "Finds ideas by what they're about."],
     ];
+    const ai = st.ai_provider.health || {}, ollama = st.ai_provider.name?.startsWith("ollama");
+    const missing = ollama && !ai.ok && Array.isArray(ai.installed)
+      ? [...new Set([st.ai_provider.health.model, ai.vision_model].filter(Boolean))].filter((m) => !ai.installed.some((i) => i === m || i === `${m}:latest`))
+      : [];
+    const aiHelp = ai.ok || !ollama ? ""
+      : Array.isArray(ai.installed) ? (missing.length ? `<button type="button" class="btn small" data-pull="${esc(missing[0])}">Download the AI model (${esc(missing[0])})</button>
+          <span class="small muted">A few GB, once. Progress shows in Settings → Preferences.</span>` : "")
+      : `<a class="btn small" href="https://ollama.com/download" target="_blank" rel="noopener">Get Ollama (free)</a>
+          <span class="small muted">It runs the AI on this computer. Install it, open it once, then reload this page.</span>`;
     $("#welcome-check", box).innerHTML = `<ul class="setup-check">${rows.map(([name, h, what]) => `<li>
       <span class="health ${h?.ok ? "ok" : "bad"}"><span class="dot"></span><strong>${name}</strong></span>
-      <span class="small muted">${esc(h?.ok ? what : h?.detail || "Not ready.")}</span></li>`).join("")}</ul>
+      <span class="small muted">${esc(h?.ok ? what : h?.detail || "Not ready.")}</span>
+      ${name === "AI model" && aiHelp ? `<div class="row">${aiHelp}</div>` : ""}</li>`).join("")}</ul>
       ${rows.every(([, h]) => h?.ok) ? `<p class="small">All set. Capture your first idea above.</p>`
         : `<p class="small muted">You can capture right away: anything not ready yet is done later (use <em>Re-run AI organizer</em> on an entry).
            See the README's setup section, or <a href="#/settings">Settings</a>.</p>`}
       <p class="small muted">Next: put NEXUS on your phone (README → "NEXUS on your phone"), and set a passcode in Settings.</p>`;
+    $("[data-pull]", box)?.addEventListener("click", async (ev) => {
+      ev.target.disabled = true;
+      try {
+        await api("/api/models/pull", { method: "POST", json: { name: ev.target.dataset.pull } });
+        toast("Downloading the AI model in the background. Progress: Settings → Preferences.");
+        ev.target.textContent = "Downloading…";
+      } catch (err) { toast(err.message, true); ev.target.disabled = false; }
+    });
   } catch {
     $("#welcome-check", box).innerHTML = `<p class="small muted">Couldn't check right now.</p>`;
   }
