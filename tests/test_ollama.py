@@ -191,3 +191,28 @@ def test_ask_prompt_fits_the_context_window():
     listing = ask_listing(long)
     assert len(listing) < ASK_BUDGET_CHARS * 1.1
     assert all(f"[#{i}]" in listing for i in range(12))  # every entry still present and citable
+
+
+def test_long_voice_notes_are_read_in_parts_not_cut_off():
+    from app.services.ollama import LONG_PART_CHARS, split_into_parts
+
+    sentences = [f"Idea number {i} is about the lighthouse keeper and the tide spirits." for i in range(600)]
+    transcript = " ".join(sentences)  # ~40k characters: far beyond one prompt
+    parts = split_into_parts(transcript, LONG_PART_CHARS)
+    assert all(len(p) <= LONG_PART_CHARS for p in parts) and "Idea number 599" in parts[-1]
+    fake = FakeOllama()
+    entry = EntryContext(id=1, source_type="voice", transcript=transcript)
+    r = fake.provider().analyze_entry(entry)
+    part_calls = [c for c in fake.chats if "one part of a longer piece" in c["messages"][0]["content"]]
+    assert len(part_calls) == len(parts)
+    assert "Idea number 599" in part_calls[-1]["messages"][1]["content"]  # the end of the note was read
+    final = fake.chats[-1]["messages"][1]["content"]
+    assert "TOO LONG TO READ AT ONCE" in final and f"[Part {len(parts)}/{len(parts)}]" in final
+    assert any("read it in" in u and "kept unchanged" in u for u in r.uncertainties)
+    assert entry.transcript == transcript  # the caller's text is never changed
+
+
+def test_short_notes_are_sent_whole():
+    fake = FakeOllama()
+    fake.provider().analyze_entry(EntryContext(id=1, source_type="voice", transcript="A short idea."))
+    assert len(fake.chats) == 1 and "TOO LONG" not in fake.chats[0]["messages"][1]["content"]

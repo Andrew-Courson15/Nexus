@@ -56,6 +56,7 @@ class EntryContext:
     summary: str = ""                  # previous AI summary, if any
     similar_ids: list[int] = field(default_factory=list)  # closest entries by meaning, best first
     title_is_user: bool = False
+    condensed: tuple[str, ...] = ()    # fields replaced by per-part AI summaries (very long material)
 
     @classmethod
     def from_entry(cls, entry: Any) -> EntryContext:

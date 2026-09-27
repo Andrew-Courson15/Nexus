@@ -565,6 +565,10 @@ class AIProvider(ABC):
     formats like TIFF, PSD or HEIC) is sent and the description is stored in `ai_metadata.visual`.
     It is shown as "what the model saw" and is searchable. A file that can't be converted is
     marked UNKNOWN.
+  - **Long material:** a very long voice-note transcript or text (over about 12,000 characters,
+    roughly a 15-minute recording) is read in parts. The model summarizes each part, then analyzes
+    the whole from those summaries, so the end isn't cut off. The analysis says it did this. The
+    full text is kept unchanged.
   - **Relationships:** a cheap keyword pre-filter picks up to 8 candidates, then the model judges
     which are really related and why. Candidate ids the model invents are discarded.
   - **Fallback:** if Ollama is down, the model is missing, or the reply is unusable, the offline

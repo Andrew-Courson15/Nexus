@@ -17,6 +17,7 @@ Design notes
 from __future__ import annotations
 
 import base64
+import dataclasses
 import json
 import re
 from pathlib import Path
@@ -44,6 +45,12 @@ MAX_IMAGES = 3
 MAX_IMAGE_BYTES = 20 * 1024 * 1024
 MAX_TEXT_CHARS = 12_000
 RELATIONSHIP_CANDIDATES = 8
+LONG_PART_CHARS = 6000     # very long material is read in parts of about this size
+MAX_LONG_PARTS = 12        # ~70k characters, roughly an hour of speech
+PART_SUMMARY_PROMPT = (
+    "You summarize one part of a longer piece of a creator's material (often a voice note transcript). "
+    "Keep every idea, name, character, place, decision and open question it mentions, in the creator's own terms. "
+    "Don't add anything or interpret. 3-8 sentences. Reply as JSON: {\"summary\": \"...\"}")
 MAX_RELATIONSHIP_SUGGESTIONS = 3   # show only the strongest few
 MODEL_RELATIONSHIP_MIN = 0.7       # the model's own confidence a suggestion needs
 
@@ -400,18 +407,50 @@ class OllamaProvider(AIProvider):
         if entry.title_is_user and entry.title:
             parts.append(f"The user titled it: {entry.title}")
 
-        def block(label: str, body: str) -> None:
+        def block(label: str, body: str, field_name: str) -> None:
             if body.strip():
+                if field_name in entry.condensed:
+                    label += " — TOO LONG TO READ AT ONCE: below is an AI summary of each part, in order, not the exact words"
                 clipped = body if len(body) <= MAX_TEXT_CHARS else body[:MAX_TEXT_CHARS] + "\n[...truncated]"
                 parts.append(f"{label}:\n<<<\n{clipped}\n>>>")
 
-        block("USER MATERIAL (their exact words)", entry.original_text)
-        block("USER NOTES (added later by the user)", entry.user_notes)
+        block("USER MATERIAL (their exact words)", entry.original_text, "original_text")
+        block("USER NOTES (added later by the user)", entry.user_notes, "user_notes")
         block("TRANSCRIPT (machine transcription of the user's voice recording; may contain errors)",
-              entry.transcript)
+              entry.transcript, "transcript")
         if not entry.analysis_text.strip():
             parts.append("There is no text. Work only from the attached image, if any, and say what is unknown.")
         return "\n\n".join(parts)
+
+    def _condense_long(self, entry: EntryContext, notes: list[str]) -> EntryContext:
+        """Very long material (e.g. a 30-minute voice log) is read in parts: the model summarizes each
+        part, and the analysis works from those summaries, so the end of a long note isn't cut off."""
+        changes: dict[str, str] = {}
+        for name, what in (("transcript", "recording's transcript"), ("original_text", "text"), ("user_notes", "notes")):
+            text = getattr(entry, name) or ""
+            if len(text) <= MAX_TEXT_CHARS:
+                continue
+            parts = split_into_parts(text, LONG_PART_CHARS)
+            read = parts[:MAX_LONG_PARTS]
+            summaries = []
+            for i, part in enumerate(read, 1):
+                try:
+                    raw = self.client.chat_json(self.model, [
+                        {"role": "system", "content": PART_SUMMARY_PROMPT},
+                        {"role": "user", "content": f"PART {i} OF {len(parts)}:\n<<<\n{part}\n>>>"},
+                    ], {"type": "object", "properties": {"summary": {"type": "string"}}, "required": ["summary"]})
+                    summary = " ".join(str(raw.get("summary", "")).split())[:1500]
+                except OllamaError:
+                    summary = ""
+                summaries.append(f"[Part {i}/{len(parts)}] " + (summary or part[:700] + " [...]"))
+            changes[name] = "\n".join(summaries)
+            skipped = f" Only the first {MAX_LONG_PARTS} parts were read." if len(parts) > MAX_LONG_PARTS else ""
+            notes.append(f"The {what} is long ({len(text):,} characters), so the AI read it in {len(read)} parts and "
+                         f"worked from its own summary of each part; some details may be missing.{skipped} "
+                         "Your full text is kept unchanged.")
+        if not changes:
+            return entry
+        return dataclasses.replace(entry, **changes, condensed=tuple(changes))
 
     def _fallback_analysis(self, entry: EntryContext, reason: str) -> AnalysisResult:
         result = self.fallback.analyze_entry(entry)
@@ -440,6 +479,7 @@ class OllamaProvider(AIProvider):
             result.provider_name = self.fallback.name
             return result
 
+        entry = self._condense_long(entry, notes)
         message: dict[str, Any] = {"role": "user", "content": self._user_message(entry)}
         if images:
             message["images"] = images
@@ -662,3 +702,24 @@ def has_image(entry: EntryContext) -> bool:
     """An image upload, or a document with a picture preview (e.g. a PDF page)."""
     return any(a.get("kind") == "image" or a.get("vision_path") for a in entry.attachments)
 
+
+
+def split_into_parts(text: str, size: int) -> list[str]:
+    """Split text into parts of about `size` characters, at paragraph or sentence ends where possible."""
+    pieces = re.split(r"(?<=[.!?])\s+|\n{2,}", text)
+    parts, current = [], ""
+    for piece in pieces:
+        while len(piece) > size:  # one enormous "sentence" (no punctuation in the transcript)
+            if current:
+                parts.append(current)
+                current = ""
+            parts.append(piece[:size])
+            piece = piece[size:]
+        if current and len(current) + len(piece) + 1 > size:
+            parts.append(current)
+            current = piece
+        else:
+            current = f"{current} {piece}".strip()
+    if current:
+        parts.append(current)
+    return parts
