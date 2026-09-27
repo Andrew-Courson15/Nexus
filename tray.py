@@ -169,7 +169,11 @@ def main() -> None:
         icon.stop()
 
     threading.Thread(target=watch, name="nexus-tray-watch", daemon=True).start()
-    icon.run()
+    try:
+        icon.run()
+    except Exception:  # the icon couldn't be shown after all: keep NEXUS running without it
+        log.exception("The tray icon couldn't be shown; NEXUS keeps running without it")
+        thread.join()
 
 
 if __name__ == "__main__":

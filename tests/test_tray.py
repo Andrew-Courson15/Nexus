@@ -69,3 +69,30 @@ def test_start_with_windows_is_off_elsewhere(monkeypatch):
     monkeypatch.setattr(tray.sys, "platform", "linux")
     assert tray.starts_with_windows() is False
     tray.set_start_with_windows(True)  # does nothing outside Windows
+
+
+def test_a_tray_that_fails_at_run_time_leaves_nexus_running(monkeypatch):
+    server = FakeServer()
+    monkeypatch.setattr(tray, "_server", lambda: server)
+
+    class Icon:
+        def __init__(self, *a, **kw):
+            pass
+
+        def run(self):
+            server.ran.wait(2)
+            threading.Timer(0.1, lambda: setattr(server, "should_exit", True)).start()
+            raise RuntimeError("no menu bar here")
+
+        def stop(self):
+            pass
+
+    class Item:
+        def __init__(self, *a, **kw):
+            pass
+
+    fake = types.SimpleNamespace(Icon=Icon, MenuItem=Item,
+                                 Menu=type("Menu", (), {"SEPARATOR": None, "__new__": lambda cls, *items: list(items)}))
+    monkeypatch.setattr(tray, "_load_tray", lambda: (fake, object()))
+    tray.main()  # returns only once the server has stopped
+    assert server.ran.is_set() and server.should_exit
