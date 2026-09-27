@@ -992,8 +992,20 @@ function mountCapture(root, opts = {}) {
 }
 
 /* ------------------------------------------------------------------ views */
+/** On a phone's browser (not yet the home-screen app): how to add NEXUS to the home screen. Once. */
+function installTip() {
+  const standalone = navigator.standalone || matchMedia("(display-mode: standalone)").matches;
+  if (!HAS_OFFLINE_COPY || standalone || !matchMedia("(max-width: 820px)").matches || store("nexus.installTipDone")) return "";
+  const ios = /iPhone|iPad|iPod/.test(navigator.userAgent);
+  return `<section class="panel install-tip" id="install-tip"><p class="small"><strong>Put NEXUS on your home screen:</strong>
+    ${ios ? "tap <strong>Share</strong> (the square with the arrow), then <strong>Add to Home Screen</strong>."
+      : "open the browser menu (⋮), then <strong>Add to Home screen</strong> or <strong>Install app</strong>."}
+    From then on, open NEXUS from that icon: it keeps its own copy of your archive for when the computer is off.</p>
+    <button type="button" class="btn ghost small" onclick="store('nexus.installTipDone','1');this.closest('section').remove()">Got it</button></section>`;
+}
+
 async function viewHome(el) {
-  el.innerHTML = `<h1 class="sr-only">Capture</h1><div id="cap"></div>
+  el.innerHTML = `<h1 class="sr-only">Capture</h1>${installTip()}<div id="cap"></div>
     <div id="welcome"></div>
     <div id="just"></div>
     <h2>Recently captured</h2><div id="recent"><p class="loading">Loading…</p></div>`;
