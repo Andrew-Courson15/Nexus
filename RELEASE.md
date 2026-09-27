@@ -51,17 +51,19 @@ can make; the rest is engineering.
   with a progress bar, and recommend a model based on the computer's memory and graphics card.
 - **Testing on real hardware.** Measure speed and quality on several Windows PCs (NVIDIA / AMD
   / none) and Macs (8 / 16 / 24 GB), and tune the default models per machine.
-- **Accessibility pass.** Screen-reader labels, focus order, contrast in both themes, and
-  larger tap targets on the map.
-- **Crash reporting you control.** An opt-in "send a report" button that shows exactly what
-  would be sent.
+- **Accessibility.** Done in 0.14: contrast in both themes (checked with axe), screen-reader
+  names, keyboard focus, reduced motion, and easier tapping on the map. Still to do: a full
+  screen-reader walkthrough (VoiceOver, NVDA) and consistent heading levels on cards.
+- **Crash reporting you control.** Started in 0.14: Settings → Something not working? shows a
+  report to copy. A future version could offer to send it, with the same preview.
 - **Documentation.** Split this README into a user guide (website/help pages) and a developer guide.
 - **Legal pages.** A privacy policy (short, since nothing leaves the device) and terms of use.
 
 ## Nice next features
 
-- A calendar or timeline view of the archive.
-- Characters, places and worlds as their own pages, gathering every sketch and note about them.
-- Page-by-page analysis of a whole comic (pacing and visual consistency, from the pages themselves).
-- Importing PDFs and ebooks into the art library.
+- ~~A timeline view of the archive.~~ Done in 0.14.
+- ~~Characters, places and worlds as their own pages.~~ Done in 0.14.
+- Page-by-page analysis of a whole comic (pacing and visual consistency, from the pages
+  themselves). 0.14 can already split a comic PDF into page entries, which is the first step.
+- Importing ebooks into the art library.
 - Optional cloud AI (OpenAI or Anthropic), only if the user turns it on, with a clear warning.

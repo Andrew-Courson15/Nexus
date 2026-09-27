@@ -302,6 +302,13 @@ Browsers only allow microphone access on `localhost` or HTTPS. Open NEXUS at
   - **Tags** lists every tag with its count. **Rename** fixes a typo everywhere; renaming onto an
     existing tag merges the two. **Delete** removes a tag from every entry (AI tags removed this way
     aren't added back).
+  - **Timeline** shows everything month by month as picture tiles, like flipping back through a
+    sketchbook. Jump to any month; **Show older** loads the rest.
+  - **Characters** gathers each character (an entry of type `character`, or tagged `character`)
+    with everything linked to it (sketches, scenes, "character in" links) and every entry whose own
+    words mention its name. Links show whether you made them or the AI suggested them; name
+    mentions are a plain text match, not AI. **Places & worlds** does the same for `worldbuilding`
+    entries (or ones tagged `place`, `world`, `location` or `setting`). Both work on the phone offline.
 - **Projects**: create projects and capture straight into them. An entry can belong to many projects.
   - **Analyze this project**: the local AI reads every entry in the project (your words, notes,
     transcripts, and the art analyses of your sketches). It describes the **characters** and where
@@ -351,6 +358,12 @@ Browsers only allow microphone access on `localhost` or HTTPS. Open NEXUS at
   - browse the full revision history: each version shows what changed, and **Restore this version**
     brings an old one back as a new version, so nothing is lost
   - move the entry to the trash
+  - on a **multi-page PDF** (a comic issue, a scanned sketchbook), **Split into pages**: each page
+    becomes its own picture entry, linked to the PDF ("part of") and in the same projects, with
+    previous/next page links. The PDF itself is never changed. Up to 80 pages.
+- **Settings → Something not working?** makes a problem report (versions, whether the AI and
+  search are healthy, counts, recent log lines, never your entries' text). You see it first and
+  copy it yourself; nothing is sent anywhere.
 
 ---
 

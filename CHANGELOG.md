@@ -2,6 +2,21 @@
 
 The version is in `app/__init__.py` and shown in **Settings → This device**.
 
+## 0.14.0 (2026-09-27)
+
+- **Timeline**: the whole archive month by month, as picture tiles (Creative Archive → Timeline).
+- **Characters** and **Places & worlds**: each character or place with the sketches and scenes
+  linked to it and the entries that mention its name. Also on the phone when the PC is off.
+- **Split a PDF into pages**: a comic issue or scanned sketchbook becomes one picture entry per
+  page, linked to the PDF, with previous/next page links. The PDF is never changed.
+- **Phone**: keeps up to 2,000 pictures for when the PC is off (was 500). Settings → This device
+  shows how many are saved.
+- **Map**: tapping just beside an idea opens it, which is much easier on a phone.
+- **Settings → Something not working?**: a problem report to paste when asking for help. You
+  see it first and copy it yourself; nothing is sent.
+- **Accessibility**: readable contrast for small grey text and buttons in light and dark mode,
+  clearer keyboard focus, screen-reader names, and calmer motion when the system asks for it.
+
 ## 0.13.0 (2026-09-27)
 
 - **System tray icon on Windows**: NEXUS shows an icon at the bottom right while it runs. Left-click
