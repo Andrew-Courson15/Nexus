@@ -98,4 +98,6 @@ def test_client_id_is_added_and_unique_on_old_databases(tmp_path):
 
 
 def test_ping(client):
-    assert client.get("/api/ping").json() == {"ok": True}
+    from app import __version__
+
+    assert client.get("/api/ping").json() == {"ok": True, "version": __version__}

@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app import __version__
 from app.config import get_settings
 from app.database import get_db
 from app.models import (
@@ -28,8 +29,8 @@ router = APIRouter(prefix="/api", tags=["system"])
 
 @router.get("/ping")
 def ping():
-    """Tiny, instant reply so the phone app can tell quickly whether NEXUS is reachable."""
-    return {"ok": True}
+    """Tiny, instant reply so the phone app can tell quickly whether NEXUS is reachable (and which version)."""
+    return {"ok": True, "version": __version__}
 
 
 @router.get("/settings")

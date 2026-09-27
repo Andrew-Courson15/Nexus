@@ -126,10 +126,28 @@ function markUnreachable() { lastUnreachable = Date.now(); }
 /** True if NEXUS failed to answer in the last 30 s: don't make the user wait again. */
 const recentlyUnreachable = () => Date.now() - lastUnreachable < 30000;
 
+const APP_VERSION = document.querySelector('meta[name="nexus-version"]')?.content || "";
+
+/**
+ * The PC was updated but this device still runs the old app (phones keep home-screen apps in
+ * memory for days): reload once into the new version. Drafts are kept, so nothing is lost.
+ */
+function reloadIfUpdated(serverVersion) {
+  if (!serverVersion || !APP_VERSION || serverVersion === APP_VERSION) return;
+  try {
+    if (sessionStorage.getItem("nexus.reloadedFor") === serverVersion) return;  // never loop
+    sessionStorage.setItem("nexus.reloadedFor", serverVersion);
+  } catch { return; }
+  navigator.serviceWorker?.getRegistration().then((r) => r?.update()).catch(() => {});
+  toast("NEXUS was updated. Loading the new version…");
+  setTimeout(() => location.reload(), 900);
+}
+
 /** Quick check (3 s at most) whether NEXUS answers right now. */
 async function reachable() {
   try {
-    await api("/api/ping", { timeout: 3000 });
+    const r = await api("/api/ping", { timeout: 3000 });
+    reloadIfUpdated(r?.version);
     return true;
   } catch (err) {
     if (err.offline) return false;
@@ -181,10 +199,12 @@ const offlineCopy = {
   get(key) { return this._tx("readonly", (st) => st.get(key)); },
   put(key, value) { return this._tx("readwrite", (st) => st.put(value, key)); },
   async snapshot() {
-    if (!this._loaded) {
-      this._snap = (await this.get("snapshot").catch(() => null)) || null;
-      this._loaded = true;
-    }
+    // Read the stored copy once; a copy saved meanwhile (first sync) must never be replaced by
+    // this older read finishing later.
+    this._loading ??= this.get("snapshot").catch(() => null).then((stored) => {
+      if (!this._snap) this._snap = stored || null;
+    });
+    await this._loading;
     return this._snap;
   },
   async save(snap) {
@@ -207,6 +227,7 @@ async function syncOfflineCopy({ force = false } = {}) {
     await saveThumbnails(snap);
   } catch { /* unreachable or storage full: keep the previous copy */ } finally {
     syncing = false;
+    window.dispatchEvent(new Event("nexus:synced"));
   }
 }
 
@@ -714,7 +735,9 @@ async function viewHome(el) {
     } catch (err) {
       if (!err.offline) throw err;
       $("#recent", el).innerHTML = `<p class="empty">NEXUS isn't reachable right now, but you can still capture.
-        Ideas are kept on this device and sent automatically when NEXUS is back.</p>`;
+        Ideas are kept on this device and sent automatically when NEXUS is back.${HAS_OFFLINE_COPY
+          ? `<br><br>This device hasn't saved a copy of your archive yet. Open NEXUS once while your PC is on
+             and it saves one, so next time you can browse your ideas and pictures even when the PC is off.` : ""}</p>`;
     }
   };
   const cap = mountCapture($("#cap", el), {
@@ -952,6 +975,41 @@ function mountImport(box) {
       out.innerHTML = `<span style="color:var(--danger)">${esc(err.offline ? "NEXUS isn't reachable right now." : err.message)}</span>`;
     }
     input.value = "";
+  };
+}
+
+/** Settings panel: this device — app version and the copy of the archive saved on it. */
+async function mountDevice(box) {
+  const head = `<h3>This device</h3><dl class="kv"><dt>NEXUS version</dt><dd>${esc(APP_VERSION || "—")}</dd></dl>`;
+  if (HAS_OFFLINE_COPY && !box.dataset.listening) {
+    box.dataset.listening = "1";
+    const again = () => (box.isConnected ? mountDevice(box) : window.removeEventListener("nexus:synced", again));
+    window.addEventListener("nexus:synced", again);
+  }
+  if (!HAS_OFFLINE_COPY) {
+    box.innerHTML = head + `<p class="small muted">You're on the computer that runs NEXUS, so everything is read straight from its
+      database. Phones and other devices keep their own copy for when this computer is off.</p>`;
+    return;
+  }
+  const snap = await offlineCopy.snapshot();
+  let pictures = 0;
+  try { pictures = (await (await caches.open(THUMB_CACHE)).keys()).length; } catch { /* no Cache API */ }
+  box.innerHTML = head + (snap
+    ? `<p class="health ok"><span class="dot"></span>Copy saved on this device</p><dl class="kv">
+        <dt>Saved</dt><dd>${fmtDateTime(snap.generated_at)}</dd>
+        <dt>Entries</dt><dd>${snap.entries.length}</dd><dt>Projects</dt><dd>${snap.projects.length}</dd>
+        <dt>Pictures</dt><dd>${pictures}</dd></dl>`
+    : `<p class="health bad"><span class="dot"></span>${syncing ? "Saving a copy on this device…" : "No copy saved on this device yet"}</p>`)
+    + `<button class="btn small" data-act="sync-now">Update the saved copy now</button>
+    <p class="small muted">While NEXUS is reachable, this device keeps a read-only copy of your archive (refreshed every few
+      minutes), so you can browse it when the PC is off.</p>`;
+  $("[data-act=sync-now]", box).onclick = async (ev) => {
+    ev.target.disabled = true;
+    ev.target.textContent = "Saving…";
+    lastUnreachable = 0;
+    await syncOfflineCopy({ force: true });
+    toast(lastSync && Date.now() - lastSync < 60000 ? "Saved an up-to-date copy on this device." : "Couldn't reach NEXUS to update the copy.", !(lastSync && Date.now() - lastSync < 60000));
+    mountDevice(box);
   };
 }
 
@@ -1374,9 +1432,11 @@ async function viewSettings(el) {
         <dt>Tags</dt><dd>${s.counts.tags}</dd><dt>In trash</dt><dd><a href="#/trash">${s.counts.trash} · view trash</a></dd></dl></div>
       <div class="panel" id="backups"><h3>Backups</h3><p class="loading">Loading…</p></div>
       <div class="panel" id="import"></div>
+      <div class="panel" id="device"></div>
     </div>`;
   mountBackups($("#backups", el));
   mountImport($("#import", el));
+  mountDevice($("#device", el));
   $("[data-act=reindex]", el)?.addEventListener("click", async (ev) => {
     ev.target.disabled = true;
     try {
@@ -2109,7 +2169,9 @@ async function render() {
     if (token !== renderToken) return;
     container.innerHTML = err.offline
       ? `<p class="empty">NEXUS isn't reachable right now. Is the PC on and NEXUS running?<br>
-          You can still <a href="#/">capture ideas</a>: they wait on this device and are sent automatically.</p>`
+          You can still <a href="#/">capture ideas</a>: they wait on this device and are sent automatically.${
+          HAS_OFFLINE_COPY ? `<br><br>This page isn't in the copy saved on this device${offlineCopy._snap ? "" :
+            " (there's no saved copy yet: open NEXUS once while your PC is on)"}.` : ""}</p>`
       : `<p class="empty">Something went wrong: ${esc(err.message)}</p>`;
   }
 }
@@ -2145,6 +2207,11 @@ window.addEventListener("DOMContentLoaded", async () => {
   // iPhones have no background sync: retry while the app is open, and whenever it comes back.
   setInterval(() => { if (!$("#outbox").hidden) flushOutbox(); }, 20000);
   window.addEventListener("online", () => flushOutbox());
-  document.addEventListener("visibilitychange", () => { if (!document.hidden) { flushOutbox(); syncOfflineCopy(); } });
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) return;
+    flushOutbox();
+    syncOfflineCopy();
+    reachable().catch(() => {});  // also notices a newer NEXUS on the PC
+  });
   if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
 });

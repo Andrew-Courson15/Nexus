@@ -10,6 +10,7 @@ from fastapi.responses import HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
+from app import __version__
 from app.config import BASE_DIR, get_settings
 from app.database import init_db
 from app.routes import art, backups, entries, graph, offline, projects, search, share, system, uploads
@@ -30,7 +31,7 @@ async def lifespan(_app: FastAPI):
     processing_queue.stop()
 
 
-app = FastAPI(title="NEXUS", version="0.10.0", lifespan=lifespan,
+app = FastAPI(title="NEXUS", version=__version__, lifespan=lifespan,
               description="Private, local-first creative knowledge archive.")
 # Only answer to local host names (guards against DNS-rebinding from web pages).
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=get_settings().allowed_hosts)
