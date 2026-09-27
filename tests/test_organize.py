@@ -55,3 +55,44 @@ def test_deleting_an_ai_tag_keeps_it_from_coming_back(client):
     again = client.get(f"/api/entries/{e['id']}").json()
     assert ai_tag not in [t["name"] for t in again["tags"]]
     assert client.delete("/api/tags/does-not-exist").status_code == 404
+
+
+def test_delete_forever_only_from_the_trash_and_files_go_too(client):
+    from app.config import get_settings
+    from tests.test_images import _pil
+
+    img = client.post("/api/uploads", files={"file": ("scan.tiff", _pil("TIFF"), "image/tiff")}).json()
+    other = cap(client, "Keeps its link target")
+    client.post(f"/api/entries/{other['id']}/relationships", json={"target_entry_id": img["id"]})
+    client.get(img["attachments"][0]["thumb_url"])
+    data = get_settings().data_dir
+    original = data / img["source_file"]
+    assert original.is_file() and list((data / "previews" / "thumbs").glob(f"{img['attachments'][0]['id']}-*"))
+    assert client.delete(f"/api/trash/entries/{img['id']}").status_code == 400  # not in the trash yet
+    client.delete(f"/api/entries/{img['id']}")
+    assert client.delete(f"/api/trash/entries/{img['id']}").json() == {"deleted": 1}
+    assert not original.exists() and not list((data / "previews" / "thumbs").glob(f"{img['attachments'][0]['id']}-*"))
+    assert client.get(f"/api/entries/{img['id']}").status_code == 404
+    assert client.get(f"/api/entries/{other['id']}/relationships").json() == []
+    assert client.get(f"/api/entries/{other['id']}").status_code == 200  # other entries untouched
+
+
+def test_empty_trash(client):
+    a, b = cap(client, "Keep"), cap(client, "Toss")
+    p = client.post("/api/projects", json={"name": "Old project"}).json()
+    client.delete(f"/api/entries/{b['id']}")
+    client.delete(f"/api/projects/{p['id']}")
+    assert client.post("/api/trash/empty").json() == {"entries": 1, "projects": 1}
+    assert client.get("/api/trash").json()["total"] == 0 and client.get("/api/projects?trashed=true").json() == []
+    assert [e["id"] for e in client.get("/api/entries").json()["items"]] == [a["id"]]
+
+
+def test_uploading_the_same_file_twice_is_kept_but_flagged(client):
+    from tests.test_images import _pil
+
+    data = _pil("PNG")
+    first = client.post("/api/uploads", files={"file": ("a.png", data, "image/png")}).json()
+    second = client.post("/api/uploads", files={"file": ("copy.png", data, "image/png")}).json()
+    assert "duplicate_of" not in first["ai_metadata"]
+    assert second["ai_metadata"]["duplicate_of"]["id"] == first["id"]
+    assert client.get("/api/entries").json()["total"] == 2

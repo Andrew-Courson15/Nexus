@@ -829,7 +829,10 @@ async function viewHome(el) {
   const cap = mountCapture($("#cap", el), {
     onCaptured: (entry) => {
       const just = $("#just", el);
-      just.innerHTML = `<h2>Just captured</h2><div class="grid">${cardHTML(entry)}</div>`;
+      const dup = entry.ai_metadata?.duplicate_of;
+      just.innerHTML = `<h2>Just captured</h2>${dup ? `<p class="small notice">You saved this same file before:
+          <a href="#/entry/${dup.id}">${esc(dup.title)}</a> (${fmtDate(dup.created_at)}). Both are kept; trash one if you like.</p>` : ""}
+        <div class="grid">${cardHTML(entry)}</div>`;
       loadRecent();
       if (isBusy(entry)) {
         const show = (e) => { just.innerHTML = `<h2>Just captured</h2><div class="grid">${cardHTML(e)}</div>`; };
@@ -1747,14 +1750,17 @@ async function viewTrash(el) {
   const [data, projects] = await Promise.all([api("/api/trash"), api("/api/projects?trashed=true")]);
   el.innerHTML = `<p><a href="#/archive" class="muted small">← Creative Archive</a></p>
     <div class="view-head"><div><h1>Trash</h1>
-    <p class="lede">Things you moved here are hidden, but nothing is destroyed. Restore brings them back exactly as they were.</p></div></div>
+    <p class="lede">Things you moved here are hidden, but nothing is destroyed. Restore brings them back exactly as they were.
+      <strong>Delete forever</strong> removes something and its files for good (older backups may still contain it).</p></div>
+    ${data.items.length || projects.length ? `<button class="btn ghost small danger" data-act="empty-trash">Empty trash</button>` : ""}</div>
     <h2>Entries</h2>
     ${data.items.length ? `<div class="grid">${data.items.map((e) => `<div class="card trashed">
       <div class="meta"><span class="pill type">${esc(label(e.entry_type))}</span><span class="spacer"></span>
         <span>Trashed ${fmtDate(e.deleted_at)}</span></div>
       <h3>${esc(e.title)}</h3>
       ${e.ai_summary || e.excerpt ? `<p class="summary">${esc(e.excerpt || e.ai_summary)}</p>` : ""}
-      <div class="row"><button class="btn small" data-restore="${e.id}">Restore</button></div></div>`).join("")}</div>`
+      <div class="row"><button class="btn small" data-restore="${e.id}">Restore</button>
+        <button class="btn small ghost danger" data-forever="${e.id}" data-title="${esc(e.title)}">Delete forever</button></div></div>`).join("")}</div>`
       : `<p class="empty">No entries in the trash.</p>`}
     <h2>Projects</h2>
     ${projects.length ? `<div class="grid">${projects.map((p) => `<div class="card trashed">
@@ -1762,8 +1768,25 @@ async function viewTrash(el) {
         <span>Trashed ${fmtDate(p.deleted_at)}</span></div>
       <h3>${esc(p.name)}</h3>
       <p class="summary">${p.entry_count} entr${p.entry_count === 1 ? "y" : "ies"}${p.description ? " · " + esc(p.description) : ""}</p>
-      <div class="row"><button class="btn small" data-restore-project="${p.id}">Restore</button></div></div>`).join("")}</div>`
+      <div class="row"><button class="btn small" data-restore-project="${p.id}">Restore</button>
+        <button class="btn small ghost danger" data-forever-project="${p.id}" data-title="${esc(p.name)}">Delete forever</button></div></div>`).join("")}</div>`
       : `<p class="empty">No projects in the trash.</p>`}`;
+  const forever = async (url, what) => {
+    try { await api(url, { method: url.endsWith("empty") ? "POST" : "DELETE" }); toast(`${what} deleted forever.`); render(); }
+    catch (err) { toast(err.message, true); }
+  };
+  $$("[data-forever]", el).forEach((b) => (b.onclick = () => {
+    if (confirm(`Delete “${b.dataset.title}” forever? Its words, notes, files and history are removed and can't be restored (older backups may still have it).`))
+      forever(`/api/trash/entries/${b.dataset.forever}`, "Entry");
+  }));
+  $$("[data-forever-project]", el).forEach((b) => (b.onclick = () => {
+    if (confirm(`Delete the project “${b.dataset.title}” forever? Its entries are not touched.`))
+      forever(`/api/trash/projects/${b.dataset.foreverProject}`, "Project");
+  }));
+  $("[data-act=empty-trash]", el)?.addEventListener("click", () => {
+    if (confirm(`Empty the trash? ${data.items.length} entr${data.items.length === 1 ? "y" : "ies"} and ${projects.length} project${projects.length === 1 ? "" : "s"} are deleted forever, with their files. This can't be undone.`))
+      forever("/api/trash/empty", "Everything in the trash was");
+  });
   $$("[data-restore-project]", el).forEach((b) => (b.onclick = async () => {
     b.disabled = true;
     try {
@@ -1964,6 +1987,7 @@ async function viewEntry(el, id) {
       <button class="btn small" data-act="export-entry">Export this entry</button></div>
 
     <div class="panel"><h3>Source information</h3><dl class="kv">
+      ${m.duplicate_of ? `<dt>Same file as</dt><dd><a href="#/entry/${m.duplicate_of.id}">${esc(m.duplicate_of.title)}</a></dd>` : ""}
       ${who ? `<dt>Shared by</dt><dd>${esc(who)} · from their NEXUS${e.shared_from.exported_at ? `, sent ${fmtDate(e.shared_from.exported_at)}` : ""}</dd>` : ""}
       <dt>Source</dt><dd>${esc(label(e.source_type))}</dd>
       <dt>Created</dt><dd>${fmtDateTime(e.created_at)}</dd>

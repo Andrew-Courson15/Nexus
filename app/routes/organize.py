@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
+from app.config import get_settings
 from app.database import get_db
 from app.models import CreativeEntry, EntryStatus, EntryTag, Origin, Project, Tag, utcnow
 from app.services.history import add_tag, clean_tag, get_or_create_tag, record_revision
@@ -150,3 +151,63 @@ def delete_tag(name: str, db: Session = Depends(get_db)):
     for e in entries:
         reindex_meaning(e.id)
     return {"changed": len(entries)}
+
+
+# -- deleting forever (only from the trash) ----------------------------------------
+def _erase_entry(db: Session, entry: CreativeEntry) -> None:
+    """Delete an entry and everything derived from it, including its files on disk."""
+    data_dir = get_settings().data_dir
+    files = []
+    for a in entry.attachments:
+        files.append(data_dir / a.stored_path)
+        if a.preview_path:
+            files.append(data_dir / a.preview_path)
+        files.extend((data_dir / "previews" / "thumbs").glob(f"{a.id}-*"))
+    remove_from_index(db, entry.id)
+    db.delete(entry)  # tags, history, links, art analyses and the meaning index go with it
+    db.flush()
+    for f in files:
+        try:
+            f.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
+@router.delete("/trash/entries/{entry_id}")
+def delete_entry_forever(entry_id: int, db: Session = Depends(get_db)):
+    """Permanently delete an entry that is already in the trash (older backups may still contain it)."""
+    entry = db.get(CreativeEntry, entry_id)
+    if entry is None:
+        raise HTTPException(404, "Entry not found")
+    if entry.deleted_at is None:
+        raise HTTPException(400, "Move it to the trash first; only entries in the trash can be deleted forever.")
+    _erase_entry(db, entry)
+    db.commit()
+    return {"deleted": 1}
+
+
+@router.delete("/trash/projects/{project_id}")
+def delete_project_forever(project_id: int, db: Session = Depends(get_db)):
+    """Permanently delete a trashed project. Its entries are never touched."""
+    project = db.get(Project, project_id)
+    if project is None:
+        raise HTTPException(404, "Project not found")
+    if project.deleted_at is None:
+        raise HTTPException(400, "Move it to the trash first.")
+    db.delete(project)
+    db.commit()
+    return {"deleted": 1}
+
+
+@router.post("/trash/empty")
+def empty_trash(db: Session = Depends(get_db)):
+    """Permanently delete everything in the trash."""
+    entries = db.scalars(select(CreativeEntry).where(CreativeEntry.deleted_at.is_not(None))
+                         .options(selectinload(CreativeEntry.attachments))).all()
+    projects = db.scalars(select(Project).where(Project.deleted_at.is_not(None))).all()
+    for e in entries:
+        _erase_entry(db, e)
+    for p in projects:
+        db.delete(p)
+    db.commit()
+    return {"entries": len(entries), "projects": len(projects)}

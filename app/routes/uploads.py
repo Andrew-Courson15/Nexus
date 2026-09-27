@@ -14,6 +14,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -103,13 +104,19 @@ async def upload_file(
 
     path, size, sha = await _store(file, dest_dir, mime)
     rel_path = path.relative_to(settings.data_dir).as_posix()
+    # The same file saved before? Keep this one too (nothing is ever lost), but say so.
+    same = db.execute(select(CreativeEntry.id, CreativeEntry.title, CreativeEntry.created_at)
+                      .join(Attachment, Attachment.entry_id == CreativeEntry.id)
+                      .where(Attachment.sha256 == sha, CreativeEntry.deleted_at.is_(None))
+                      .order_by(CreativeEntry.created_at).limit(1)).first()
 
     created = capture_time(captured_at)
     entry = CreativeEntry(
         original_text=note if note and note.strip() else None,
         source_type=source_type,
         source_file=rel_path,
-        ai_metadata={},
+        ai_metadata={"duplicate_of": {"id": same.id, "title": same.title or "Untitled",
+                                      "created_at": same.created_at.isoformat()}} if same else {},
         client_id=client_id,
         created_at=created,
         updated_at=created,
@@ -127,7 +134,7 @@ async def upload_file(
     entry.attachments.append(attachment)
     # A viewable JPEG/PNG copy for TIFF, PSD, SVG, PDF, HEIC ... (derived; the original stays as uploaded).
     if problem := await run_in_threadpool(ensure_preview, attachment):
-        entry.ai_metadata = {"preview_error": problem}
+        entry.ai_metadata = {**entry.ai_metadata, "preview_error": problem}
     db.add(entry)
     try:
         db.flush()

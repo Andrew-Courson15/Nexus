@@ -268,8 +268,13 @@ Browsers only allow microphone access on `localhost` or HTTPS. Open NEXUS at
   - Every point links to the entry it came from, and the entries used are shown under the answer.
   - A citation of an entry that wasn't provided is marked `[unknown entry]` instead of being linked.
   - Nothing is saved; asking never changes your archive.
-- **Trash**: entries and projects you trash are hidden, never destroyed (trashing a project never touches its entries). Open it from the Creative Archive
-  or Settings and **Restore** anything.
+- **Trash**: entries and projects you trash are hidden, not destroyed. Trashing a project never
+  touches its entries. Open the Trash from the Creative Archive or Settings.
+  - **Restore** brings anything back exactly as it was.
+  - **Delete forever** (or **Empty trash**) permanently removes an item, with its files and history.
+    Only things already in the Trash can be deleted, and older backups may still contain them.
+- **Duplicates**: uploading a file you've already saved keeps both. NEXUS tells you, and the entry
+  shows "Same file as …".
 - **Entry detail**: your material, notes, transcript, AI summary, interpretation, inference and
   uncertainty, each visually distinct. You can:
   - edit the title, type and status (your choices are never overwritten by the AI)
@@ -644,6 +649,7 @@ Transcription follows the same pattern in `services/transcription.py`: `Transcri
 | GET | `/api/trash` | Entries in the trash |
 | POST | `/api/entries/{id}/revisions/{n}/restore` | Bring back version *n* (recorded as a new version) |
 | POST | `/api/entries/bulk` | `{entry_ids, action: add_to_project\|remove_from_project\|set_status\|add_tag\|trash, project_id?, status?, tag?}` |
+| DELETE · POST | `/api/trash/entries/{id}` · `/api/trash/projects/{id}` · `/api/trash/empty` | Delete forever (trashed items only) |
 | PATCH · DELETE | `/api/tags/{name}` | Rename (merges into an existing tag) · remove from every entry |
 | GET/POST | `/api/projects` | List / create |
 | POST/GET | `/api/projects/{id}/analyses` | Start a project analysis (202 while running) / every version, newest first |
