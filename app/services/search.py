@@ -392,3 +392,54 @@ class SemanticSearchService:
         for h in hits:
             h.score = round(scores[h.entry.id] * 1000, 3)
         return SearchOutcome(pq, hits, text.mode + "+meaning", relaxed=relaxed, note=None)
+
+
+# --------------------------------------------------------------------------- #
+# "Did you mean …?"
+# --------------------------------------------------------------------------- #
+_WORD_RE = re.compile(r"[^\W\d_]{3,}", re.UNICODE)
+_vocab: dict = {"key": None, "words": frozenset()}
+
+
+def vocabulary(db: Session) -> frozenset[str]:
+    """Every word in your archive (titles, your words, notes, transcripts, tags, file names), cached
+    until an entry changes."""
+    from sqlalchemy import func
+
+    live = CreativeEntry.deleted_at.is_(None)
+    key = tuple(db.execute(select(func.count(CreativeEntry.id), func.max(CreativeEntry.updated_at)).where(live)).one())
+    if _vocab["key"] != key:
+        found: set[str] = set()
+        entries = db.scalars(select(CreativeEntry).where(live).options(
+            selectinload(CreativeEntry.entry_tags).selectinload(EntryTag.tag), selectinload(CreativeEntry.attachments))).all()
+        for e in entries:
+            text_ = " ".join(x for x in (e.title, e.original_text, e.user_notes, e.transcript, e.ai_summary,
+                                         " ".join(et.tag.name for et in e.entry_tags), filename_words(e)) if x)
+            found.update(w.lower() for w in _WORD_RE.findall(text_))
+        _vocab.update(key=key, words=frozenset(found))
+    return _vocab["words"]
+
+
+def suggest_query(db: Session, query: str) -> str | None:
+    """The query with misspelled words replaced by the closest words in your archive, or None."""
+    import difflib
+
+    vocab = vocabulary(db)
+    if not vocab:
+        return None
+    changed = False
+
+    def fix(m: re.Match) -> str:
+        nonlocal changed
+        word = m.group(0)
+        low = word.lower()
+        if low in vocab or low in _QUERY_STOPWORDS or low in _TYPE_WORDS or low in _STATUS_WORDS or len(low) < 4:
+            return word
+        close = difflib.get_close_matches(low, vocab, n=1, cutoff=0.8)
+        if not close:
+            return word
+        changed = True
+        return close[0]
+
+    fixed = _WORD_RE.sub(fix, query)
+    return fixed if changed else None

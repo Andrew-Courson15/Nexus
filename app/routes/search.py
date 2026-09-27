@@ -8,7 +8,7 @@ from app.database import get_db
 from app.schemas import AskRequest, AskResponse, AskSource, SearchRequest, SearchResponse, SearchResult, entry_summary
 from app.services.ask import ask
 from app.services.processing import queue_embedding_backfill
-from app.services.search import SemanticSearchService
+from app.services.search import SemanticSearchService, suggest_query
 
 router = APIRouter(prefix="/api", tags=["search"])
 
@@ -46,6 +46,7 @@ def search(payload: SearchRequest, db: Session = Depends(get_db)):
         results=[SearchResult(entry=entry_summary(h.entry), score=round(h.score, 4), snippet=h.snippet,
                               matched_by=h.matched_by, similarity=h.similarity)
                  for h in outcome.hits],
+        suggestion=suggest_query(db, payload.query) if not outcome.hits and pq.terms else None,
     )
 
 

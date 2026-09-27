@@ -84,3 +84,14 @@ def test_index_is_rebuilt_once_after_an_update(client):
         assert search.rebuild_if_outdated(db) == 1
         assert search.rebuild_if_outdated(db) == 0
     assert [h["entry"]["id"] for h in client.post("/api/search", json={"query": "lantern"}).json()["results"]] == [e["id"]]
+
+
+def test_did_you_mean_when_a_word_is_misspelled(client):
+    client.post("/api/entries", json={"original_text": "A villain who steals memories", "analyze": False})
+    r = client.post("/api/search", json={"query": "villian memorise"}).json()
+    assert r["results"] == [] and r["suggestion"] == "villain memories"
+    assert client.post("/api/search", json={"query": "villain"}).json()["suggestion"] is None  # found: no suggestion
+    assert client.post("/api/search", json={"query": "zzzzqqq"}).json()["suggestion"] is None  # nothing close
+    # The cache notices new material.
+    client.post("/api/entries", json={"original_text": "The lighthouse keeper", "analyze": False})
+    assert client.post("/api/search", json={"query": "lighthuose"}).json()["suggestion"] == "lighthouse"

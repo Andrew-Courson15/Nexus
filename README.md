@@ -346,6 +346,7 @@ Browsers only allow microphone access on `localhost` or HTTPS. Open NEXUS at
   `unfinished comic ideas`, `sketches with monsters`. NEXUS shows how it understood your query.
   It matches your **words** and, with the local embedding model, the **meaning**. For example,
   "forgetting who you are" finds an idea about memory loss. Each result shows how it matched.
+  If nothing matches because of a typo, it asks **Did you mean …?** using words from your archive.
 - **Map** (desktop menu; **Connections map** on the Archive page; **See connections** on a project):
   - Your ideas appear as dots, colored by type (pictures show as their thumbnail), with lines for
     their links. Linked ideas pull together, so clusters show which ideas belong together.

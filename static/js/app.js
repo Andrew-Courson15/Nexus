@@ -1429,7 +1429,8 @@ async function viewSearch(el, _id, query) {
     ${r.results.length ? `<div class="grid">${r.results.map((x) => cardHTML(x.entry,
       `${x.matched_by.some((m) => m !== "filters") ? `<div class="meta">${badges(x)}</div>` : ""}
        ${x.snippet ? `<p class="snippet">${snippet(x.snippet)}</p>` : ""}`)).join("")}</div>`
-      : `<p class="empty">Nothing found for “${esc(q)}”.</p>`}`;
+      : `<p class="empty">Nothing found for “${esc(q)}”.${r.suggestion ? `<br>Did you mean
+          <a href="#/search?q=${encodeURIComponent(r.suggestion)}"><strong>${esc(r.suggestion)}</strong></a>?` : ""}</p>`}`;
 }
 
 /* ------------------------------------------------------------ sharing */

@@ -296,6 +296,7 @@ class SearchResponse(BaseModel):
     relaxed: bool
     note: str | None = None
     results: list[SearchResult]
+    suggestion: str | None = None  # "did you mean …" when nothing matched and a word looks misspelled
 
 
 # --------------------------------------------------------------------------- #
