@@ -397,7 +397,7 @@ function mountCapture(root, opts = {}) {
       pending.hidden = true;
       pending.innerHTML = "";
       const parts = [];
-      if (saved) parts.push(`Saved ${saved}`);
+      if (saved) parts.push(`Saved ${saved} file${saved === 1 ? "" : "s"}`);
       if (queued) parts.push(`${queued} kept on this device to sync later`);
       if (failed.length) toast(`${parts.join(", ")}${parts.length ? ". " : ""}Couldn't save ${failed.length}: ${failed.join("; ")}`, true);
       else toast(`${parts.join(", ")}.`);
