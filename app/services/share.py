@@ -130,7 +130,7 @@ def export_package(db: Session, entry_ids: list[int] | None = None, project_id: 
             (Relationship.origin == Origin.user.value) | (Relationship.status == RelationshipStatus.accepted.value)))
         manifest = {
             "format": FORMAT, "version": VERSION, "exported_at": utcnow().isoformat(),
-            "by": by.strip()[:80], "install_id": install_id(),
+            "by": (by.strip() or get_settings().owner_name)[:80], "install_id": install_id(),
             "project": {"name": project.name, "description": project.description,
                         "project_type": project.project_type} if project else None,
             "entries": items,

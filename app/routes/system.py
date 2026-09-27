@@ -1,7 +1,7 @@
 """Settings, tags and creative-intelligence endpoints."""
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -57,6 +57,7 @@ def read_settings(db: Session = Depends(get_db)):
         "storage": {"data_dir": str(s.data_dir), "database": s.database_url.split("://")[0],
                     "max_upload_mb": s.max_upload_mb},
         "server": {"host": s.host, "port": s.port},
+        "owner_name": s.owner_name,
         "counts": {
             "entries": db.scalar(select(func.count()).where(active)) or 0,
             "projects": db.scalar(select(func.count(Project.id)).where(Project.deleted_at.is_(None))) or 0,
@@ -100,3 +101,22 @@ def list_tags(db: Session = Depends(get_db)):
 def patterns(min_count: int = Query(3, ge=2, le=100), db: Session = Depends(get_db)):
     return {"patterns": find_patterns(db, min_count=min_count),
             "note": "Patterns are AI inferences computed from your entries; each lists its evidence."}
+
+
+@router.get("/preferences")
+def get_preferences():
+    """Everyday settings that can be changed in the app (Settings > Preferences)."""
+    from app.services import preferences
+
+    return preferences.describe()
+
+
+@router.put("/preferences")
+def put_preferences(changes: dict):
+    """Save preferences (null resets one to .env / the default). They apply straight away."""
+    from app.services import preferences
+
+    try:
+        return preferences.update(changes)
+    except preferences.PreferenceError as exc:
+        raise HTTPException(400, str(exc)) from exc

@@ -365,6 +365,18 @@ Your current data is never deleted. It's moved to a `data-before-restore-…` fo
 
 ## Configuration (`.env`)
 
+**Most people never need to edit this file.** Everyday choices are in the app under
+**Settings → Preferences** and apply straight away:
+- your name (for sharing)
+- the AI model and the model for pictures
+- the search-by-meaning model and how strict it is
+- the speech-to-text model and voice-note language
+- automatic picture analysis
+- the backup folder, how often to back up and how many backups to keep
+
+They're saved in `data/preferences.json` and override the same settings in `.env`.
+**Reset to defaults** goes back to `.env`.
+
 | Variable | Default | Purpose |
 |---|---|---|
 | `NEXUS_HOST` | `127.0.0.1` | Bind address. Keep it on loopback. |
@@ -579,6 +591,7 @@ Transcription follows the same pattern in `services/transcription.py`: `Transcri
 | GET | `/api/uploads/{attachment_id}` | The original file |
 | POST | `/api/search` | `{"query": "...", "limit", "entry_types", "statuses", "date_from", "date_to"}`. Each result has `matched_by` (`words`, `meaning`, `filters`) and `similarity` |
 | POST | `/api/search/reindex` | Queue entries whose meaning index is missing or stale |
+| GET/PUT | `/api/preferences` | Everyday settings changed in the app (`null` resets one) |
 | GET | `/api/graph` | Connections map: `nodes` and `edges` (`project_id`, `include_suggested`) |
 | POST | `/api/ask` | `{"question": "..."}` → an answer from the archive with `sources` (each `cited` or not). Read-only |
 | GET | `/api/uploads/{attachment_id}/preview` · `/thumb` | A viewable JPEG/PNG of any picture format · a small version for cards |

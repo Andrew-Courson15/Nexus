@@ -932,13 +932,16 @@ async function viewSearch(el, _id, query) {
 
 /* ------------------------------------------------------------ sharing */
 /** Download a .nexus file for someone else's NEXUS. Asks once for the name shown to them. */
-function exportShare(params) {
-  let by = store("nexus.myName");
+async function exportShare(params) {
+  let by = (await getSettings().catch(() => null))?.owner_name || store("nexus.myName");
   if (!by) {
     by = prompt("Your name, shown to whoever imports this (for example “Andrew”):", "");
     if (by === null) return;
     by = by.trim();
-    if (by) store("nexus.myName", by);
+    if (by) {
+      store("nexus.myName", by);
+      api("/api/preferences", { method: "PUT", json: { owner_name: by } }).then(() => getSettings(true)).catch(() => {});
+    }
   }
   const a = document.createElement("a");
   a.href = "/api/share/export?" + new URLSearchParams({ ...params, by: by || "" });
@@ -976,6 +979,71 @@ function mountImport(box) {
     }
     input.value = "";
   };
+}
+
+/** Settings: everyday preferences, changed here instead of in .env. They apply straight away. */
+async function mountPreferences(box) {
+  let d;
+  try {
+    d = await api("/api/preferences", { noCopy: true });
+  } catch (err) {
+    box.innerHTML = `<h3>Preferences</h3><p class="small muted">${err.offline ? "Preferences can be changed when NEXUS is on." : esc(err.message)}</p>`;
+    return;
+  }
+  const v = d.values, models = d.choices.installed_models;
+  // "nomic-embed-text" and "nomic-embed-text:latest" are the same model.
+  const sameModel = (a, b) => !!a && !!b && (a === b || `${a}:latest` === b || a === `${b}:latest`);
+  const modelField = (name, current, allowSame) => models.length
+    ? `<select name="${name}">${allowSame ? `<option value=""${!current ? " selected" : ""}>Same as the AI model</option>` : ""}${
+        [...new Set([...(current ? [current] : []), ...models.filter((m) => !sameModel(m, current))])].map((m) =>
+          `<option value="${esc(m)}"${m === current ? " selected" : ""}>${esc(m)}${models.some((x) => sameModel(x, m)) ? "" : " (not installed)"}</option>`).join("")}</select>`
+    : `<input type="text" name="${name}" value="${esc(current || "")}" placeholder="${allowSame ? "same as the AI model" : "gemma3:12b"}">`;
+  const strict = Math.round(((v.semantic_min_similarity - 0.4) / 0.45) * 100);
+  box.innerHTML = `<div class="row"><h3 style="margin:0">Preferences</h3><span class="spacer"></span>
+      ${d.from_app.length ? `<button type="button" class="btn ghost small" data-act="prefs-reset">Reset to defaults</button>` : ""}</div>
+    <form id="prefs-form" class="prefs-grid">
+      <label class="field">Your name <input type="text" name="owner_name" maxlength="80" value="${esc(v.owner_name)}" placeholder="shown when you share with a friend"></label>
+      <label class="field">AI model ${modelField("ollama_model", v.ollama_model)}</label>
+      <label class="field">Model for pictures ${modelField("ollama_vision_model", v.ollama_vision_model, true)}</label>
+      <label class="field">Search-by-meaning model ${modelField("embedding_model", v.embedding_model)}</label>
+      <label class="field">Speech-to-text model <select name="whisper_model">${d.choices.whisper_models.map((m) =>
+        `<option${m === v.whisper_model ? " selected" : ""}>${m}</option>`).join("")}</select></label>
+      <label class="field">Voice note language <input type="text" name="whisper_language" value="${esc(v.whisper_language)}" placeholder="detect automatically" maxlength="3"></label>
+      <label class="field">Search-by-meaning strictness <input type="range" name="semantic_min_similarity" min="0.4" max="0.85" step="0.01" value="${v.semantic_min_similarity}">
+        <span class="small muted" id="strict-note">${strict < 35 ? "looser: more results, some unrelated" : strict > 65 ? "stricter: fewer, closer matches" : "balanced"} (${v.semantic_min_similarity})</span></label>
+      <label class="check"><input type="checkbox" name="art_auto_analyze"${v.art_auto_analyze ? " checked" : ""}> Analyze new pictures automatically</label>
+      <label class="field wide">Backup folder <input type="text" name="backup_dir" value="${esc(v.backup_dir)}" placeholder="for example D:\\NEXUS Backups"></label>
+      <label class="field">Automatic backup every (days) <input type="number" name="backup_every_days" min="0" max="365" step="1" value="${v.backup_every_days}"></label>
+      <label class="field">Backups to keep <input type="number" name="backup_keep" min="1" max="100" step="1" value="${v.backup_keep}"></label>
+      <div class="row wide"><button class="btn primary small" type="submit">Save preferences</button>
+        <span class="small muted">They apply straight away. ${models.length ? "" : "Ollama isn't answering, so type model names."}</span></div>
+    </form>`;
+  const form = $("#prefs-form", box);
+  form.semantic_min_similarity.oninput = (ev) => { $("#strict-note", box).textContent = `(${ev.target.value})`; };
+  form.onsubmit = async (ev) => {
+    ev.preventDefault();
+    const f = new FormData(form), changes = {};
+    for (const key of ["owner_name", "ollama_model", "ollama_vision_model", "embedding_model", "whisper_model", "whisper_language", "backup_dir"]) {
+      const val = (f.get(key) ?? "").trim();
+      if (val !== String(v[key] ?? "")) changes[key] = val;
+    }
+    for (const key of ["semantic_min_similarity", "backup_every_days", "backup_keep"]) if (+f.get(key) !== +v[key]) changes[key] = +f.get(key);
+    if (form.art_auto_analyze.checked !== v.art_auto_analyze) changes.art_auto_analyze = form.art_auto_analyze.checked;
+    if (!Object.keys(changes).length) return toast("Nothing changed.");
+    try {
+      await api("/api/preferences", { method: "PUT", json: changes });
+      await getSettings(true);
+      toast("Preferences saved.");
+      render();
+    } catch (err) { toast(err.message, true); }
+  };
+  $("[data-act=prefs-reset]", box)?.addEventListener("click", async () => {
+    if (!confirm("Go back to the defaults (and anything set in the .env file) for these preferences?")) return;
+    await api("/api/preferences", { method: "PUT", json: Object.fromEntries(d.from_app.map((k) => [k, null])) });
+    await getSettings(true);
+    toast("Back to the defaults.");
+    render();
+  });
 }
 
 /** Settings panel: this device — app version and the copy of the archive saved on it. */
@@ -1402,7 +1470,8 @@ async function viewSettings(el) {
   const s = await getSettings(true);
   const ai = s.ai_provider;
   el.innerHTML = `<div class="view-head"><div><h1>Settings</h1>
-    <p class="lede">NEXUS is configured through the <code>.env</code> file next to <code>run.py</code>. Restart after changing it. API keys stay in the environment and are never stored in the database.</p></div></div>
+    <p class="lede">Everyday choices are in <strong>Preferences</strong> below and apply straight away. Advanced settings live in the
+      <code>.env</code> file next to <code>run.py</code> (restart after changing it). API keys stay in the environment and are never stored in the database.</p></div></div>
     <div class="grid">
       <div class="panel"><h3>AI provider</h3>${health(ai.health)}<dl class="kv">
         <dt>Active</dt><dd>${esc(ai.name)}</dd>
@@ -1434,6 +1503,8 @@ async function viewSettings(el) {
       <div class="panel" id="import"></div>
       <div class="panel" id="device"></div>
     </div>`;
+  el.querySelector(".view-head").insertAdjacentHTML("afterend", `<section class="panel prefs" id="prefs"><p class="loading">Loading…</p></section>`);
+  mountPreferences($("#prefs", el));
   mountBackups($("#backups", el));
   mountImport($("#import", el));
   mountDevice($("#device", el));

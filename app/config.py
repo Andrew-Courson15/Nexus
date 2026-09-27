@@ -1,11 +1,14 @@
 """Application configuration, read from environment variables (and `.env`).
 
+Some everyday choices (which AI model, backups, your name ...) can also be changed in the app
+(Settings > Preferences). Those are kept in <data>/preferences.json and win over `.env`.
 API keys are only ever read from the environment; they are never persisted.
 """
 from __future__ import annotations
 
+import json
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from functools import lru_cache
 from pathlib import Path
 
@@ -59,6 +62,7 @@ class Settings:
     backup_dir: Path | None = None   # default: <data_dir>/backups; better: another drive or a cloud folder
     backup_every_days: float = 7.0   # automatic backup interval; 0 turns automatic backups off
     backup_keep: int = 4             # how many backups to keep (older ones are removed)
+    owner_name: str = ""             # shown to people you share with (.nexus files)
 
     @property
     def uploads_dir(self) -> Path:
@@ -90,7 +94,7 @@ def get_settings() -> Settings:
     data_dir = _resolve(os.getenv("NEXUS_DATA_DIR", "data"))
     database_url = os.getenv("NEXUS_DATABASE_URL") or f"sqlite:///{data_dir / 'nexus.db'}"
     allowed = os.getenv("NEXUS_ALLOWED_HOSTS", "localhost,127.0.0.1")
-    return Settings(
+    base = Settings(
         host=os.getenv("NEXUS_HOST", "127.0.0.1"),
         port=int(os.getenv("NEXUS_PORT", "8000")),
         allowed_hosts=[h.strip() for h in allowed.split(",") if h.strip()],
@@ -119,4 +123,44 @@ def get_settings() -> Settings:
         backup_dir=_resolve(os.getenv("NEXUS_BACKUP_DIR")) if os.getenv("NEXUS_BACKUP_DIR", "").strip() else None,
         backup_every_days=float(os.getenv("NEXUS_BACKUP_EVERY_DAYS", "7")),
         backup_keep=max(1, int(os.getenv("NEXUS_BACKUP_KEEP", "4"))),
+        owner_name=os.getenv("NEXUS_OWNER_NAME", "").strip()[:80],
     )
+    return _with_preferences(base)
+
+
+# Settings the app itself may change (Settings > Preferences), with how to read them back.
+PREFERENCE_TYPES = {
+    "ollama_model": str, "ollama_vision_model": str, "embedding_model": str,
+    "whisper_model": str, "whisper_language": str, "art_auto_analyze": bool,
+    "semantic_min_similarity": float, "backup_dir": Path, "backup_every_days": float, "backup_keep": int,
+    "owner_name": str,
+}
+
+
+def preferences_file(data_dir: Path) -> Path:
+    return data_dir / "preferences.json"
+
+
+def read_preferences(data_dir: Path) -> dict:
+    """The preferences saved from the app (only known keys; a damaged file counts as empty)."""
+    try:
+        raw = json.loads(preferences_file(data_dir).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return {k: v for k, v in raw.items() if k in PREFERENCE_TYPES} if isinstance(raw, dict) else {}
+
+
+def _with_preferences(base: Settings) -> Settings:
+    changes = {}
+    for key, value in read_preferences(base.data_dir).items():
+        kind = PREFERENCE_TYPES[key]
+        try:
+            if kind is Path:
+                changes[key] = _resolve(value) if value else None
+            elif kind is bool:
+                changes[key] = bool(value)
+            else:
+                changes[key] = kind(value)
+        except (TypeError, ValueError):
+            continue  # ignore a bad value rather than refuse to start
+    return replace(base, **changes) if changes else base

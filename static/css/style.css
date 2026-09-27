@@ -449,3 +449,10 @@ a.cite:hover { border-color: var(--text); }
 .map-legend b.ln.suggested { border-top: 2px dashed var(--ai); }
 .map-legend b.ln.contradicts { border-top-color: var(--danger); }
 @media (max-width: 640px) { #map { height: 62vh; } }
+
+/* ---------- preferences ---------- */
+.prefs { margin-bottom: 18px; }
+.prefs-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 12px 16px; margin-top: 12px; align-items: end; }
+.prefs-grid .wide { grid-column: 1 / -1; }
+.prefs-grid .check { display: flex; align-items: center; gap: 8px; font-size: 14px; padding-bottom: 8px; }
+.prefs-grid input[type=range] { width: 100%; }
