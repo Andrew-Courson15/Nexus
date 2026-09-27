@@ -26,6 +26,12 @@ from app.services.search import fts_available
 router = APIRouter(prefix="/api", tags=["system"])
 
 
+@router.get("/ping")
+def ping():
+    """Tiny, instant reply so the phone app can tell quickly whether NEXUS is reachable."""
+    return {"ok": True}
+
+
 @router.get("/settings")
 def read_settings(db: Session = Depends(get_db)):
     """Read-only view of the configuration. Secrets are never returned."""

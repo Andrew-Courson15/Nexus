@@ -39,14 +39,25 @@ async function api(path, opts = {}) {
     init.headers["Content-Type"] = "application/json";
     delete init.json;
   }
+  // When the PC is off, requests over Tailscale hang instead of failing, so every request
+  // gets a time limit (longer for file uploads on a slow connection).
+  const ctrl = new AbortController();
+  const limit = opts.timeout ?? (init.body instanceof FormData ? 120000 : 10000);
+  const timer = setTimeout(() => ctrl.abort(), limit);
+  init.signal = ctrl.signal;
+  delete init.timeout;
   let res;
   try {
     res = await fetch(path, init);
   } catch {
+    markUnreachable();
     throw unreachable();
+  } finally {
+    clearTimeout(timer);
   }
   // 502-504: the private link is up but NEXUS on the PC isn't answering.
-  if ([502, 503, 504].includes(res.status)) throw unreachable();
+  if ([502, 503, 504].includes(res.status)) { markUnreachable(); throw unreachable(); }
+  lastUnreachable = 0;
   if (res.status === 204) return null;
   const data = await res.json().catch(() => null);
   if (!res.ok) {
@@ -55,6 +66,22 @@ async function api(path, opts = {}) {
     throw new Error(msg);
   }
   return data;
+}
+
+let lastUnreachable = 0;
+function markUnreachable() { lastUnreachable = Date.now(); }
+/** True if NEXUS failed to answer in the last 30 s: don't make the user wait again. */
+const recentlyUnreachable = () => Date.now() - lastUnreachable < 30000;
+
+/** Quick check (3 s at most) whether NEXUS answers right now. */
+async function reachable() {
+  try {
+    await api("/api/ping", { timeout: 3000 });
+    return true;
+  } catch (err) {
+    if (err.offline) return false;
+    throw err;
+  }
 }
 
 function unreachable() {
@@ -99,7 +126,7 @@ function newClientId() {
 }
 
 /** Send one capture. item: {client_id, captured_at, text?, file?, filename?, note?, project_id?} */
-function sendCapture(item) {
+function sendCapture(item, timeout) {
   if (item.file) {
     const fd = new FormData();
     fd.append("file", item.file, item.filename || item.file.name || "capture");
@@ -107,10 +134,11 @@ function sendCapture(item) {
     if (item.project_id) fd.append("project_id", item.project_id);
     fd.append("client_id", item.client_id);
     fd.append("captured_at", item.captured_at);
-    return api("/api/uploads", { method: "POST", body: fd });
+    return api("/api/uploads", { method: "POST", body: fd, timeout });
   }
   return api("/api/entries", {
     method: "POST",
+    timeout,
     json: { original_text: item.text, project_ids: item.project_id ? [item.project_id] : [],
             client_id: item.client_id, captured_at: item.captured_at },
   });
@@ -120,7 +148,11 @@ function sendCapture(item) {
 async function captureOrQueue(fields) {
   const item = { client_id: newClientId(), captured_at: new Date().toISOString(), ...fields };
   try {
-    return { entry: await sendCapture(item) };
+    if (recentlyUnreachable()) throw unreachable();  // known offline: save instantly
+    // Files can take a while to upload, so check first; text just gets a short time limit.
+    // (If a timed-out capture did arrive after all, its id stops the re-send duplicating it.)
+    if (item.file && !(await reachable())) throw unreachable();
+    return { entry: await sendCapture(item, item.file ? undefined : 5000) };
   } catch (err) {
     if (!err.offline) throw err;
     try {
@@ -410,7 +442,7 @@ async function viewHome(el) {
     <h2>Recently captured</h2><div id="recent"></div>`;
   const loadRecent = async () => {
     try {
-      const data = await api("/api/entries?limit=9");
+      const data = await api("/api/entries?limit=9", { timeout: 6000 });
       $("#recent", el).innerHTML = gridHTML(data.items, "Nothing captured yet. Your first idea goes in the box above.");
     } catch (err) {
       if (!err.offline) throw err;
@@ -977,8 +1009,8 @@ async function render() {
 window.addEventListener("hashchange", () => { render(); window.scrollTo(0, 0); });
 window.addEventListener("DOMContentLoaded", () => {
   render();
-  $("#outbox").onclick = () => flushOutbox({ quiet: false });
-  flushOutbox();
+  $("#outbox").onclick = () => { lastUnreachable = 0; flushOutbox({ quiet: false }); };
+  reachable().then((ok) => ok && flushOutbox()).catch(() => {});
   // iPhones have no background sync: retry while the app is open, and whenever it comes back.
   setInterval(() => { if (!$("#outbox").hidden) flushOutbox(); }, 20000);
   window.addEventListener("online", () => flushOutbox());

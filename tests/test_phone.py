@@ -95,3 +95,7 @@ def test_client_id_is_added_and_unique_on_old_databases(tmp_path):
                           "ai_metadata, user_confirmed, source_type, client_id, created_at, updated_at) VALUES "
                           "('b','ai','idea','ai','raw','{}',0,'text','dup-client-1','2026-01-01','2026-01-01')"))
     engine.dispose()
+
+
+def test_ping(client):
+    assert client.get("/api/ping").json() == {"ok": True}
