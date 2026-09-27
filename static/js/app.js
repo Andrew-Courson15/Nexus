@@ -2395,7 +2395,8 @@ async function viewEntry(el, id) {
   <aside class="side"><h2 class="sr-only">Tags, projects and links</h2>
     <div class="panel"><h3>Tags</h3>
       <div class="meta" id="tags">${e.tags.length ? tagsHTML(e.tags, true) : `<span class="muted small">No tags.</span>`}</div>
-      <form class="row" id="addtag"><input type="text" name="tag" placeholder="Add tag" style="flex:1"><button class="btn small">Add</button></form>
+      <form class="row" id="addtag"><input type="text" name="tag" placeholder="Add tag" style="flex:1" list="tag-names" autocomplete="off" aria-label="Add tag"><button class="btn small">Add</button></form>
+      <datalist id="tag-names"></datalist>
       <p class="small muted">Dashed = AI tag. Removing an AI tag stops it coming back.</p></div>
 
     <div class="panel"><h3>Projects</h3>
@@ -2464,6 +2465,11 @@ async function viewEntry(el, id) {
   $("#status", el).onchange = (ev) => put({ status: ev.target.value }, "Status updated.");
   $("[data-act=confirm]", el)?.addEventListener("click", () => put({ user_confirmed: true }, "Confirmed."));
   mountBrowseNav(el, e.id);
+  api("/api/tags").then((tags) => {  // suggestions while typing a tag, most used first
+    const have = new Set(e.tags.map((t) => t.name));
+    $("#tag-names", el).innerHTML = tags.filter((t) => !have.has(t.name)).sort((a, b) => b.count - a.count).slice(0, 200)
+      .map((t) => `<option value="${esc(t.name)}">`).join("");
+  }).catch(() => {});
   $$(".media-preview img", el).forEach((img) => { img.style.cursor = "zoom-in"; img.onclick = () => openLightbox(img); });
   $("[data-act=split-pages]", el)?.addEventListener("click", async (ev) => {
     ev.target.disabled = true; ev.target.textContent = "Splitting…";
