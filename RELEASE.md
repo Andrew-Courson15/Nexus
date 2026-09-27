@@ -46,7 +46,8 @@ can make; the rest is engineering.
   The first-run check links to Ollama and downloads the AI model in one click. On Windows the build
   script also makes `NEXUS-Setup-<version>.exe` when Inno Setup is installed (`packaging/nexus.iss`:
   per-user install, no admin prompt, Start menu, optional desktop icon and start at sign-in; the
-  uninstaller keeps your ideas). Still to do: a `.dmg` on Mac, first runs on real machines, and signing.
+  uninstaller keeps your ideas). The Mac build
+  makes a `.dmg` too. Still to do: first runs on real machines, and signing.
 - **Previously:** setup needed Python, Git and a terminal.
   - A Windows installer (`.exe`/`.msi`) and a Mac app (`.dmg`) would bundle Python and NEXUS,
     install or guide Ollama, and start NEXUS at login.

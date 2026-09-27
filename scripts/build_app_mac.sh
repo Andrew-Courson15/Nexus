@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Build the downloadable NEXUS app for Mac: dist/NEXUS.app, runs without Python, zipped as
-# dist/NEXUS-<version>-mac.zip. Run it on a Mac from the nexus folder:
+# dist/NEXUS-<version>-mac.zip and dist/NEXUS-<version>.dmg. Run it on a Mac from the nexus folder:
 #   ./scripts/build_app_mac.sh
 # People who download it: unzip, drag NEXUS to Applications, open it (the first time: right-click >
 # Open, because it isn't signed yet). Their ideas live in ~/Library/Application Support/NEXUS.
@@ -25,5 +25,10 @@ VERSION="$(sed -n 's/^__version__ = "\(.*\)"/\1/p' app/__init__.py)"
 ZIP="dist/NEXUS-$VERSION-mac.zip"
 rm -f "$ZIP"
 ditto -c -k --keepParent dist/NEXUS.app "$ZIP"
+# A .dmg to drag NEXUS into Applications.
+STAGE="$(mktemp -d)"; cp -R dist/NEXUS.app "$STAGE/"; ln -s /Applications "$STAGE/Applications"
+DMG="dist/NEXUS-$VERSION.dmg"; rm -f "$DMG"
+hdiutil create -volname "NEXUS $VERSION" -srcfolder "$STAGE" -ov -format UDZO "$DMG" >/dev/null && echo "    $DMG"
+rm -rf "$STAGE"
 echo "==> Done: $ZIP"
 echo "    Try it: open dist/NEXUS.app (quit your usual NEXUS first, or it just opens that one)."
