@@ -24,6 +24,8 @@ The version is in `app/__init__.py` and shown in **Settings → This device**.
   out camera names like IMG_2041. Existing entries are re-indexed once, in about a second.
 - **Duplicates page** (Creative Archive → Duplicates): identical files grouped, extra copies moved to
   the Trash in one click (restorable). Copies with your own words are marked.
+- **Theme** per device (Settings → This device): same as the device, dark, or light.
+- **Tag suggestions** while typing a tag.
 - **Previous / Next** on an entry opened from a grid (Archive, Timeline, a project, Art…): buttons,
   arrow keys, or swiping the picture on a phone. Tap a picture to see it full screen.
 - **Map**: tapping just beside an idea opens it, which is much easier on a phone.

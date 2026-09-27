@@ -1559,8 +1559,18 @@ async function mountPreferences(box) {
 }
 
 /** Settings panel: this device — app version and the copy of the archive saved on it. */
+function applyTheme(choice) {
+  store("nexus.theme", choice === "system" ? null : choice);
+  if (choice === "system") delete document.documentElement.dataset.theme;
+  else document.documentElement.dataset.theme = choice;
+}
+
 async function mountDevice(box) {
-  const head = `<h3>This device</h3><dl class="kv"><dt>NEXUS version</dt><dd>${esc(APP_VERSION || "—")}</dd></dl>`;
+  box.onchange = (ev) => { if (ev.target.id === "theme") applyTheme(ev.target.value); };
+  const theme = store("nexus.theme") || "system";
+  const head = `<h3>This device</h3><dl class="kv"><dt>NEXUS version</dt><dd>${esc(APP_VERSION || "—")}</dd>
+    <dt>Theme</dt><dd><select id="theme" aria-label="Theme">${[["system", "Same as this device"], ["dark", "Dark"], ["light", "Light"]]
+      .map(([v, l]) => `<option value="${v}"${v === theme ? " selected" : ""}>${l}</option>`).join("")}</select></dd></dl>`;
   if (HAS_OFFLINE_COPY && !box.dataset.listening) {
     box.dataset.listening = "1";
     const again = () => (box.isConnected ? mountDevice(box) : window.removeEventListener("nexus:synced", again));

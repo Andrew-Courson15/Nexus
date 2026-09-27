@@ -28,7 +28,7 @@
 }
 
 @media (prefers-color-scheme: light) {
-  :root {
+  :root:not([data-theme="dark"]) {
     --bg: #f6f4ef;
     --surface: #ffffff;
     --surface-2: #f0ede6;
@@ -47,6 +47,26 @@
     --ok: #1f8a57;
     --danger: #b83434;
   }
+}
+/* Chosen in Settings → This device (Theme): overrides the system setting. */
+:root[data-theme="light"] {
+  --bg: #f6f4ef;
+  --surface: #ffffff;
+  --surface-2: #f0ede6;
+  --border: #ded9ce;
+  --text: #1f1d1a;
+  --muted: #625e57;
+  --faint: #6e6a62;
+  --user: #8f5b00;
+  --on-user: #ffffff;
+  --user-bg: #fff4de;
+  --ai: #2360b8;
+  --ai-bg: #eaf2ff;
+  --infer: #6d3fc4;
+  --infer-bg: #f3edff;
+  --unknown: #6f6b64;
+  --ok: #1f8a57;
+  --danger: #b83434;
 }
 
 * { box-sizing: border-box; }
