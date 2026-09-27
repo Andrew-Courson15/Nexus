@@ -19,7 +19,7 @@
 <body>
   <header class="topbar">
     <a class="brand" href="#/" aria-label="NEXUS home">
-      <span class="brand-mark" aria-hidden="true"></span>NEXUS
+      <span class="brand-mark" aria-hidden="true"></span><span class="brand-text">NEXUS</span>
     </a>
     <button id="outbox" class="outbox" type="button" hidden aria-live="polite"></button>
     <nav class="nav" aria-label="Main">
@@ -32,6 +32,8 @@
       <a href="#/settings" data-nav="settings">Settings</a>
     </nav>
   </header>
+
+  <div id="offline-bar" class="offline-bar" role="status" hidden></div>
 
   <main id="view" class="view" tabindex="-1">
     <noscript><p class="empty">NEXUS needs JavaScript enabled in your browser.</p></noscript>

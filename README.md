@@ -133,6 +133,17 @@ photos and voice notes. They're kept on the phone (you'll see "*N* to sync" at t
 automatically the next time NEXUS is reachable. Each capture carries its own id, so a re-send
 never creates a duplicate, and it keeps the time you actually captured it.
 
+**You can also still browse your archive when the PC is off.** While NEXUS is reachable, the
+phone quietly keeps a read-only copy: every entry, project, relationship and art analysis, plus
+small thumbnails of up to 500 pictures. It refreshes about every 5 minutes while the app is open.
+- When the PC is off, Capture, Archive, Ideas, Projects, entries, Art and Search keep working
+  from that copy.
+- A banner says it's the phone's copy and when it was saved.
+- Search matches words only; search by meaning needs NEXUS.
+- Editing, re-running the AI and voice-note playback need NEXUS.
+- When the PC is back, the banner goes away on its own and waiting captures are sent.
+- The copy lives only on your phone. On the PC itself, NEXUS always reads straight from its database.
+
 If the script says HTTPS certificates are off, open https://login.tailscale.com/admin/dns, turn
 on **MagicDNS** and **HTTPS Certificates**, and run it again.
 
@@ -347,18 +358,20 @@ nexus/
 │   │   ├── transcription.py  TranscriptionService, local Whisper (faster-whisper), placeholder
 │   │   ├── history.py        Revision snapshots and tag helpers
 │   │   ├── insights.py       Evidence-backed pattern detection
+│   │   ├── images.py         Picture formats: previews and thumbnails
 │   │   └── text.py           Keyword/concept/theme lexicons used by the local provider
 │   ├── routes/
 │   │   ├── entries.py        Entries, revisions, relationships
 │   │   ├── projects.py       Projects and membership
 │   │   ├── search.py         POST /api/search
-│   │   ├── uploads.py        File/voice/image uploads and original-file serving
+│   │   ├── uploads.py        Uploads; originals, previews and thumbnails
 │   │   ├── system.py         Settings, tags, patterns
+│   │   ├── offline.py        Snapshot for the phone's offline copy
 │   │   └── art.py            Art analyses, gallery, evolution, creative memory, art library
 │   └── templates/index.html  Single-page shell
 ├── static/css/style.css      Styles (dark/light, responsive)
 ├── static/js/app.js          Vanilla JS app (router, views, recorder)
-├── data/{uploads,audio,images,exports}/
+├── data/{uploads,audio,images,previews,exports}/
 ├── scripts/                 setup_mac.sh, make_mac_app.sh, setup_windows.ps1, make_windows_app.ps1, nexus_launcher.ps1, start_windows.bat, phone_setup_windows.ps1
 ├── static/sw.js, manifest.webmanifest, icons/   Installable phone app + offline support
 ├── tests/                    pytest suite (includes a fake Ollama)

@@ -22,6 +22,10 @@ const picOf = (e) => e.attachments.find((a) => a.kind === "image" && a.preview_u
 document.addEventListener("error", (ev) => {
   const img = ev.target;
   if (img.tagName !== "IMG" || img.dataset.fallback === "done") return;
+  if (img.dataset.thumb && img.getAttribute("src") !== img.dataset.thumb) {  // e.g. offline: the small copy is saved
+    img.src = img.dataset.thumb;
+    return;
+  }
   img.dataset.fallback = "done";
   if (img.dataset.local !== undefined) { img.remove(); return; }
   const note = document.createElement("span");
@@ -48,8 +52,41 @@ function toast(msg, isError = false) {
   toastTimer = setTimeout(() => (t.className = "toast"), isError ? 5000 : 2600);
 }
 
+/**
+ * Call the NEXUS API. On the phone, when NEXUS can't be reached, read requests are
+ * answered from the offline copy saved on this device (see "offline copy" below).
+ */
 async function api(path, opts = {}) {
+  const method = (opts.method || "GET").toUpperCase();
+  const useCopy = HAS_OFFLINE_COPY && !opts.noCopy && (method === "GET" || path === "/api/search");
+  // Known to be off (the background check notices when it's back): answer instantly instead of waiting again.
+  if (useCopy && (recentlyUnreachable() || !$("#offline-bar").hidden)) {
+    const saved = await offlineAnswer(path, opts);
+    if (saved !== undefined) return saved;
+  }
+  // With a copy to fall back on, don't wait long on a PC that may be off (over Tailscale it hangs).
+  let netOpts = opts;
+  if (useCopy && method === "GET" && opts.timeout === undefined && path !== "/api/settings" && (await offlineCopy.snapshot())) {
+    netOpts = { ...opts, timeout: 4000 };
+  }
+  try {
+    const data = await apiNetwork(path, netOpts);
+    if (useCopy) {
+      showOfflineBar(false);
+      if (method === "GET" && COPY_LISTS.includes(path)) offlineCopy.put("url:" + path, data).catch(() => {});
+    }
+    return data;
+  } catch (err) {
+    if (!err.offline || !useCopy) throw err;
+    const saved = await offlineAnswer(path, opts);
+    if (saved === undefined) throw err;
+    return saved;
+  }
+}
+
+async function apiNetwork(path, opts = {}) {
   const init = { ...opts, headers: { ...(opts.headers || {}) } };
+  delete init.noCopy;
   if (opts.json !== undefined) {
     init.body = JSON.stringify(opts.json);
     init.headers["Content-Type"] = "application/json";
@@ -104,6 +141,185 @@ function unreachable() {
   const err = new Error("Can't reach NEXUS right now.");
   err.offline = true;
   return err;
+}
+
+/* ------------------------------------------------------------ offline copy
+ * On the phone, a read-only copy of the archive is kept on the device (IndexedDB),
+ * refreshed while NEXUS is reachable. When the PC is off, entries, projects,
+ * relationships, art analyses and word search still work from it, with small
+ * thumbnails kept in the Cache API. On the PC itself (localhost) none of this runs. */
+const HAS_OFFLINE_COPY = !["localhost", "127.0.0.1", "[::1]"].includes(location.hostname) && "indexedDB" in window;
+const SYNC_EVERY_MS = 5 * 60 * 1000;
+const THUMB_CACHE = "media-thumbs";
+const MAX_OFFLINE_THUMBS = 500;
+// Lists the offline copy keeps exactly as NEXUS sent them (refreshed whenever they're fetched).
+const COPY_LISTS = ["/api/settings", "/api/tags", "/api/insights/patterns", "/api/art/gallery",
+  "/api/art/preferences", "/api/art/knowledge", "/api/art/topics"];
+
+const offlineCopy = {
+  _db: null,
+  _snap: null,
+  open() {
+    if (this._db) return this._db;
+    this._db = new Promise((resolve, reject) => {
+      const req = indexedDB.open("nexus-offline", 1);
+      req.onupgradeneeded = () => req.result.createObjectStore("kv");
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+    return this._db;
+  },
+  async _tx(mode, fn) {
+    const db = await this.open();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction("kv", mode);
+      const req = fn(tx.objectStore("kv"));
+      tx.oncomplete = () => resolve(req?.result);
+      tx.onerror = () => reject(tx.error);
+    });
+  },
+  get(key) { return this._tx("readonly", (st) => st.get(key)); },
+  put(key, value) { return this._tx("readwrite", (st) => st.put(value, key)); },
+  async snapshot() {
+    if (!this._loaded) {
+      this._snap = (await this.get("snapshot").catch(() => null)) || null;
+      this._loaded = true;
+    }
+    return this._snap;
+  },
+  async save(snap) {
+    this._snap = snap;
+    await this.put("snapshot", snap);
+  },
+};
+
+let lastSync = 0, syncing = false;
+/** Refresh the offline copy (at most every few minutes unless forced). Never throws. */
+async function syncOfflineCopy({ force = false } = {}) {
+  if (!HAS_OFFLINE_COPY || syncing || (!force && Date.now() - lastSync < SYNC_EVERY_MS)) return;
+  syncing = true;
+  try {
+    const snap = await api("/api/offline/snapshot", { timeout: 60000, noCopy: true });
+    await offlineCopy.save(snap);
+    lastSync = Date.now();
+    navigator.storage?.persist?.().catch(() => {});  // ask the phone not to clear it
+    await Promise.allSettled(COPY_LISTS.map((u) => api(u, { timeout: 20000 })));
+    await saveThumbnails(snap);
+  } catch { /* unreachable or storage full: keep the previous copy */ } finally {
+    syncing = false;
+  }
+}
+
+async function saveThumbnails(snap) {
+  if (!("caches" in window)) return;
+  const cache = await caches.open(THUMB_CACHE);
+  const wanted = [];
+  for (const e of snap.entries) {
+    const a = picOf(e);
+    if (a?.thumb_url) wanted.push(a.thumb_url);
+    if (wanted.length >= MAX_OFFLINE_THUMBS) break;
+  }
+  const keep = new Set(wanted.map((u) => new URL(u, location.href).href));
+  for (const req of await cache.keys()) if (!keep.has(req.url)) await cache.delete(req);
+  const queue = [...wanted];
+  const worker = async () => {
+    while (queue.length) {
+      const url = queue.shift();
+      if (await cache.match(url)) continue;
+      try { await cache.add(url); } catch { /* skip this one */ }
+    }
+  };
+  await Promise.all([worker(), worker(), worker(), worker()]);
+}
+
+function showOfflineBar(on, savedAt) {
+  const bar = $("#offline-bar");
+  if (!bar || bar.hidden === !on) return;
+  bar.hidden = !on;
+  if (on) {
+    bar.textContent = `Your PC is off or NEXUS isn't running: you're seeing the copy saved on this phone` +
+      (savedAt ? ` (from ${fmtDateTime(savedAt)})` : "") + `. It's read-only; new captures are kept and sent later.`;
+  }
+}
+
+const STOP_WORDS = new Set(["the", "a", "an", "and", "or", "of", "to", "in", "on", "for", "with", "about", "my", "me",
+  "is", "are", "was", "it", "that", "this", "ideas", "idea", "things", "stuff", "any", "all", "some"]);
+const stem = (w) => w.replace(/(ings|ing|ies|es|ed|s)$/, "") || w;
+
+/** Word search over the offline copy (search by meaning needs NEXUS). */
+function searchCopy(snap, query) {
+  const terms = [...new Set((query.toLowerCase().match(/[\p{L}\p{N}]+/gu) || [])
+    .filter((t) => t.length > 1 && !STOP_WORDS.has(t)))];
+  const stems = terms.map(stem);
+  const results = [];
+  for (const e of snap.entries) {
+    const fields = [e.title, e.original_text, e.user_notes, e.transcript, e.ai_summary, e.ai_interpretation,
+      e.tags.map((t) => t.name).join(" "), (e.ai_metadata?.concepts || []).join(" ")].filter(Boolean);
+    const text = fields.join("\n").toLowerCase();
+    const title = (e.title || "").toLowerCase();
+    let score = 0;
+    stems.forEach((st) => { if (text.includes(st)) score += title.includes(st) ? 3 : 1; });
+    if (!score) continue;
+    const source = fields.find((f) => stems.some((st) => f.toLowerCase().includes(st))) || "";
+    const at = Math.max(0, Math.min(...stems.map((st) => source.toLowerCase().indexOf(st)).filter((i) => i >= 0)) - 60);
+    let snippet = (at ? "…" : "") + source.slice(at, at + 180) + (source.length > at + 180 ? "…" : "");
+    for (const st of stems) snippet = snippet.replace(new RegExp(`(${st.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\p{L}*)`, "giu"), "\u0001$1\u0002");
+    results.push({ entry: e, score, snippet, matched_by: ["words"], similarity: null });
+  }
+  results.sort((a, b) => b.score - a.score);
+  return { query, mode: "offline", semantic_enabled: false, relaxed: false,
+    interpreted: { terms, entry_types: [], statuses: [], source_types: [] },
+    note: "Searching the copy saved on this phone (matching words only). Search by meaning works when NEXUS is on.",
+    results: terms.length ? results.slice(0, 50) : [] };
+}
+
+function listFromCopy(snap, q) {
+  const many = (k) => q.getAll(k).join(",").split(",").filter(Boolean);
+  const types = many("entry_type"), statuses = many("status"), sources = many("source_type");
+  const pid = q.get("project_id"), tag = (q.get("tag") || "").trim().toLowerCase();
+  const from = q.get("date_from"), to = q.get("date_to");
+  const items = snap.entries.filter((e) =>
+    (!types.length || types.includes(e.entry_type)) && (!statuses.length || statuses.includes(e.status))
+    && (!sources.length || sources.includes(e.source_type)) && (!pid || e.projects.some((p) => String(p.id) === pid))
+    && (!tag || e.tags.some((t) => t.name === tag))
+    && (!from || e.created_at.slice(0, 10) >= from) && (!to || e.created_at.slice(0, 10) <= to));
+  const by = {
+    newest: (a, b) => b.created_at.localeCompare(a.created_at) || b.id - a.id,
+    oldest: (a, b) => a.created_at.localeCompare(b.created_at) || a.id - b.id,
+    modified: (a, b) => b.updated_at.localeCompare(a.updated_at) || b.id - a.id,
+    alpha: (a, b) => (a.title || "").toLowerCase().localeCompare((b.title || "").toLowerCase()) || a.id - b.id,
+  }[q.get("sort") || "newest"] || ((a, b) => b.created_at.localeCompare(a.created_at));
+  items.sort(by);
+  const offset = +q.get("offset") || 0, limit = +q.get("limit") || 60;
+  return { items: items.slice(offset, offset + limit), total: items.length };
+}
+
+/** Answer a read request from the offline copy. `undefined` means the copy can't answer it. */
+async function offlineAnswer(path, opts = {}) {
+  const snap = await offlineCopy.snapshot();
+  const [p, qs] = path.split("?");
+  const q = new URLSearchParams(qs || "");
+  const entry = (id) => snap?.entries.find((e) => e.id === +id);
+  let m, out;
+  if (snap) {
+    if (p === "/api/entries") out = listFromCopy(snap, q);
+    else if ((m = p.match(/^\/api\/entries\/(\d+)$/))) out = entry(m[1]);
+    else if ((m = p.match(/^\/api\/entries\/(\d+)\/relationships$/))) out = entry(m[1]) && (snap.relationships[m[1]] || []);
+    else if ((m = p.match(/^\/api\/entries\/(\d+)\/revisions$/))) out = entry(m[1]) && [];
+    else if ((m = p.match(/^\/api\/entries\/(\d+)\/art$/))) out = entry(m[1]) && (snap.art[m[1]] || []);
+    else if ((m = p.match(/^\/api\/entries\/(\d+)\/evolution$/))) out = entry(m[1]) && [entry(m[1])];
+    else if ((m = p.match(/^\/api\/art\/analyses\/(\d+)$/))) out = Object.values(snap.art).flat().find((a) => a.id === +m[1]);
+    else if (p === "/api/projects") out = q.get("trashed") === "true" ? [] : snap.projects;
+    else if ((m = p.match(/^\/api\/projects\/(\d+)$/))) {
+      const proj = snap.projects.find((x) => x.id === +m[1]);
+      out = proj && { ...proj, entries: snap.entries.filter((e) => e.projects.some((x) => x.id === proj.id)) };
+    } else if (p === "/api/trash") out = { items: [], total: 0 };
+    else if (p === "/api/search") out = searchCopy(snap, opts.json?.query || "");
+  }
+  if (out === undefined && COPY_LISTS.includes(path)) out = await offlineCopy.get("url:" + path).catch(() => undefined);
+  if (out === undefined || out === null || out === false) return undefined;
+  showOfflineBar(true, snap?.generated_at);
+  return out;
 }
 
 /* ------------------------------------------------------------ offline outbox
@@ -206,6 +422,7 @@ async function flushOutbox({ quiet = true } = {}) {
   await refreshOutbox();
   if (sent) {
     toast(`Sent ${sent} idea${sent === 1 ? "" : "s"} saved on this device.`);
+    syncOfflineCopy({ force: true });
     if (["", "#/", "#/archive", "#/today", "#/ideas"].includes(location.hash)) render();
   } else if (!quiet) {
     toast("Still can't reach NEXUS. Your ideas are safe on this device.", true);
@@ -270,7 +487,7 @@ function cardHTML(e, extra = "") {
   const img = picOf(e);
   const audio = e.attachments.find((a) => a.kind === "audio");
   return `<a class="card" href="#/entry/${e.id}">
-    ${img ? `<img class="thumb" src="${esc(img.preview_url)}" alt="" loading="lazy">` : ""}
+    ${img ? `<img class="thumb" src="${esc(img.thumb_url || img.preview_url)}" alt="" loading="lazy">` : ""}
     <div class="meta">
       <span class="pill type">${esc(label(e.entry_type))}</span>
       <span class="pill status-${esc(e.status)}">${esc(e.status)}</span>
@@ -487,10 +704,10 @@ function mountCapture(root, opts = {}) {
 async function viewHome(el) {
   el.innerHTML = `<div id="cap"></div>
     <div id="just"></div>
-    <h2>Recently captured</h2><div id="recent"></div>`;
+    <h2>Recently captured</h2><div id="recent"><p class="loading">Loading…</p></div>`;
   const loadRecent = async () => {
     try {
-      const data = await api("/api/entries?limit=9", { timeout: 6000 });
+      const data = await api("/api/entries?limit=9");
       $("#recent", el).innerHTML = gridHTML(data.items, "Nothing captured yet. Your first idea goes in the box above.");
     } catch (err) {
       if (!err.offline) throw err;
@@ -826,7 +1043,7 @@ async function viewEntry(el, id) {
   const original = (a) => (["image/jpeg", "image/png"].includes(a.mime_type) ? ""
     : `<p class="small muted">Showing a preview. <a href="${esc(a.url)}">Download the original ${esc(a.original_filename)}</a> (never changed).</p>`);
   const media = e.attachments.map((a) =>
-    a.preview_url ? `<div class="media-preview"><img src="${esc(a.preview_url)}" alt="${esc(a.original_filename)}"></div>${original(a)}`
+    a.preview_url ? `<div class="media-preview"><img src="${esc(a.preview_url)}" data-thumb="${esc(a.thumb_url || "")}" alt="${esc(a.original_filename)}"></div>${original(a)}`
     : a.kind === "audio" ? `<div class="media-preview"><audio controls preload="metadata" src="${esc(a.url)}"></audio></div>`
     : `<p><a class="btn small" href="${esc(a.url)}">Download ${esc(a.original_filename)}</a></p>`).join("");
   const list = (arr) => `<ul>${arr.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>`;
@@ -1184,7 +1401,7 @@ async function viewEvolution(el, id) {
     <p class="lede">Every version linked with “new version of”, oldest first. Nothing is overwritten; each version keeps its own history.</p></div>
     ${chain.length > 1 ? `<button class="btn primary" data-act="evo">ANALYZE THE EVOLUTION</button>` : ""}</div>
     ${chain.length > 1 ? `<ol class="timeline">${chain.map((e, i) => `<li><a class="card" href="#/entry/${e.id}">
-      ${img(e) ? `<img class="thumb" src="${esc(img(e).preview_url)}" alt="">` : ""}
+      ${img(e) ? `<img class="thumb" src="${esc(img(e).thumb_url || img(e).preview_url)}" alt="" loading="lazy">` : ""}
       <div class="meta"><span class="pill type">Version ${i + 1}</span><span class="spacer"></span><span>${fmtDate(e.created_at)}</span></div>
       <h3>${esc(e.title)}</h3>${e.excerpt ? `<p class="summary">${esc(e.excerpt)}</p>` : ""}</a></li>`).join("")}</ol>`
     : `<p class="empty">This artwork isn't linked to other versions yet. On a newer drawing, use “This is a new version of…” to connect them.</p>`}`;
@@ -1285,7 +1502,7 @@ async function artGallery(box) {
       const img = picOf(g.entry);
       return `<div class="art-tile" data-id="${g.entry.id}">
         <button type="button" class="pick" aria-label="Select ${esc(g.entry.title)}"><span class="num"></span></button>
-        <a href="#/entry/${g.entry.id}">${img ? `<img src="${esc(img.preview_url)}" alt="" loading="lazy">` : ""}
+        <a href="#/entry/${g.entry.id}">${img ? `<img src="${esc(img.thumb_url || img.preview_url)}" alt="" loading="lazy">` : ""}
         <span class="cap">${esc(g.entry.title)}</span></a>
         <span class="small muted">${g.analyses ? `${g.analyses} analys${g.analyses === 1 ? "is" : "es"}` : "not analyzed"}${
           g.latest_status && ART_ACTIVE.includes(g.latest_status) ? " · working…" : ""}</span></div>`;
@@ -1413,6 +1630,7 @@ async function render() {
   // Each render gets its own container; a slower, superseded view keeps
   // writing into its detached container and never clobbers the new one.
   const container = document.createElement("div");
+  container.innerHTML = `<p class="loading">Loading…</p>`;  // replaced by the view as soon as it has something
   $("#view").replaceChildren(container);
   try {
     await view(container, id, query);
@@ -1426,13 +1644,36 @@ async function render() {
 }
 
 window.addEventListener("hashchange", () => { render(); window.scrollTo(0, 0); });
-window.addEventListener("DOMContentLoaded", () => {
+/** True if the service worker just had to open the app from its saved copy (NEXUS unreachable). */
+async function pageCameFromCopy() {
+  try {
+    const mark = await caches.match("/__nexus-page-offline");
+    return !!mark && Date.now() - Number(await mark.text()) < 15000;
+  } catch {
+    return false;
+  }
+}
+
+window.addEventListener("DOMContentLoaded", async () => {
+  if (HAS_OFFLINE_COPY && "caches" in window && (await pageCameFromCopy())) markUnreachable();
   render();
   $("#outbox").onclick = () => { lastUnreachable = 0; flushOutbox({ quiet: false }); };
-  reachable().then((ok) => ok && flushOutbox()).catch(() => {});
+  reachable().then((ok) => { if (ok) { flushOutbox(); syncOfflineCopy({ force: true }); } }).catch(() => {});
+  // While the offline copy is showing, check now and then whether NEXUS is back.
+  setInterval(async () => {
+    if ($("#offline-bar").hidden || document.hidden) return;
+    lastUnreachable = 0;
+    if (await reachable().catch(() => false)) {
+      showOfflineBar(false);
+      flushOutbox();
+      syncOfflineCopy({ force: true });
+      render();
+    }
+  }, 20000);
+  setInterval(() => { if (!document.hidden && $("#offline-bar").hidden) syncOfflineCopy(); }, 60000);
   // iPhones have no background sync: retry while the app is open, and whenever it comes back.
   setInterval(() => { if (!$("#outbox").hidden) flushOutbox(); }, 20000);
   window.addEventListener("online", () => flushOutbox());
-  document.addEventListener("visibilitychange", () => { if (!document.hidden) flushOutbox(); });
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) { flushOutbox(); syncOfflineCopy(); } });
   if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
 });

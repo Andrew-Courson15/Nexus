@@ -377,4 +377,18 @@ details.raw { margin-top: 4px; }
 .outbox.error { border-color: var(--danger); color: var(--danger); }
 @media (max-width: 640px) {
   .tabbar { display: flex; }  /* after the base rule so it wins */
+  /* Room for the "to sync" chip: the ring alone stands for NEXUS, so Settings isn't cut off. */
+  .topbar:has(.outbox:not([hidden])) .brand-text { display: none; }
 }
+
+/* ---------- offline copy (phone, PC off) ---------- */
+.offline-bar {
+  margin: 0; padding: 8px 24px; font-size: 13px; line-height: 1.4;
+  color: var(--user); background: var(--user-bg); border-bottom: 1px dashed var(--user);
+}
+.offline-bar[hidden] { display: none; }
+@media (max-width: 640px) { .offline-bar { padding: 8px 16px; font-size: 12px; } }
+
+/* A "Loading…" note that only appears if loading takes a moment (no flash on fast loads). */
+.loading { color: var(--muted); font-size: 14px; padding: 24px 0; opacity: 0; animation: appear .2s ease .35s forwards; }
+@keyframes appear { to { opacity: 1; } }

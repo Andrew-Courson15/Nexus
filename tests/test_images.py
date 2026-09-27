@@ -145,3 +145,26 @@ def test_vision_model_receives_the_preview_not_the_original(client, monkeypatch)
     sent = base64.b64decode(fake.chats[0]["messages"][1]["images"][0])
     assert sent[:3] == b"\xff\xd8\xff"  # a JPEG rendering of the PSD
     assert "(with image)" in r.json()["ai_metadata"]["method"]
+
+
+def test_thumbnails_are_small_and_reused(client):
+    e = client.post("/api/uploads", files={"file": ("big.tiff", _pil("TIFF", size=(3000, 1500)), "image/tiff")}).json()
+    att = e["attachments"][0]
+    r = client.get(att["thumb_url"])
+    assert r.status_code == 200 and r.headers["content-type"] == "image/jpeg"
+    assert max(Image.open(io.BytesIO(r.content)).size) == images.THUMB_MAX_SIDE
+    assert client.get(att["thumb_url"]).content == r.content  # made once
+    assert "max-age" in r.headers["cache-control"]
+
+
+def test_transparent_art_keeps_transparency_in_thumbnails(client):
+    e = client.post("/api/uploads", files={"file": ("logo.svg", _svg(), "image/svg+xml")}).json()
+    r = client.get(e["attachments"][0]["thumb_url"])
+    assert r.headers["content-type"] == "image/png"
+
+
+def test_no_thumbnail_for_unreadable_or_non_pictures(client):
+    bad = client.post("/api/uploads", files={"file": ("broken.psd", b"nope", "application/octet-stream")}).json()
+    assert client.get(bad["attachments"][0]["thumb_url"]).status_code == 415
+    txt = client.post("/api/uploads", files={"file": ("notes.txt", b"hello", "text/plain")}).json()
+    assert txt["attachments"][0]["thumb_url"] is None

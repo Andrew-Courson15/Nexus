@@ -23,6 +23,7 @@ log = logging.getLogger("nexus.images")
 DIRECT_MIME = {"image/jpeg", "image/png"}   # shown and analysed as-is
 MAX_DIRECT_BYTES = 20 * 1024 * 1024        # bigger than this gets a preview too
 PREVIEW_MAX_SIDE = 2048
+THUMB_MAX_SIDE = 640                        # cards, grids and the phone's offline copy
 PREVIEW_MAX_PIXELS = 400_000_000            # refuse absurd images (decompression bombs)
 
 # Extension -> MIME type for picture formats browsers often send as application/octet-stream.
@@ -135,34 +136,59 @@ def render(path: Path, mime: str):
         raise PreviewError(f"this {mime} file couldn't be read ({exc})") from exc
 
 
+def _save_scaled(img, max_side: int, out_dir: Path, stem: str, quality: int) -> Path:
+    """Scale down to `max_side` and save as PNG (if transparent) or JPEG. Returns the file."""
+    from PIL import ImageOps
+
+    try:
+        img.seek(0)  # first frame of animations / multi-page TIFFs
+    except (AttributeError, EOFError):
+        pass
+    img = ImageOps.exif_transpose(img)
+    if img.mode.startswith("I;16") or img.mode in ("I", "F"):  # 16/32-bit scans: scale to 8-bit
+        img = img.point(lambda v: v / 256).convert("L")
+    img.thumbnail((max_side, max_side))
+    has_alpha = img.mode in ("RGBA", "LA", "PA") or (img.mode == "P" and "transparency" in img.info)
+    if img.mode not in ("RGB", "RGBA", "L"):
+        img = img.convert("RGBA" if has_alpha else "RGB")
+    out_dir.mkdir(parents=True, exist_ok=True)
+    if has_alpha:
+        dest = out_dir / f"{stem}.png"
+        img.convert("RGBA").save(dest, "PNG", optimize=True)
+    else:
+        dest = out_dir / f"{stem}.jpg"
+        img.convert("RGB").save(dest, "JPEG", quality=quality)
+    return dest
+
+
 def make_preview(path: Path, mime: str) -> Path:
     """Render a preview for `path` into data/previews/ and return it. Raises PreviewError."""
-    from PIL import Image, ImageOps
-
     try:
         img = render(path, mime)
     except PreviewError:
         raise
     except Exception as exc:
         raise PreviewError(f"the file couldn't be read ({exc})") from exc
+    return _save_scaled(img, PREVIEW_MAX_SIDE, get_settings().data_dir / "previews", uuid.uuid4().hex, 90)
+
+
+def thumbnail(attachment) -> tuple[Path, str] | None:
+    """A small JPEG/PNG of an attachment's picture (made once, then reused). None if there's no picture."""
+    out_dir = get_settings().data_dir / "previews" / "thumbs"
+    stem = f"{attachment.id}-{attachment.sha256[:16]}"  # the file's fingerprint: never a stale picture
+    for ext, mime in ((".jpg", "image/jpeg"), (".png", "image/png")):
+        existing = out_dir / f"{stem}{ext}"
+        if existing.is_file():
+            return existing, mime
+    found = visual_file(attachment)
+    if found is None or not found[0].is_file():
+        return None
     try:
-        img.seek(0)  # first frame of animations / multi-page TIFFs
-    except (AttributeError, EOFError):
-        pass
-    img = ImageOps.exif_transpose(img)
-    img.thumbnail((PREVIEW_MAX_SIDE, PREVIEW_MAX_SIDE))
-    has_alpha = img.mode in ("RGBA", "LA", "PA") or (img.mode == "P" and "transparency" in img.info)
-    if img.mode not in ("RGB", "RGBA", "L"):
-        img = img.convert("RGBA" if has_alpha else "RGB")
-    out_dir = get_settings().data_dir / "previews"
-    out_dir.mkdir(parents=True, exist_ok=True)
-    if has_alpha:
-        dest = out_dir / f"{uuid.uuid4().hex}.png"
-        img.save(dest, "PNG", optimize=True)
-    else:
-        dest = out_dir / f"{uuid.uuid4().hex}.jpg"
-        img.convert("RGB").save(dest, "JPEG", quality=90)
-    return dest
+        dest = _save_scaled(_open_pillow(found[0], found[1]), THUMB_MAX_SIDE, out_dir, stem, 82)
+    except Exception:  # an unreadable picture just has no thumbnail
+        log.warning("Couldn't make a thumbnail for attachment %s", attachment.id, exc_info=True)
+        return None
+    return dest, "image/png" if dest.suffix == ".png" else "image/jpeg"
 
 
 def ensure_preview(attachment) -> str | None:

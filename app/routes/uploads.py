@@ -23,7 +23,7 @@ from app.models import Attachment, CreativeEntry, EntryType, Origin, Project, So
 from app.routes.entries import capture_time, existing_capture, load_entry
 from app.schemas import EntryDetail, entry_detail
 from app.services.history import record_revision
-from app.services.images import classify_image, ensure_preview, visual_file
+from app.services.images import classify_image, ensure_preview, thumbnail, visual_file
 from app.services.processing import enqueue
 from app.services.search import index_entry
 
@@ -144,6 +144,26 @@ async def upload_file(
         # Transcription (voice) and organization run after the upload is saved.
         enqueue(db, entry, transcribe=True, analyze=analyze)
     return entry_detail(load_entry(db, entry.id))
+
+
+_IMAGE_HEADERS = {"X-Content-Type-Options": "nosniff", "Content-Security-Policy": "sandbox"}
+
+
+@router.get("/{attachment_id}/thumb")
+def get_thumb(attachment_id: int, db: Session = Depends(get_db)):
+    """A small picture for cards and grids (and the phone's offline copy)."""
+    att = db.get(Attachment, attachment_id)
+    if att is None:
+        raise HTTPException(404, "File not found")
+    if visual_file(att) is None or not visual_file(att)[0].is_file():
+        att.preview_path = None
+        if ensure_preview(att) is None:
+            db.commit()
+    found = thumbnail(att)
+    if found is None:
+        raise HTTPException(415, "No picture for this file")
+    return FileResponse(found[0], media_type=found[1],
+                        headers={**_IMAGE_HEADERS, "Cache-Control": "private, max-age=604800"})
 
 
 @router.get("/{attachment_id}/preview")

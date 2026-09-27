@@ -149,6 +149,7 @@ class AttachmentOut(BaseModel):
     created_at: datetime
     url: str
     preview_url: str | None = None  # JPEG/PNG to display (the original, or a rendering of it)
+    thumb_url: str | None = None    # small version for cards and grids
 
 
 class EntrySummary(BaseModel):
@@ -273,6 +274,7 @@ def _attachments(e: CreativeEntry) -> list[AttachmentOut]:
             id=a.id, kind=a.kind, original_filename=a.original_filename, mime_type=a.mime_type,
             size_bytes=a.size_bytes, sha256=a.sha256, created_at=a.created_at, url=f"/api/uploads/{a.id}",
             preview_url=preview_url(a),
+            thumb_url=f"/api/uploads/{a.id}/thumb?v={a.sha256[:10]}" if preview_url(a) else None,
         )
         for a in e.attachments
     ]
