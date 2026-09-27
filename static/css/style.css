@@ -505,3 +505,16 @@ a.cite:hover { border-color: var(--text); }
 .model-dl { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .model-dl #pulls, .model-dl p { flex-basis: 100%; margin: 0; }
 .model-dl progress { width: 160px; vertical-align: middle; }
+
+/* ---------- timeline ---------- */
+.month-jump { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 6px; }
+.month-jump a { font-size: 13px; padding: 4px 10px; border: 1px solid var(--border); border-radius: 999px; text-decoration: none; }
+.month { margin-top: 26px; scroll-margin-top: 70px; }
+.strip { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+.strip .tile { display: grid; gap: 4px; text-decoration: none; color: inherit; }
+.strip .tile img, .strip .tile.text span { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 10px; background: var(--surface-2); border: 1px solid var(--border); }
+.strip .tile.text span { display: block; padding: 10px; font-size: 12px; line-height: 1.4; color: var(--muted); overflow: hidden; }
+.strip .tile b { font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.strip .tile i { font-size: 11px; color: var(--muted); font-style: normal; }
+.strip .tile:hover img, .strip .tile:hover span { border-color: var(--text); }
+@media (max-width: 640px) { .strip { grid-template-columns: repeat(3, 1fr); gap: 6px; } .strip .tile i { display: none; } }

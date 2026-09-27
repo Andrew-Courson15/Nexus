@@ -952,7 +952,7 @@ async function viewArchive(el) {
   el.innerHTML = `<div class="view-head"><div><h1>Creative Archive</h1>
     <p class="lede">Everything you've captured. Your words are never altered.</p></div>
     <div class="row"><span class="muted small" id="count"></span><button type="button" class="btn ghost small" data-act="select">Select</button>
-      <a class="btn ghost small" href="#/tags">Tags</a><a class="btn ghost small" href="#/map">Connections map</a>${trash.total ? `<a class="btn ghost small" href="#/trash">Trash (${trash.total})</a>` : ""}</div></div>
+      <a class="btn ghost small" href="#/timeline">Timeline</a><a class="btn ghost small" href="#/tags">Tags</a><a class="btn ghost small" href="#/map">Connections map</a>${trash.total ? `<a class="btn ghost small" href="#/trash">Trash (${trash.total})</a>` : ""}</div></div>
     <details class="filterbox" ${matchMedia("(min-width: 641px)").matches ? "open" : ""}>
     <summary class="btn ghost small">Filters &amp; sort</summary>
     <form class="filters" id="filters">
@@ -1051,6 +1051,28 @@ async function viewArchive(el) {
     }
   });
   await load();
+}
+
+async function viewTimeline(el) {
+  const data = await api("/api/entries?limit=500&sort=newest");
+  const months = new Map();
+  for (const e of data.items) {
+    const d = new Date(e.created_at), key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+    (months.get(key) || months.set(key, { label: d.toLocaleDateString(undefined, { month: "long", year: "numeric" }), items: [] }).get(key)).items.push(e);
+  }
+  el.innerHTML = `<div class="view-head"><div><h1>Timeline</h1>
+    <p class="lede">Everything you've captured, month by month, like flipping back through a sketchbook.</p></div>
+    <a class="btn ghost small" href="#/archive">Archive list</a></div>
+    ${months.size ? `<nav class="month-jump" aria-label="Months">${[...months].map(([k, m]) =>
+      `<a href="#/timeline" data-month="${k}">${esc(m.label)} <span class="muted">${m.items.length}</span></a>`).join("")}</nav>` : ""}
+    ${[...months].map(([k, m]) => `<section class="month" id="m-${k}"><h2>${esc(m.label)}</h2>
+      <div class="strip">${m.items.map((e) => { const pic = picOf(e);
+        return `<a class="tile${pic ? "" : " text"}" href="#/entry/${e.id}" title="${esc(e.title)}">
+          ${pic ? `<img src="${esc(pic.thumb_url || pic.preview_url)}" alt="" loading="lazy">` : `<span>${esc((e.excerpt || e.ai_summary || e.attachments[0]?.original_filename || label(e.entry_type)).slice(0, 120))}</span>`}
+          <b>${esc(e.title)}</b><i>${new Date(e.created_at).toLocaleDateString(undefined, { day: "numeric", month: "short" })} · ${esc(label(e.entry_type))}</i></a>`; }).join("")}</div></section>`).join("")
+      || `<p class="empty">Nothing captured yet.</p>`}
+    ${data.total > data.items.length ? `<p class="small muted">Showing the newest ${data.items.length} of ${data.total}. Older ones are in the <a href="#/archive">Creative Archive</a>.</p>` : ""}`;
+  $$("[data-month]", el).forEach((a) => (a.onclick = (ev) => { ev.preventDefault(); $(`#m-${a.dataset.month}`, el)?.scrollIntoView({ behavior: "smooth" }); }));
 }
 
 async function viewTags(el) {
@@ -2555,6 +2577,7 @@ const ROUTES = [
   [/^\/ask$/, viewAsk, "ask"],
   [/^\/map$/, viewMap, "map"],
   [/^\/tags$/, viewTags, "archive"],
+  [/^\/timeline$/, viewTimeline, "archive"],
   [/^\/settings$/, viewSettings, "settings"],
   [/^\/trash$/, viewTrash, "archive"],
   [/^\/art$/, viewArt, "art"],
