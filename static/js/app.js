@@ -2522,7 +2522,8 @@ async function viewEntry(el, id) {
       ${e.projects.length ? e.projects.map((p) => `<div class="row"><a href="#/projects/${p.id}">${esc(p.name)}</a><span class="spacer"></span>
         <button class="btn ghost small" data-remove-project="${p.id}" aria-label="Remove from ${esc(p.name)}">×</button></div>`).join("") : `<span class="muted small">Not in a project.</span>`}
       ${projects.some((p) => !inProjects.has(p.id)) ? `<div class="row"><select id="addproj" style="flex:1"><option value="">Add to project…</option>${projects
-        .filter((p) => !inProjects.has(p.id)).map((p) => `<option value="${p.id}">${esc(p.name)}</option>`).join("")}</select></div>` : ""}</div>
+        .filter((p) => !inProjects.has(p.id)).map((p) => `<option value="${p.id}">${esc(p.name)}</option>`).join("")}</select></div>` : ""}
+      <button type="button" class="btn ghost small" data-act="new-project">+ Start a project from this</button></div>
 
     <div class="panel"><h3>Related ideas</h3>
       ${rels.length ? rels.map((r) => `<div class="rel ${esc(r.status)}">
@@ -2655,6 +2656,17 @@ async function viewEntry(el, id) {
     ev.preventDefault();
     const v = ev.target.tag.value.trim();
     if (v) put({ tags: [...currentTags, v] }, "Tag added.");
+  };
+  $("[data-act=new-project]", el).onclick = async () => {
+    const name = prompt("Name of the new project:", e.title && e.title !== "Untitled" ? e.title : "");
+    if (!name?.trim()) return;
+    try {
+      const kind = { comic: "comic", movie: "movie", short_film: "short_film", story: "writing", sketch: "art", artwork: "art" }[e.entry_type];
+      const p = await api("/api/projects", { method: "POST", json: { name: name.trim(), ...(kind ? { project_type: kind } : {}) } });
+      await api(`/api/projects/${p.id}/entries`, { method: "POST", json: { entry_id: e.id } });
+      toast(`Started “${p.name}” with this entry.`);
+      location.hash = `#/projects/${p.id}`;
+    } catch (err) { toast(err.message, true); }
   };
   $("#addproj", el)?.addEventListener("change", async (ev) => {
     if (!ev.target.value) return;

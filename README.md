@@ -377,7 +377,7 @@ Browsers only allow microphone access on `localhost` or HTTPS. Open NEXUS at
   - confirm the AI's title and type
   - add notes
   - add and remove tags (a removed AI tag doesn't come back)
-  - add the entry to projects
+  - add the entry to projects, or **start a project from it** (named after it, same kind)
   - **accept / reject / ignore** AI-suggested relationships
   - **link it to another idea yourself** (*Related ideas → Link to another idea*: find it, pick how
     they're related, e.g. "character in"), or remove a link. A link you remove isn't suggested again.
