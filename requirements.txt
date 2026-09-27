@@ -10,6 +10,7 @@ Pillow>=10.3         # picture previews: TIFF, PSD, TGA, WebP, BMP, WMF ...
 pillow-heif>=0.16    # iPhone photos (HEIC)
 pymupdf>=1.24        # PDF, Illustrator (.ai) and SVG previews
 qrcode>=7.4          # QR code of the phone address (Settings)
+pystray>=0.19; sys_platform == "win32"   # NEXUS icon in the Windows system tray (Open / Quit)
 
 # Development / tests
 pytest>=8.0

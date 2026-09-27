@@ -2,6 +2,7 @@
 # Starts NEXUS in the background if it isn't running, then opens it in the browser.
 # If NEXUS is already running, asks whether to open it or stop it.
 # Create the icon with:  powershell -ExecutionPolicy Bypass -File scripts\make_windows_app.ps1
+param([switch]$NoBrowser)  # -NoBrowser: start quietly (used when Windows starts)
 $ErrorActionPreference = "Stop"
 $dir = Split-Path -Parent $PSScriptRoot
 Set-Location $dir
@@ -49,6 +50,7 @@ function Get-StartingProcess {
 }
 
 if (Test-Running) {
+    if ($NoBrowser) { exit 0 }
     $answer = Show-Message "NEXUS is already running.`n`nYes  =  open NEXUS`nNo  =  stop NEXUS" "Question" "YesNoCancel"
     if ($answer -eq "Yes") {
         Start-Process $url
@@ -69,14 +71,15 @@ if (-not (Get-StartingProcess)) {
         if (Test-Path $ollamaApp) { Start-Process $ollamaApp }
     }
     New-Item -ItemType Directory -Force $dataDir | Out-Null
-    $proc = Start-Process -FilePath $py -ArgumentList "run.py" -WorkingDirectory $dir -WindowStyle Hidden -PassThru `
+    # tray.py: NEXUS plus its icon in the system tray (right-click it to Open or Quit).
+    $proc = Start-Process -FilePath $py -ArgumentList "tray.py" -WorkingDirectory $dir -WindowStyle Hidden -PassThru `
         -RedirectStandardOutput (Join-Path $dataDir "nexus-output.log") -RedirectStandardError $log
     Set-Content -Path $pidFile -Value $proc.Id
 }
 
 # Wait for it to come up (the first start after a reboot can take a little while).
 for ($i = 0; $i -lt 90; $i++) {
-    if (Test-Running) { Start-Process $url; exit 0 }
+    if (Test-Running) { if (-not $NoBrowser) { Start-Process $url }; exit 0 }
     if (-not (Get-StartingProcess)) { break }  # it stopped: something went wrong
     Start-Sleep -Seconds 1
 }

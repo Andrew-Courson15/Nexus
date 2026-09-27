@@ -26,8 +26,21 @@ foreach ($folder in $folders) {
     $lnk.Save()
 }
 
+# If NEXUS starts with Windows (phone setup), start it the same way: quietly, with the tray icon.
+$startupLnk = Join-Path ([Environment]::GetFolderPath("Startup")) "NEXUS.lnk"
+if (Test-Path $startupLnk) {
+    $lnk = $shell.CreateShortcut($startupLnk)
+    $lnk.TargetPath = Join-Path $env:SystemRoot "System32\WindowsPowerShell\v1.0\powershell.exe"
+    $lnk.Arguments = "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$dir\scripts\nexus_launcher.ps1`" -NoBrowser"
+    $lnk.WorkingDirectory = $dir
+    $lnk.IconLocation = "$dir\static\icons\nexus.ico,0"
+    $lnk.WindowStyle = 7
+    $lnk.Save()
+}
+
 Write-Host ""
 Write-Host "==> NEXUS icon added to your desktop and Start menu." -ForegroundColor Cyan
 Write-Host "    Double-click it to start NEXUS (it opens in your browser after a few seconds)."
-Write-Host "    Double-click it again while it's running to open it or stop it."
+Write-Host "    While it runs, NEXUS has an icon in the system tray (bottom right): right-click it to Open or Quit."
+Write-Host "    Double-click the desktop icon again while it's running to open it or stop it."
 Write-Host "    Taskbar: open Start, right-click NEXUS, and choose Pin to taskbar."

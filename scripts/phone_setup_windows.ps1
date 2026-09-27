@@ -66,12 +66,13 @@ if ($ans -match "^[yY]") {
     $startup = [Environment]::GetFolderPath("Startup")
     $shell = New-Object -ComObject WScript.Shell
     $lnk = $shell.CreateShortcut((Join-Path $startup "NEXUS.lnk"))
-    $lnk.TargetPath = (Resolve-Path "scripts\start_windows.bat").Path
-    $lnk.Arguments = "/nobrowser"
+    $lnk.TargetPath = Join-Path $env:SystemRoot "System32\WindowsPowerShell\v1.0\powershell.exe"
+    $lnk.Arguments = "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$((Get-Location).Path)\scripts\nexus_launcher.ps1`" -NoBrowser"
+    $lnk.IconLocation = "$((Get-Location).Path)\static\icons\nexus.ico,0"
     $lnk.WorkingDirectory = (Get-Location).Path
     $lnk.WindowStyle = 7
     $lnk.Save()
-    Say "NEXUS will start (minimised) when you sign in to Windows."
+    Say "NEXUS will start in the background (icon in the system tray) when you sign in to Windows."
 }
 
 Say "PC is ready. Now:"

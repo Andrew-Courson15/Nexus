@@ -141,6 +141,9 @@ powershell -ExecutionPolicy Bypass -File scripts\setup_windows.ps1
 
 **To start NEXUS,** double-click the **NEXUS icon** on your desktop or in the Start menu. The setup
 creates it. NEXUS starts in the background and opens http://localhost:8000.
+- While NEXUS runs, its icon sits in the **system tray** (bottom right, near the clock; it may be
+  under the **^** arrow). Left-click it to open NEXUS. Right-click it and choose **Quit NEXUS** to
+  turn it off.
 - Double-click the icon again while NEXUS is running to open it or stop it.
 - The server log is in `data\nexus.log`.
 - To pin it to the taskbar: open Start, right-click NEXUS, and choose **Pin to taskbar**.

@@ -28,7 +28,7 @@ $listening = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction Si
     Select-Object -ExpandProperty OwningProcess -Unique
 foreach ($id in $listening) { Stop-Process -Id $id -Force -ErrorAction SilentlyContinue; $stopped++ }
 Get-CimInstance Win32_Process -Filter "Name = 'python.exe' OR Name = 'pythonw.exe'" -ErrorAction SilentlyContinue |
-    Where-Object { $_.CommandLine -like "*run.py*" -and ($_.CommandLine -like "*$dir*" -or $_.ExecutablePath -like "$dir*") } |
+    Where-Object { ($_.CommandLine -like "*run.py*" -or $_.CommandLine -like "*tray.py*") -and ($_.CommandLine -like "*$dir*" -or $_.ExecutablePath -like "$dir*") } |
     ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue; $stopped++ }
 if ($stopped) { Start-Sleep -Seconds 2; Write-Host "Stopped." } else { Write-Host "NEXUS wasn't running." }
 Remove-Item "data\nexus.pid" -ErrorAction SilentlyContinue
