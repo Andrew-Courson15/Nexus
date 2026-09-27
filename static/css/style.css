@@ -392,3 +392,7 @@ details.raw { margin-top: 4px; }
 /* A "Loading…" note that only appears if loading takes a moment (no flash on fast loads). */
 .loading { color: var(--muted); font-size: 14px; padding: 24px 0; opacity: 0; animation: appear .2s ease .35s forwards; }
 @keyframes appear { to { opacity: 1; } }
+
+/* ---------- backups (settings) ---------- */
+.backup-list { margin: 10px 0; padding-left: 18px; }
+.backup-list li { margin: 3px 0; }

@@ -899,6 +899,41 @@ async function viewSearch(el, _id, query) {
       : `<p class="empty">Nothing found for “${esc(q)}”.</p>`}`;
 }
 
+/** Settings panel: backups of the database and every original file. */
+async function mountBackups(box) {
+  let b;
+  try {
+    b = await api("/api/backups", { noCopy: true });
+  } catch (err) {
+    box.innerHTML = `<h3>Backups</h3><p class="small muted">${err.offline ? "Backups are managed on the PC when NEXUS is on." : esc(err.message)}</p>`;
+    return;
+  }
+  const latest = b.backups[0];
+  const age = latest ? Math.floor((Date.now() - new Date(latest.created_at)) / 86400000) : null;
+  box.innerHTML = `<h3>Backups</h3>
+    <p class="health ${latest && age <= Math.max(b.every_days, 1) ? "ok" : "bad"}"><span class="dot"></span>${latest
+      ? `Last backup ${age === 0 ? "today" : age === 1 ? "yesterday" : `${age} days ago`} (${fmtSize(latest.size_bytes)})`
+      : "No backup yet"}</p>
+    ${b.running ? `<p class="small"><span class="spinner inline"></span>Backing up… this can take a minute with many pictures.</p>`
+      : `<button class="btn small primary" data-act="backup-now">Back up now</button>`}
+    ${b.last_error ? `<p class="small" style="color:var(--danger)">Last backup failed: ${esc(b.last_error)}</p>` : ""}
+    ${b.backups.length ? `<ul class="small backup-list">${b.backups.map((x) => `<li><a href="/api/backups/${encodeURIComponent(x.name)}" download>${
+      esc(fmtDateTime(x.created_at))}</a> · ${fmtSize(x.size_bytes)}${x.automatic ? " · automatic" : ""}</li>`).join("")}</ul>` : ""}
+    <p class="small muted">Each backup is one zip with your database and every original file.
+      ${b.every_days > 0 ? `A new one is made every ${b.every_days} day${b.every_days === 1 ? "" : "s"}; ` : "Automatic backups are off; "}
+      the newest ${b.keep} are kept. Folder: <code>${esc(b.folder)}</code></p>
+    ${b.folder_is_inside_data ? `<p class="small notice">Tip: backups are on the same drive as NEXUS. Set <code>NEXUS_BACKUP_DIR</code>
+      in <code>.env</code> to another drive, a USB stick or a OneDrive/iCloud folder, so one broken disk can't take both.</p>` : ""}`;
+  $("[data-act=backup-now]", box)?.addEventListener("click", async () => {
+    try {
+      await api("/api/backups", { method: "POST" });
+      toast("Backing up in the background…");
+    } catch (err) { toast(err.message, true); }
+    mountBackups(box);
+  });
+  if (b.running) setTimeout(() => box.isConnected && mountBackups(box), 3000);
+}
+
 function health(h) {
   if (!h) return "";
   return `<p class="health ${h.ok ? "ok" : "bad"}"><span class="dot"></span>${esc(h.detail)}</p>`;
@@ -936,7 +971,9 @@ async function viewSettings(el) {
       <div class="panel"><h3>Archive</h3><dl class="kv">
         <dt>Entries</dt><dd>${s.counts.entries}</dd><dt>Projects</dt><dd>${s.counts.projects}</dd>
         <dt>Tags</dt><dd>${s.counts.tags}</dd><dt>In trash</dt><dd><a href="#/trash">${s.counts.trash} · view trash</a></dd></dl></div>
+      <div class="panel" id="backups"><h3>Backups</h3><p class="loading">Loading…</p></div>
     </div>`;
+  mountBackups($("#backups", el));
   $("[data-act=reindex]", el)?.addEventListener("click", async (ev) => {
     ev.target.disabled = true;
     try {

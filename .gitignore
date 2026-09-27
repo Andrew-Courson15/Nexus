@@ -13,4 +13,7 @@ data/images/*
 data/exports/*
 data/*.log
 data/*.pid
+data/backups/
+data/previews/
+data-before-restore-*/
 !data/*/.gitkeep

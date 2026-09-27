@@ -12,7 +12,8 @@ from fastapi.templating import Jinja2Templates
 
 from app.config import BASE_DIR, get_settings
 from app.database import init_db
-from app.routes import art, entries, offline, projects, search, system, uploads
+from app.routes import art, backups, entries, offline, projects, search, system, uploads
+from app.services.backup import runner as backup_runner
 from app.services.processing import processing_queue
 
 APP_DIR = Path(__file__).resolve().parent
@@ -23,11 +24,13 @@ async def lifespan(_app: FastAPI):
     init_db()
     processing_queue.start()
     processing_queue.recover()  # finish work interrupted by the last shutdown
+    backup_runner.start_schedule()  # automatic backups (NEXUS_BACKUP_EVERY_DAYS)
     yield
+    backup_runner.stop()
     processing_queue.stop()
 
 
-app = FastAPI(title="NEXUS", version="0.6.0", lifespan=lifespan,
+app = FastAPI(title="NEXUS", version="0.6.1", lifespan=lifespan,
               description="Private, local-first creative knowledge archive.")
 # Only answer to local host names (guards against DNS-rebinding from web pages).
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=get_settings().allowed_hosts)
@@ -35,7 +38,7 @@ app.add_middleware(TrustedHostMiddleware, allowed_hosts=get_settings().allowed_h
 app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 templates = Jinja2Templates(directory=APP_DIR / "templates")
 
-for module in (entries, projects, search, uploads, system, art, offline):
+for module in (entries, projects, search, uploads, system, art, offline, backups):
     app.include_router(module.router)
 
 

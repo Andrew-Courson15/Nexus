@@ -289,6 +289,31 @@ and WMF/EMF. WMF/EMF previews only work on Windows.
 - PSD, Procreate and Krita files are shown and analysed as the flattened picture, not layer by layer.
 Set `NEXUS_ART_AUTO_ANALYZE=false` to analyze only when you press a button.
 
+## Backups
+
+Your ideas and art are irreplaceable, so NEXUS backs them up.
+- **What a backup contains:** one zip with the database and every original file you've
+  uploaded (pictures, voice notes, documents). Previews, thumbnails and the search index are
+  left out, because NEXUS rebuilds them.
+- **Automatic:** a new backup is made every 7 days (`NEXUS_BACKUP_EVERY_DAYS`), and the newest 4
+  are kept (`NEXUS_BACKUP_KEEP`).
+- **Manual:** **Settings → Backups → Back up now**. You can also download any backup from there.
+- **Where:** by default in `data/backups`. Point `NEXUS_BACKUP_DIR` at **another drive**, a USB
+  stick or a OneDrive/iCloud folder, so one broken disk can't take your archive and its
+  backups together. For example, in `.env` on Windows: `NEXUS_BACKUP_DIR=D:\NEXUS Backups`.
+
+**Restoring a backup.** Close NEXUS first, then run:
+
+```powershell
+cd $HOME\nexus
+.venv\Scripts\python.exe -m app.services.backup restore "D:\NEXUS Backups\nexus-backup-20260927-120000.zip"
+```
+
+On a Mac: `cd ~/nexus && .venv/bin/python -m app.services.backup restore ~/path/to/backup.zip`.
+Your current data is never deleted. It's moved to a `data-before-restore-…` folder next to
+`data`, so a restore can be undone. You can also make a backup from the command line:
+`python -m app.services.backup create`.
+
 ## Configuration (`.env`)
 
 | Variable | Default | Purpose |
@@ -316,6 +341,9 @@ Set `NEXUS_ART_AUTO_ANALYZE=false` to analyze only when you press a button.
 | `NEXUS_SEMANTIC_MARGIN` | `0.08` | A meaning match must also beat the archive's typical score for that search by this much, so a search with nothing relevant returns nothing |
 | `NEXUS_SEMANTIC_WINDOW` | `0.12` | Keep only meaning matches within this distance of the best one |
 | `NEXUS_ART_AUTO_ANALYZE` | `true` | Analyze every new image with Visual Art Intelligence |
+| `NEXUS_BACKUP_DIR` | `data/backups` | Where backups go. Use another drive or a cloud-synced folder |
+| `NEXUS_BACKUP_EVERY_DAYS` | `7` | Automatic backup interval in days (`0` = off) |
+| `NEXUS_BACKUP_KEEP` | `4` | How many backups to keep |
 | `NEXUS_PROCESSING_MODE` | `background` | `background` (captures return instantly) or `sync` |
 | `OPENAI_API_KEY`, `ANTHROPIC_API_KEY` | empty | Read from the environment only. Never stored in the database. |
 

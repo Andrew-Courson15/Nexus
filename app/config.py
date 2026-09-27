@@ -55,6 +55,10 @@ class Settings:
     semantic_window: float = 0.12   # keep meaning-matches within this distance of the best one
     # Visual Art Intelligence: analyse new images automatically (needs a vision model)
     art_auto_analyze: bool = True
+    # Backups: a zip of the database and every original file (see services/backup.py)
+    backup_dir: Path | None = None   # default: <data_dir>/backups; better: another drive or a cloud folder
+    backup_every_days: float = 7.0   # automatic backup interval; 0 turns automatic backups off
+    backup_keep: int = 4             # how many backups to keep (older ones are removed)
 
     @property
     def uploads_dir(self) -> Path:
@@ -71,6 +75,10 @@ class Settings:
     @property
     def exports_dir(self) -> Path:
         return self.data_dir / "exports"
+
+    @property
+    def backups_dir(self) -> Path:
+        return self.backup_dir or self.data_dir / "backups"
 
     def ensure_dirs(self) -> None:
         for d in (self.data_dir, self.uploads_dir, self.audio_dir, self.images_dir, self.exports_dir):
@@ -108,4 +116,7 @@ def get_settings() -> Settings:
         semantic_margin=float(os.getenv("NEXUS_SEMANTIC_MARGIN", "0.08")),
         semantic_window=float(os.getenv("NEXUS_SEMANTIC_WINDOW", "0.12")),
         art_auto_analyze=os.getenv("NEXUS_ART_AUTO_ANALYZE", "true").strip().lower() not in ("0", "false", "no", "off"),
+        backup_dir=_resolve(os.getenv("NEXUS_BACKUP_DIR")) if os.getenv("NEXUS_BACKUP_DIR", "").strip() else None,
+        backup_every_days=float(os.getenv("NEXUS_BACKUP_EVERY_DAYS", "7")),
+        backup_keep=max(1, int(os.getenv("NEXUS_BACKUP_KEEP", "4"))),
     )
