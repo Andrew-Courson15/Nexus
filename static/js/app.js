@@ -3074,11 +3074,20 @@ async function artGallery(box) {
     return;
   }
   const picked = [];
-  box.innerHTML = `<div class="selbar" id="selbar"><span id="selcount" class="small muted">Tap artworks to select them. Order matters (Image 1, 2…).</span>
+  const projects = [...new Map(items.flatMap((g) => g.entry.projects).map((p) => [p.id, p])).values()].sort((a, b) => a.name.localeCompare(b.name));
+  const haystack = (g) => [g.entry.title, ...g.entry.tags.map((t) => t.name), ...g.entry.projects.map((p) => p.name),
+    ...g.entry.attachments.map((a) => a.original_filename)].join(" ").toLowerCase();
+  box.innerHTML = `<form class="filters art-filters" id="artf" role="search">
+      <label class="field" style="flex:2 1 180px">Find<input type="search" name="q" placeholder="Title, tag or file name" autocomplete="off"></label>
+      ${projects.length ? `<label class="field">Project<select name="project"><option value="">All projects</option>${projects.map((p) =>
+        `<option value="${p.id}">${esc(p.name)}</option>`).join("")}</select></label>` : ""}
+      <label class="check small"><input type="checkbox" name="fresh"> Not analysed yet</label>
+      <span class="small muted" id="artcount">${items.length} artworks</span></form>
+    <div class="selbar" id="selbar"><span id="selcount" class="small muted">Tap artworks to select them. Order matters (Image 1, 2…).</span>
       <span class="spacer"></span><span id="selactions" class="row"></span></div>
     <div class="art-grid">${items.map((g) => {
       const img = picOf(g.entry);
-      return `<div class="art-tile" data-id="${g.entry.id}">
+      return `<div class="art-tile" data-id="${g.entry.id}" data-find="${esc(haystack(g))}" data-projects="${g.entry.projects.map((p) => p.id).join(",")}" data-fresh="${g.analyses ? "" : "1"}">
         <button type="button" class="pick" aria-label="Select ${esc(g.entry.title)}"><span class="num"></span></button>
         <a href="#/entry/${g.entry.id}">${img ? `<img src="${esc(img.thumb_url || img.preview_url)}" alt="" loading="lazy">` : ""}
         <span class="cap">${esc(g.entry.title)}</span></a>
@@ -3104,6 +3113,21 @@ async function artGallery(box) {
     }));
     $("[data-act=clear]", box)?.addEventListener("click", () => { picked.length = 0; refresh(); });
   };
+  const form = $("#artf", box);
+  const filter = () => {  // hides tiles; what's selected stays selected
+    const f = new FormData(form), words = String(f.get("q") || "").toLowerCase().split(/\s+/).filter(Boolean);
+    const pid = String(f.get("project") || ""), fresh = !!f.get("fresh");
+    let shown = 0;
+    $$(".art-tile", box).forEach((t) => {
+      const ok = words.every((w) => t.dataset.find.includes(w)) && (!pid || t.dataset.projects.split(",").includes(pid))
+        && (!fresh || t.dataset.fresh === "1");
+      t.hidden = !ok;
+      shown += ok;
+    });
+    $("#artcount", box).textContent = shown === items.length ? `${items.length} artworks` : `${shown} of ${items.length} artworks`;
+  };
+  form.oninput = filter;
+  form.onsubmit = (ev) => ev.preventDefault();
   $$(".art-tile .pick", box).forEach((b) => (b.onclick = () => {
     const id = Number(b.closest(".art-tile").dataset.id);
     const i = picked.indexOf(id);
