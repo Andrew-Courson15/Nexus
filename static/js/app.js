@@ -865,7 +865,8 @@ const SEARCH_EXAMPLES = ["memory", "villains", "ideas about alternate realities"
 
 async function viewSearch(el, _id, query) {
   const q = query.get("q") || "";
-  el.innerHTML = `<div class="view-head"><div><h1>Search</h1><p class="lede">Search naturally across your words, transcripts and the AI's notes.</p></div></div>
+  el.innerHTML = `<div class="view-head"><div><h1>Search</h1><p class="lede">Search naturally across your words, transcripts and the AI's notes.</p></div>
+    <a class="btn small" href="#/ask">Ask a question instead</a></div>
     <form class="searchbox" id="sform"><input type="search" name="q" value="${esc(q)}" placeholder="e.g. unfinished comic ideas" aria-label="Search" autofocus>
     <button class="btn primary" type="submit">SEARCH</button></form>
     <div class="suggestions">${SEARCH_EXAMPLES.map((x) => `<button type="button" data-q="${esc(x)}">${esc(x)}</button>`).join("")}</div>
@@ -932,6 +933,87 @@ async function mountBackups(box) {
     mountBackups(box);
   });
   if (b.running) setTimeout(() => box.isConnected && mountBackups(box), 3000);
+}
+
+/* ------------------------------------------------------------- Ask NEXUS */
+const ASK_EXAMPLES = ["What villains have I come up with?", "Which ideas involve memory?",
+  "What have I drawn lately?", "Which comic ideas are still unfinished?"];
+const askHistory = [];  // this visit only; nothing is stored
+
+/** The model's plain-text answer as safe HTML: citations become links, "- " lines a list. */
+function answerBody(text, titles) {
+  const cite = (html) => html.replace(/\[#(\d+)\]|#(\d+)\b/g, (m, a, b) => {
+    const id = a || b;
+    if (!(id in titles)) return m;
+    const t = titles[id] || "Untitled";
+    return `<a class="cite" href="#/entry/${id}" title="${esc(t)}">${esc(t.length > 36 ? t.slice(0, 34) + "…" : t)}</a>`;
+  });
+  const inline = (line) => cite(esc(line)).replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+  let html = "", inList = false;
+  for (const raw of text.split("\n")) {
+    const line = raw.trim();
+    const item = line.match(/^(?:[-*•]|\d+[.)])\s+(.*)$/);
+    if (item && !inList) { html += "<ul>"; inList = true; }
+    if (!item && inList) { html += "</ul>"; inList = false; }
+    if (item) html += `<li>${inline(item[1])}</li>`;
+    else if (line) html += `<p>${inline(line)}</p>`;
+  }
+  return html + (inList ? "</ul>" : "");
+}
+
+function answerHTML(a) {
+  const titles = Object.fromEntries((a.sources || []).map((s) => [s.entry.id, s.entry.title]));
+  const body = a.pending
+    ? `<p class="small"><span class="spinner inline"></span>Reading your archive… the local model can take up to a minute.</p>`
+    : a.error ? `<p class="small" style="color:var(--danger)">${esc(a.error)}</p>`
+    : `<div class="answer">${answerBody(a.answer, titles)}</div>`;
+  const cited = (a.sources || []).filter((x) => x.cited).length;
+  return `<section class="ask-item">
+    <p class="ask-q">${esc(a.question)}</p>
+    ${prov("ai", "AI answer · only from your archive", body, a.provider || "")}
+    ${a.note ? `<p class="small muted">${esc(a.note)}</p>` : ""}
+    ${a.sources?.length ? `<p class="small muted">Based on ${a.sources.length} entr${a.sources.length === 1 ? "y" : "ies"}${
+      cited ? ` · ${cited} cited in the answer` : ""}. Check them: the answer is the AI's reading, not a fact.</p>
+      <div class="grid">${a.sources.map((x) => cardHTML(x.entry,
+        x.cited ? `<div class="meta"><span class="match words">cited</span></div>` : "")).join("")}</div>` : ""}
+  </section>`;
+}
+
+async function viewAsk(el, _id, query) {
+  el.innerHTML = `<div class="view-head"><div><h1>Ask NEXUS</h1>
+    <p class="lede">Ask about your own ideas. Answers come only from your archive, with links to the entries they're based on.</p></div>
+    <a class="btn ghost small" href="#/search">Search instead</a></div>
+    <form class="searchbox" id="aform"><input type="text" name="q" placeholder="e.g. What villains have I come up with?"
+      aria-label="Your question" autocomplete="off" enterkeyhint="send">
+    <button class="btn primary" type="submit">ASK</button></form>
+    <div class="suggestions">${ASK_EXAMPLES.map((x) => `<button type="button" data-q="${esc(x)}">${esc(x)}</button>`).join("")}</div>
+    <div id="answers"></div>`;
+  const box = $("#answers", el);
+  const draw = () => { if (box.isConnected) box.innerHTML = askHistory.map(answerHTML).join(""); };
+  async function run(question) {
+    question = question.trim();
+    if (question.length < 2) return;
+    const item = { question, pending: true };
+    askHistory.unshift(item);
+    draw();
+    try {
+      Object.assign(item, await api("/api/ask", { method: "POST", json: { question }, timeout: 240000 }));
+    } catch (err) {
+      item.error = err.offline ? "NEXUS isn't reachable right now. Asking needs your PC on (your saved copy can still be searched)." : err.message;
+    }
+    item.pending = false;
+    draw();
+  }
+  $("#aform", el).onsubmit = (e) => {
+    e.preventDefault();
+    const input = $("input", e.target);
+    run(input.value);
+    input.value = "";
+  };
+  $$("[data-q]", el).forEach((b) => (b.onclick = () => run(b.dataset.q)));
+  draw();
+  if (query.get("q")) run(query.get("q"));
+  else if (matchMedia("(min-width: 641px)").matches) $("input", el).focus();
 }
 
 function health(h) {
@@ -1648,6 +1730,7 @@ const ROUTES = [
   [/^\/projects\/(\d+)$/, viewProject, "projects"],
   [/^\/entry\/(\d+)$/, viewEntry, "archive"],
   [/^\/search$/, viewSearch, "search"],
+  [/^\/ask$/, viewAsk, "ask"],
   [/^\/settings$/, viewSettings, "settings"],
   [/^\/trash$/, viewTrash, "archive"],
   [/^\/art$/, viewArt, "art"],

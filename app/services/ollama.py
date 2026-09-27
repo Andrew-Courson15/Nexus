@@ -309,6 +309,30 @@ the shared element is unmistakable.
 Use only the text provided. Reply with JSON only."""
 
 
+ASK_SYSTEM_PROMPT = """You answer questions about the user's private creative archive (their ideas, stories,
+characters, sketches and voice notes). Use ONLY the entries provided; never invent characters, plot, names or facts.
+- Cite every point with the entry it comes from, written exactly like [#12]. Use only entry numbers that were given.
+- Keep the user's ideas distinct from AI descriptions: "USER'S WORDS", "USER NOTES" and "TRANSCRIPT" are the user's
+  own; "AI SUMMARY" is an earlier AI description (for pictures: what the picture seems to show). Say "the AI described"
+  when you rely on an AI summary.
+- If the entries don't answer the question, say so plainly and mention what they do contain.
+- Be concise: one or two sentences, then a short bullet list when listing several things. Plain text, no headings."""
+
+
+def ask_listing(context: list[EntryContext], max_entries: int = 12) -> str:
+    blocks = []
+    for c in context[:max_entries]:
+        lines = [f"ENTRY [#{c.id}] ({c.entry_type}, {c.source_type} capture) \"{c.title or 'Untitled'}\""]
+        for label, body in (("USER'S WORDS", c.original_text), ("USER NOTES", c.user_notes),
+                            ("TRANSCRIPT", c.transcript), ("AI SUMMARY", c.summary)):
+            if body and body.strip():
+                lines.append(f"{label}: {body.strip()[:1200]}")
+        if c.concepts:
+            lines.append("CONCEPTS: " + ", ".join(c.concepts[:10]))
+        blocks.append("\n".join(lines))
+    return "\n\n".join(blocks)
+
+
 # --------------------------------------------------------------------------- #
 # Provider
 # --------------------------------------------------------------------------- #
@@ -563,14 +587,10 @@ class OllamaProvider(AIProvider):
     def answer_question(self, question: str, context: list[EntryContext]) -> str:
         if not context:
             return "I found nothing in your archive related to that question."
-        listing = "\n\n".join(f"ENTRY #{c.id} [{c.entry_type}] {c.title}\n{c.analysis_text[:1500]}"
-                              for c in context[:12])
         try:
             return self.client.chat(self.model, [
-                {"role": "system", "content": "Answer questions about the user's private creative archive using ONLY "
-                                              "the entries provided. Cite entries as #id. If the entries don't "
-                                              "answer the question, say so."},
-                {"role": "user", "content": f"{listing}\n\nQUESTION: {question}"},
+                {"role": "system", "content": ASK_SYSTEM_PROMPT},
+                {"role": "user", "content": f"{ask_listing(context)}\n\nQUESTION: {question}"},
             ], temperature=0.3).strip()
         except OllamaError:
             return self.fallback.answer_question(question, context)

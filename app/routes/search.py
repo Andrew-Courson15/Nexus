@@ -5,7 +5,8 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.schemas import SearchRequest, SearchResponse, SearchResult, entry_summary
+from app.schemas import AskRequest, AskResponse, AskSource, SearchRequest, SearchResponse, SearchResult, entry_summary
+from app.services.ask import ask
 from app.services.processing import queue_embedding_backfill
 from app.services.search import SemanticSearchService
 
@@ -46,3 +47,12 @@ def search(payload: SearchRequest, db: Session = Depends(get_db)):
                               matched_by=h.matched_by, similarity=h.similarity)
                  for h in outcome.hits],
     )
+
+
+@router.post("/ask", response_model=AskResponse)
+def ask_nexus(payload: AskRequest, db: Session = Depends(get_db)):
+    """Answer a question from the archive, citing the entries used. Read-only."""
+    a = ask(db, payload.question)
+    cited = set(a.cited_ids)
+    return AskResponse(question=a.question, answer=a.answer, provider=a.provider, note=a.note,
+                       sources=[AskSource(entry=entry_summary(e), cited=e.id in cited) for e in a.sources])

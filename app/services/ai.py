@@ -380,11 +380,12 @@ class LocalHeuristicProvider(AIProvider):
         if not context:
             return "I found nothing in your archive related to that question."
         q = set(T.keywords(question))
-        lines = [f"This offline provider can't reason about questions, but these {len(context)} entries look relevant:"]
+        lines = [f"The offline organizer can't reason about questions (a local AI model can), but these "
+                 f"{min(len(context), 10)} entries look relevant:"]
         for c in context[:10]:
             shared = q & set(T.keywords(c.analysis_text))
-            why = f" (mentions: {', '.join(sorted(shared))})" if shared else ""
-            lines.append(f"- #{c.id} {c.title or 'Untitled'}{why}")
+            why = f" mentions {', '.join(sorted(shared))}" if shared else ""
+            lines.append(f"- [#{c.id}]{why}")
         return "\n".join(lines)
 
 

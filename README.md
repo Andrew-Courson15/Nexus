@@ -221,6 +221,14 @@ Browsers only allow microphone access on `localhost` or HTTPS. Open NEXUS at
   `unfinished comic ideas`, `sketches with monsters`. NEXUS shows how it understood your query.
   It matches your **words** and, with the local embedding model, the **meaning**. For example,
   "forgetting who you are" finds an idea about memory loss. Each result shows how it matched.
+- **Ask** (desktop menu, or **Ask a question instead** on the Search page): ask about your own
+  ideas, such as "What villains have I come up with?" or "Which ideas involve memory?".
+  - NEXUS finds the entries most likely to hold the answer.
+  - The local model answers **only from those entries**, keeping what you wrote apart from what
+    an AI described.
+  - Every point links to the entry it came from, and the entries used are shown under the answer.
+  - A citation of an entry that wasn't provided is marked `[unknown entry]` instead of being linked.
+  - Nothing is saved; asking never changes your archive.
 - **Trash**: entries and projects you trash are hidden, never destroyed (trashing a project never touches its entries). Open it from the Creative Archive
   or Settings and **Restore** anything.
 - **Entry detail**: your material, notes, transcript, AI summary, interpretation, inference and
@@ -530,6 +538,10 @@ Transcription follows the same pattern in `services/transcription.py`: `Transcri
 | GET | `/api/uploads/{attachment_id}` | The original file |
 | POST | `/api/search` | `{"query": "...", "limit", "entry_types", "statuses", "date_from", "date_to"}`. Each result has `matched_by` (`words`, `meaning`, `filters`) and `similarity` |
 | POST | `/api/search/reindex` | Queue entries whose meaning index is missing or stale |
+| POST | `/api/ask` | `{"question": "..."}` → an answer from the archive with `sources` (each `cited` or not). Read-only |
+| GET | `/api/uploads/{attachment_id}/preview` · `/thumb` | A viewable JPEG/PNG of any picture format · a small version for cards |
+| GET | `/api/offline/snapshot` | Everything the phone needs to browse the archive offline (gzip) |
+| GET/POST | `/api/backups` · GET `/api/backups/{name}` | List / start a backup · download one |
 | GET | `/api/trash` | Entries in the trash |
 | POST | `/api/entries/{id}/revisions/{n}/restore` | Bring back version *n* (recorded as a new version) |
 | GET/POST | `/api/projects` | List / create |
@@ -557,10 +569,9 @@ Transcription follows the same pattern in `services/transcription.py`: `Transcri
   library that exist now.
 - Importing PDFs or ebooks into the art library (for now, paste the passages you care about).
 
-- Asking questions about the archive ("what are my recurring villains?"). `answer_question` works with Ollama; it needs an endpoint and UI.
 - Knowledge-graph entities beyond entries: people, places, themes and events.
 - A relationship graph visualisation, and manual linking in the UI (the API exists).
 - Tracking who created each entry, for when more than one person uses the same NEXUS.
-- Exports into `data/exports`.
+- Sharing entries between two separate NEXUS installs (export a project or sketches, import on the other).
 - Alembic migrations for non-additive schema changes, and a PostgreSQL option.
 - Cloud providers (OpenAI, Anthropic), for use only if you ever opt in.

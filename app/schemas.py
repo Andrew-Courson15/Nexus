@@ -247,6 +247,31 @@ class SearchResult(BaseModel):
     similarity: float | None = None
 
 
+class AskRequest(BaseModel):
+    question: str = Field(min_length=2, max_length=1000)
+
+    @field_validator("question")
+    @classmethod
+    def _not_blank(cls, v: str) -> str:
+        v = v.strip()
+        if len(v) < 2:
+            raise ValueError("Type a question.")
+        return v
+
+
+class AskSource(BaseModel):
+    entry: EntrySummary
+    cited: bool
+
+
+class AskResponse(BaseModel):
+    question: str
+    answer: str
+    provider: str
+    sources: list[AskSource]
+    note: str | None = None
+
+
 class SearchResponse(BaseModel):
     query: str
     mode: str
