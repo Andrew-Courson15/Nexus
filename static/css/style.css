@@ -70,6 +70,7 @@
 }
 
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }  /* hidden always wins over a component's own display */
 html { -webkit-text-size-adjust: 100%; }
 body {
   margin: 0;
