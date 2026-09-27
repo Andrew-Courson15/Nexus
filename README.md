@@ -278,7 +278,9 @@ Ollama has **no password**, so only do this on your own home network, never on p
 NEXUS as a standalone app in `dist/`, zipped, that runs without Python or Git: unzip and
 double-click. Its data lives in the per-user app folder (`%LOCALAPPDATA%\NEXUS` or
 `~/Library/Application Support/NEXUS`), not next to the app. Ollama is still installed
-separately. Details and what's still missing for a public release: `RELEASE.md`.
+separately. On Windows, with Inno Setup installed (`winget install JRSoftware.InnoSetup`), it
+also makes a normal installer, `NEXUS-Setup-<version>.exe`. Details and what's still missing for
+a public release: `RELEASE.md`.
 
 ### Run the tests
 

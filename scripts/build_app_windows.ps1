@@ -19,5 +19,15 @@ $version = (Select-String -Path "app\__init__.py" -Pattern '__version__ = "([^"]
 $zip = "dist\NEXUS-$version-windows.zip"
 Remove-Item $zip -ErrorAction SilentlyContinue
 Compress-Archive -Path "dist\NEXUS" -DestinationPath $zip
+# A normal installer too, if Inno Setup is installed (winget install JRSoftware.InnoSetup).
+$iscc = @("$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe", "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe", "$env:ProgramFiles\Inno Setup 6\ISCC.exe") |
+    Where-Object { Test-Path $_ } | Select-Object -First 1
+if ($iscc) {
+    Write-Host "`n==> Making the installer..." -ForegroundColor Cyan
+    & $iscc "/DAppVersion=$version" packaging\nexus.iss
+    if ($LASTEXITCODE -eq 0) { Write-Host "    dist\NEXUS-Setup-$version.exe" }
+} else {
+    Write-Host "`n(For a NEXUS-Setup.exe installer as well: winget install JRSoftware.InnoSetup, then run this again.)"
+}
 Write-Host "`n==> Done: $zip" -ForegroundColor Cyan
 Write-Host "    Try it: dist\NEXUS\NEXUS.exe (quit your usual NEXUS first, or it just opens that one)."

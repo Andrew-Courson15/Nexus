@@ -43,8 +43,10 @@ can make; the rest is engineering.
   `~/Library/Application Support/NEXUS`). Tested as a Linux build here (starts in about a second;
   pictures, PDFs, search and the phone QR work); the Windows and Mac builds still need a first
   run on real machines. About 150 MB, or about 490 MB with voice-note transcription included.
-  The first-run check links to Ollama and downloads the AI model in one click. Still to do: a
-  proper installer around it (Inno Setup on Windows, a `.dmg` on Mac) and signing.
+  The first-run check links to Ollama and downloads the AI model in one click. On Windows the build
+  script also makes `NEXUS-Setup-<version>.exe` when Inno Setup is installed (`packaging/nexus.iss`:
+  per-user install, no admin prompt, Start menu, optional desktop icon and start at sign-in; the
+  uninstaller keeps your ideas). Still to do: a `.dmg` on Mac, first runs on real machines, and signing.
 - **Previously:** setup needed Python, Git and a terminal.
   - A Windows installer (`.exe`/`.msi`) and a Mac app (`.dmg`) would bundle Python and NEXUS,
     install or guide Ollama, and start NEXUS at login.
