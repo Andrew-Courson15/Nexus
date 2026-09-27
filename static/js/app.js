@@ -2573,6 +2573,9 @@ async function viewEntry(el, id) {
         .filter((p) => !inProjects.has(p.id)).map((p) => `<option value="${p.id}">${esc(p.name)}</option>`).join("")}</select></div>` : ""}
       <button type="button" class="btn ghost small" data-act="new-project">+ Start a project from this</button></div>
 
+    <div class="panel" id="similar" hidden><h3>More like this</h3><div class="strip"></div>
+      <p class="small muted">Closest in meaning, found by the search index (an AI measure, not a link).</p></div>
+
     <div class="panel"><h3>Related ideas</h3>
       ${rels.length ? rels.map((r) => `<div class="rel ${esc(r.status)}">
         <div class="row small"><span class="source-badge ${r.origin}">${esc(r.label)}</span><span class="spacer"></span><span class="confidence">${pct(r.confidence)}</span></div>
@@ -2633,6 +2636,14 @@ async function viewEntry(el, id) {
   $("#status", el).onchange = (ev) => put({ status: ev.target.value }, "Status updated.");
   $("[data-act=confirm]", el)?.addEventListener("click", () => put({ user_confirmed: true }, "Confirmed."));
   mountBrowseNav(el, e.id);
+  api(`/api/entries/${e.id}/similar`, { noCopy: true }).then((r) => {
+    const box = $("#similar", el);
+    if (!box || !r.items.length) return;
+    $(".strip", box).innerHTML = r.items.map(({ entry: x, similarity }) => { const pic = picOf(x);
+      return tileHtml({ id: x.id, title: x.title, entry_type: x.entry_type, thumb_url: pic && (pic.thumb_url || pic.preview_url),
+        excerpt: x.excerpt || x.ai_summary }, `${esc(label(x.entry_type))} · ${pct(similarity)}`); }).join("");
+    box.hidden = false;
+  }).catch(() => {});
   api("/api/tags").then((tags) => {  // suggestions while typing a tag, most used first
     const have = new Set(e.tags.map((t) => t.name));
     $("#tag-names", el).innerHTML = tags.filter((t) => !have.has(t.name)).sort((a, b) => b.count - a.count).slice(0, 200)

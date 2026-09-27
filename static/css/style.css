@@ -614,3 +614,4 @@ a.cite:hover { border-color: var(--text); }
 .arrange-list li { display: flex; align-items: center; gap: 10px; padding: 6px 0; border-bottom: 1px solid var(--border); }
 .arrange-list img, .arrange-list .nopic { width: 44px; height: 44px; object-fit: cover; border-radius: 6px; flex: none; background: var(--surface-2); }
 .arrange-list .t { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+#similar .strip { grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 8px; margin: 8px 0; }

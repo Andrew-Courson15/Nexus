@@ -354,3 +354,24 @@ def review_relationship(relationship_id: int, payload: RelationshipReview, db: S
     db.commit()
     db.refresh(rel)
     return relationship_out(rel, rel.source_entry_id)
+
+
+@router.get("/entries/{entry_id}/similar")
+def similar(entry_id: int, db: Session = Depends(get_db)):
+    """More like this: other entries closest in meaning, from the meaning index NEXUS already keeps
+    (no AI call needed, so it also works while the AI is busy or off)."""
+    from app.models import EntryEmbedding
+    from app.services import embeddings
+
+    load_entry(db, entry_id)
+    provider = embeddings.get_embedding_provider()
+    row = db.get(EntryEmbedding, entry_id)
+    if provider.name == "none" or row is None or row.model != provider.model:
+        return {"available": False, "items": [],
+                "reason": "Search by meaning isn't set up, or this entry isn't in the meaning index yet."}
+    live = set(db.scalars(select(CreativeEntry.id).where(CreativeEntry.deleted_at.is_(None), CreativeEntry.id != entry_id)))
+    scored = embeddings.nearest(db, list(embeddings.unpack(row.vector)), row.model, live, limit=None)
+    best = embeddings.confident_matches(scored)[:8]
+    found = {e.id: e for e in db.scalars(select(CreativeEntry).where(CreativeEntry.id.in_([i for i, _ in best])).options(*_LOAD))}
+    return {"available": True, "items": [{"entry": entry_summary(found[i]).model_dump(mode="json"), "similarity": round(sim, 3)}
+                                         for i, sim in best if i in found]}

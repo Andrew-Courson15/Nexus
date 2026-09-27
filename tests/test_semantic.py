@@ -233,3 +233,19 @@ def test_a_genuine_match_stands_out_from_the_noise(monkeypatch):
     finally:
         monkeypatch.undo()
         get_settings.cache_clear()
+
+
+def test_more_like_this(client, fake):
+    hero = cap(client, "Hero loses his memories whenever he crosses into another universe.")
+    twin = cap(client, "A girl who forgets everything each time she remembers her dreams.")
+    cap(client, "Lemon cake recipe for Sunday.")
+    r = client.get(f"/api/entries/{hero['id']}/similar").json()
+    assert r["available"] and [x["entry"]["id"] for x in r["items"]] == [twin["id"]]
+    client.delete(f"/api/entries/{twin['id']}")
+    assert client.get(f"/api/entries/{hero['id']}/similar").json()["items"] == []  # trashed ones never show
+
+
+def test_more_like_this_without_the_meaning_index(client):
+    e = cap(client, "anything")
+    r = client.get(f"/api/entries/{e['id']}/similar").json()
+    assert r["available"] is False and r["items"] == []
