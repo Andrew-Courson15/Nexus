@@ -872,7 +872,7 @@ function mountCapture(root, opts = {}) {
 
 /* ------------------------------------------------------------------ views */
 async function viewHome(el) {
-  el.innerHTML = `<div id="cap"></div>
+  el.innerHTML = `<h1 class="sr-only">Capture</h1><div id="cap"></div>
     <div id="welcome"></div>
     <div id="just"></div>
     <h2>Recently captured</h2><div id="recent"><p class="loading">Loading…</p></div>`;
@@ -1099,7 +1099,7 @@ async function viewTimeline(el) {
           <b>${esc(e.title)}</b><i>${new Date(e.created_at).toLocaleDateString(undefined, { day: "numeric", month: "short" })} · ${esc(label(e.entry_type))}</i></a>`; }).join("")}</div></section>`).join("")
       || `<p class="empty">Nothing captured yet.</p>`}
     ${data.total > data.items.length ? `<p class="small muted">Showing the newest ${data.items.length} of ${data.total}. Older ones are in the <a href="#/archive">Creative Archive</a>.</p>` : ""}`;
-  $$("[data-month]", el).forEach((a) => (a.onclick = (ev) => { ev.preventDefault(); $(`#m-${a.dataset.month}`, el)?.scrollIntoView({ behavior: "smooth" }); }));
+  $$("[data-month]", el).forEach((a) => (a.onclick = (ev) => { ev.preventDefault(); $(`#m-${a.dataset.month}`, el)?.scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" }); }));
 }
 
 /** One small picture-or-text tile linking to an entry (Timeline, Characters). */
@@ -1135,7 +1135,7 @@ async function viewCharacters(el) {
           ${c.mention_count > c.mentions.length ? `<p class="small muted">…and ${c.mention_count - c.mentions.length} more: <a href="#/search?q=${encodeURIComponent(c.name_searched)}">search for them</a>.</p>` : ""}` : ""}
       </section>`; }).join("")
       || `<p class="empty">No characters yet. Capture one and set its type to <b>character</b> (or tag it “character”), then link sketches and scenes to it.</p>`}`;
-  $$("[data-char]", el).forEach((a) => (a.onclick = (ev) => { ev.preventDefault(); $(`#c-${a.dataset.char}`, el)?.scrollIntoView({ behavior: "smooth" }); }));
+  $$("[data-char]", el).forEach((a) => (a.onclick = (ev) => { ev.preventDefault(); $(`#c-${a.dataset.char}`, el)?.scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" }); }));
 }
 
 async function viewTags(el) {
@@ -1581,7 +1581,7 @@ async function viewMap(el, _id, query) {
       <label class="check"><input type="checkbox" name="suggested"${suggested ? " checked" : ""}> Show AI suggestions</label>
       <label class="check"><input type="checkbox" name="all"${everything ? " checked" : ""}> Show ideas without links</label>
     </form>
-    <div class="map-wrap"><svg id="map" role="img" aria-label="Map of linked ideas"></svg>
+    <div class="map-wrap"><svg id="map" role="group" aria-label="Map of linked ideas"></svg>
       <div class="map-zoom"><button type="button" class="btn small" data-zoom="1.3" aria-label="Zoom in">+</button>
       <button type="button" class="btn small" data-zoom="0.77" aria-label="Zoom out">−</button>
       <button type="button" class="btn small" data-zoom="fit">Fit</button></div></div>
