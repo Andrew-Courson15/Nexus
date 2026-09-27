@@ -45,9 +45,48 @@ def fake_embedding(text: str) -> list[float]:
     return vec
 
 
+ART_REPLY = {
+    "visual_description": "A humanoid figure in a three-quarter pose holds what appears to be a large blade.",
+    "artwork_type": "character_design",
+    "composition": {"focal_point": "The figure's face and the blade.", "eye_flow": "Face, then down the blade.",
+                    "character_placement": "Centred.", "depth_layers": "", "negative_space": "Wide empty sides.",
+                    "directional_movement": "", "balance": "", "cropping": ""},
+    "artistic_analysis": {"shape_language": "Angular shapes.", "silhouette": "Readable.", "linework": "Bold outer "
+                          "contour with thinner interior lines.", "value": "", "lighting": "", "color": "",
+                          "perspective": "", "depth": "", "texture_and_detail": "", "stylization": "Exaggerated "
+                          "shoulders look intentional."},
+    "character_analysis": {"silhouette": "Would read as a solid black shape.", "pose_and_gesture": "Weight on the "
+                           "back leg.", "expression": "", "costume_and_design": "", "proportions_and_anatomy": "",
+                           "readability": ""},
+    "environment": "",
+    "storytelling": {"visible_information": "A figure holds a blade.", "possible_interpretation": "The character "
+                     "may be preparing for a fight.", "visual_hierarchy": "", "emotional_read": "", "told_without_words":
+                     "", "needs_words": ""},
+    "sequential_art": {"panel_function": "", "shot_type": "full shot", "camera_angle": "Eye level.", "pacing": "",
+                       "reader_eye_flow": ""},
+    "strengths": ["The silhouette is immediately readable; I would preserve the overall shape."],
+    "development_opportunities": ["The lower third has little information; a cast shadow could ground the figure."],
+    "experiments": ["You could try a strong diagonal behind the character."],
+    "creative_directions": [{"name": "More cinematic", "description": "Lower camera, foreground framing."},
+                            {"name": "More atmospheric", "description": "Less detail, stronger light."}],
+    "questions": ["What role does the oversized blade play in the story?"],
+    "uncertainties": ["The object in the left hand is unclear."],
+    "style_signals": ["heavy silhouettes", "dramatic lighting", "not-a-signal"],
+    "knowledge_references": [],
+    "critique": {"what_i_see": "A figure with a blade.", "what_is_working": "Silhouette.",
+                 "what_could_be_stronger": "Grounding.", "why_it_matters": "Weight.",
+                 "possible_approaches": ["Cast shadow"], "questions_to_consider": ["Where is the light?"],
+                 "optional_experiments": ["Rim light"]},
+    "comparison": {"what_changed": ["B has a lower camera angle."], "composition": "B is tighter.",
+                   "character": "", "perspective": "", "lighting": "", "anatomy": "", "linework": "",
+                   "storytelling": "", "readability": ""},
+    "unexpected_field": "should be dropped",
+}
+
+
 class FakeOllama:
     def __init__(self, models=("test-model:latest",), capabilities=("completion",), analysis=None,
-                 relationships=None, reachable=True, chat_status=200, raw_reply=None):
+                 relationships=None, reachable=True, chat_status=200, raw_reply=None, art_reply=None):
         self.models = list(models)
         self.capabilities = list(capabilities) if capabilities is not None else None
         self.analysis = analysis or dict(DEFAULT_ANALYSIS)
@@ -55,6 +94,7 @@ class FakeOllama:
         self.reachable = reachable
         self.chat_status = chat_status
         self.raw_reply = raw_reply
+        self.art_reply = art_reply or dict(ART_REPLY)
         self.requests: list[dict] = []
 
     def handler(self, request: httpx.Request) -> httpx.Response:
@@ -87,6 +127,8 @@ class FakeOllama:
             system = body["messages"][0]["content"]
             if self.raw_reply is not None:
                 content = self.raw_reply
+            elif "VISUAL ART INTELLIGENCE" in system:
+                content = json.dumps(self.art_reply)
             elif "link entries" in system:
                 content = json.dumps({"relationships": self.relationships})
             elif "Summarize" in system:
@@ -113,6 +155,10 @@ class FakeOllama:
     @property
     def embeds(self) -> list[dict]:
         return [r for r in self.requests if r["path"] == "/api/embed"]
+
+    @property
+    def art_chats(self) -> list[dict]:
+        return [c for c in self.chats if "VISUAL ART INTELLIGENCE" in c["messages"][0]["content"]]
 
     @property
     def chats(self) -> list[dict]:

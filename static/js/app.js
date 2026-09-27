@@ -298,7 +298,7 @@ function mountCapture(root, opts = {}) {
         <button class="btn primary" data-act="capture">CAPTURE</button>
         <button class="btn rec" data-act="record"><span class="dot"></span><span>Record Idea</span></button>
         <button class="btn" data-act="upload">Upload image / file</button>
-        <input type="file" hidden accept="image/*,audio/*,.pdf,.txt,.md,.doc,.docx">
+        <input type="file" hidden multiple accept="image/*,audio/*,.pdf,.txt,.md,.doc,.docx">
         <span class="spacer"></span>
         <span class="hint">Ctrl/⌘ + Enter to capture · drop files here</span>
       </div>
@@ -373,6 +373,38 @@ function mountCapture(root, opts = {}) {
     };
   }
 
+  async function takeFiles(files) {
+    files = [...files];
+    if (files.length <= 1) return takeFile(files[0]);
+    // Several files (e.g. panels of a page): each becomes its own entry, in order.
+    pending.hidden = false;
+    pending.innerHTML = `<div class="recorder"><strong>${files.length} files ready</strong>
+      <span class="muted small">${files.map((f) => esc(f.name)).join(", ")}</span>
+      <input type="text" placeholder="A few words for all of them (optional)" aria-label="Note">
+      <div class="row"><button class="btn primary small" data-act="saveall">SAVE ALL</button><button class="btn ghost small" data-act="discard">Discard</button></div></div>`;
+    $("[data-act=discard]", pending).onclick = () => { pending.hidden = true; pending.innerHTML = ""; };
+    $("[data-act=saveall]", pending).onclick = async (ev) => {
+      ev.target.disabled = true;
+      const note = $("input", pending).value.trim() || null;
+      let queued = 0, saved = 0, last = null;
+      const failed = [];
+      for (const file of files) {
+        try {
+          const r = await captureOrQueue({ file, filename: file.name, note, project_id: opts.projectId || null });
+          if (r.queued) queued++; else { saved++; last = r.entry; }
+        } catch (err) { failed.push(`${file.name}: ${err.message}`); }
+      }
+      pending.hidden = true;
+      pending.innerHTML = "";
+      const parts = [];
+      if (saved) parts.push(`Saved ${saved}`);
+      if (queued) parts.push(`${queued} kept on this device to sync later`);
+      if (failed.length) toast(`${parts.join(", ")}${parts.length ? ". " : ""}Couldn't save ${failed.length}: ${failed.join("; ")}`, true);
+      else toast(`${parts.join(", ")}.`);
+      if (last) opts.onCaptured?.(last);
+    };
+  }
+
   function takeFile(file) {
     if (!file) return;
     const kind = file.type.startsWith("image/") ? "Image" : file.type.startsWith("audio/") ? "Audio" : "File";
@@ -424,13 +456,13 @@ function mountCapture(root, opts = {}) {
   $("[data-act=capture]", root).onclick = capture;
   recBtn.onclick = toggleRecord;
   $("[data-act=upload]", root).onclick = () => fileInput.click();
-  fileInput.onchange = () => { takeFile(fileInput.files[0]); fileInput.value = ""; };
+  fileInput.onchange = () => { takeFiles(fileInput.files); fileInput.value = ""; };
   ta.addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); capture(); } });
   box.addEventListener("dragover", (e) => { e.preventDefault(); box.classList.add("drag"); });
   box.addEventListener("dragleave", () => box.classList.remove("drag"));
   box.addEventListener("drop", (e) => {
     box.classList.remove("drag");
-    if (e.dataTransfer.files.length) { e.preventDefault(); takeFile(e.dataTransfer.files[0]); }
+    if (e.dataTransfer.files.length) { e.preventDefault(); takeFiles(e.dataTransfer.files); }
   });
   return { focus: () => ta.focus() };
 }
@@ -773,6 +805,7 @@ async function viewEntry(el, id) {
     getSettings(), api("/api/projects"),
   ]);
   const m = e.ai_metadata || {};
+  const hasImage = e.attachments.some((a) => a.kind === "image");
   const srcBadge = (src) => `<span class="source-badge ${src}">${src === "user" ? "yours" : "AI"}</span>`;
   const media = e.attachments.map((a) =>
     a.kind === "image" ? `<div class="media-preview"><img src="${esc(a.url)}" alt="${esc(a.original_filename)}"></div>`
@@ -847,6 +880,7 @@ async function viewEntry(el, id) {
       "additions you've written later")}
     ${transcriptBlock}
     ${analysisBlocks}
+    ${hasImage ? `<div id="artpanel"></div>` : ""}
     ${isBusy(e) ? "" : `<div class="row"><button class="btn" data-act="analyze">Re-run AI organizer</button>
       <span class="small muted">Regenerates AI data only. Your words, title and type choices are kept.</span></div>`}
   </div>
@@ -873,6 +907,8 @@ async function viewEntry(el, id) {
           <button class="btn small ghost" data-rel="${r.id}" data-status="rejected">Reject</button>
           ${r.status !== "ignored" ? `<button class="btn small ghost" data-rel="${r.id}" data-status="ignored">Ignore</button>` : ""}</div>` : ""}
       </div>`).join("") : `<span class="muted small">No related entries found yet.</span>`}</div>
+
+    ${hasImage ? `<div class="panel" id="evopanel"></div>` : ""}
 
     <div class="panel"><h3>Source information</h3><dl class="kv">
       <dt>Source</dt><dd>${esc(label(e.source_type))}</dd>
@@ -954,6 +990,7 @@ async function viewEntry(el, id) {
     try { await api(`/api/relationships/${b.dataset.rel}`, { method: "PATCH", json: { status: b.dataset.status } }); toast(`Relationship ${b.dataset.status}.`); render(); }
     catch (err) { toast(err.message, true); }
   }));
+  if (hasImage) mountArtPanels(el, e);
   $$("[data-restore-version]", el).forEach((b) => (b.onclick = async () => {
     const v = b.dataset.restoreVersion;
     if (!confirm(`Bring this entry back to version ${v}? The current version stays in the history, so you can always come back to it.`)) return;
@@ -968,6 +1005,366 @@ async function viewEntry(el, id) {
   };
 }
 
+/* ------------------------------------------------------ visual art intelligence */
+const ART_MODES = {
+  analysis: { label: "Analyze", hint: "Layered analysis: what's there, how it works, possibilities." },
+  critique: { label: "Critique", hint: "A deeper, specific critique: what works, what could be stronger, why." },
+  artist: { label: "Artist mode", hint: "A creative collaborator that asks questions instead of rewriting your idea." },
+  page: { label: "Comic page", hint: "Layout, reading order, panel hierarchy, page-turn potential." },
+  storyboard: { label: "Storyboard", hint: "Camera, staging, pacing and clarity. Rendering is not judged." },
+  sequence: { label: "Sequence", hint: "Panels in order: what each tells the reader and what changes." },
+  compare: { label: "Compare A / B", hint: "What changed between two images, without declaring a winner." },
+  consistency: { label: "Character consistency", hint: "Same character, several drawings: what differs, what stays." },
+  evolution: { label: "Evolution", hint: "Versions over time: how the piece developed." },
+};
+const ONE_IMAGE_MODES = ["analysis", "critique", "artist", "page", "storyboard"];
+const MANY_IMAGE_MODES = ["sequence", "compare", "consistency", "evolution", "storyboard"];
+const ART_ACTIVE = ["queued", "running"];
+
+const FIELD_LABELS = {
+  focal_point: "Focal point", character_placement: "Character placement", depth_layers: "Foreground / midground / background",
+  negative_space: "Negative space", directional_movement: "Directional movement", eye_flow: "How the eye travels",
+  balance: "Balance", cropping: "Cropping", shape_language: "Shape language", silhouette: "Silhouette",
+  linework: "Linework & inking", value: "Value", lighting: "Lighting", color: "Color", perspective: "Perspective",
+  depth: "Depth", texture_and_detail: "Texture & detail", stylization: "Stylization",
+  pose_and_gesture: "Pose & gesture", expression: "Expression", costume_and_design: "Costume & design",
+  proportions_and_anatomy: "Proportions & anatomy", readability: "Readability",
+  visual_hierarchy: "Visual hierarchy", emotional_read: "Emotional read", told_without_words: "Told without words",
+  needs_words: "Needs dialogue or captions", panel_function: "Panel function", shot_type: "Shot type",
+  camera_angle: "Camera angle", pacing: "Pacing", reader_eye_flow: "Reader eye flow",
+  layout: "Layout", panel_hierarchy: "Panel hierarchy", reading_order: "Reading order", gutters: "Gutters",
+  transitions: "Transitions", dialogue_density: "Dialogue density", visual_climax: "Visual climax", page_turn: "Page turn",
+  continuity: "Continuity", screen_direction: "Screen direction", camera_consistency: "Camera consistency",
+  time_progression: "Time progression", action_progression: "Action progression",
+  reader_comprehension: "Reader comprehension", composition: "Composition", character: "Character",
+  anatomy: "Anatomy", storytelling: "Storytelling", facial_structure: "Facial structure", hair: "Hair",
+  costume: "Costume", proportions: "Proportions", accessories: "Accessories", weapon: "Weapon", markings: "Markings",
+};
+
+function kvBlock(obj, skip = []) {
+  const rows = Object.entries(obj || {}).filter(([k, v]) => !skip.includes(k) && v && !(Array.isArray(v) && !v.length));
+  if (!rows.length) return "";
+  return `<dl class="kv art-kv">${rows.map(([k, v]) => `<dt>${esc(FIELD_LABELS[k] || label(k))}</dt>
+    <dd>${Array.isArray(v) ? `<ul>${v.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : esc(v)}</dd>`).join("")}</dl>`;
+}
+
+function listBlock(items) {
+  return items?.length ? `<ul>${items.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : "";
+}
+
+function artSection(kind, title, body, why = "") {
+  return body && body.replace(/<[^>]*>/g, "").trim() ? prov(kind, title, body, why) : "";
+}
+
+/** Turn a structured analysis into a readable artistic critique. */
+function renderArtAnalysis(a) {
+  const d = a.details || {};
+  const st = a.storytelling_analysis || {};
+  const c = d.critique || {};
+  return `
+    ${a.question ? prov("user", "You asked", `<div class="body">${esc(a.question)}</div>`) : ""}
+    ${artSection("ai", "Artist mode · collaborator", d.collaborator_response ? `<div class="body">${esc(d.collaborator_response)}</div>` : "")}
+    ${artSection("ai", "What I see", a.visual_description ? `<div class="body">${esc(a.visual_description)}</div>` : "",
+      "literal description" + (d.artwork_type ? " · reads as " + label(d.artwork_type) : ""))}
+    ${a.mode === "critique" ? `
+      ${artSection("ai", "Critique · what is working", c.what_is_working ? `<div class="body">${esc(c.what_is_working)}</div>` : "")}
+      ${artSection("ai", "Critique · what could be stronger", c.what_could_be_stronger
+        ? `<div class="body">${esc(c.what_could_be_stronger)}</div>${c.why_it_matters ? `<p class="small"><strong>Why it matters:</strong> ${esc(c.why_it_matters)}</p>` : ""}` : "")}
+      ${artSection("ai", "Critique · possible approaches", listBlock(c.possible_approaches))}
+      ${artSection("infer", "Critique · questions to consider", listBlock(c.questions_to_consider))}
+      ${artSection("infer", "Critique · optional experiments", listBlock(c.optional_experiments), "only if you want to")}` : ""}
+    ${artSection("ai", "Comparison · what changed", listBlock(d.comparison?.what_changed) + kvBlock(d.comparison, ["what_changed"]),
+      "differences, not a verdict")}
+    ${artSection("ai", a.mode === "evolution" ? "How it evolved" : "Character consistency",
+      kvBlock(d.consistency, ["differences", "possibly_intentional", "constants"])
+      + (d.consistency?.differences?.length ? `<p class="small"><strong>Differences</strong></p>${listBlock(d.consistency.differences)}` : "")
+      + (d.consistency?.possibly_intentional?.length ? `<p class="small"><strong>Possibly intentional</strong></p>${listBlock(d.consistency.possibly_intentional)}` : "")
+      + (d.consistency?.constants?.length ? `<p class="small"><strong>Stays constant</strong></p>${listBlock(d.consistency.constants)}` : ""),
+      "differences aren't assumed to be mistakes")}
+    ${artSection("ai", "Page", kvBlock(d.page))}
+    ${artSection("ai", "Sequence", kvBlock(d.sequence))}
+    ${artSection("ai", "Panel by panel", d.panels?.length ? `<ol class="panels">${d.panels.map((p) =>
+      `<li><strong>${esc(p.panel || "")}</strong> ${esc(p.information || "")}${p.what_changes ? `<br><span class="muted small">Changes: ${esc(p.what_changes)}</span>` : ""}</li>`).join("")}</ol>` : "")}
+    ${artSection("ai", "Composition", kvBlock(a.composition_analysis))}
+    ${artSection("ai", "Artistic analysis", kvBlock(a.artistic_analysis))}
+    ${artSection("ai", "Character", kvBlock(a.character_analysis))}
+    ${artSection("ai", "Environment", d.environment ? `<div class="body">${esc(d.environment)}</div>` : "")}
+    ${artSection("ai", "Storytelling · visible", st.visible_information ? `<div class="body">${esc(st.visible_information)}</div>` : "", "what the image shows")}
+    ${artSection("infer", "Storytelling · possible interpretation", st.possible_interpretation ? `<div class="body">${esc(st.possible_interpretation)}</div>` : "", "not confirmed story information")}
+    ${artSection("ai", "Visual storytelling", kvBlock(st, ["visible_information", "possible_interpretation"]))}
+    ${artSection("ai", "Sequential art", kvBlock(a.sequential_art_analysis))}
+    <div class="levels">
+      ${artSection("user", "Preserve", listBlock(a.strengths), "already working")}
+      ${artSection("ai", "Develop", listBlock(a.development_opportunities), "could be strengthened")}
+      ${artSection("infer", "Experiment", listBlock(a.experiments), "optional, never required")}
+    </div>
+    ${d.creative_directions?.length ? prov("infer", "Creative directions", `<div class="directions">${d.creative_directions.map((o, i) =>
+      `<div class="direction"><strong>Option ${String.fromCharCode(65 + i)}: ${esc(o.name)}</strong><p>${esc(o.description)}</p></div>`).join("")}</div>`,
+      "your choice, not mine") : ""}
+    ${artSection("infer", "Questions for you", listBlock(d.questions))}
+    ${artSection("unknown", "Unclear / uncertain", listBlock(a.uncertainties))}
+    ${d.knowledge_references?.length ? `<p class="small muted">Drew on your library: ${d.knowledge_references.map(esc).join(", ")}</p>` : ""}
+    ${d.style_signals?.length ? `<p class="small muted">Style signals noticed: ${d.style_signals.map(esc).join(", ")}</p>` : ""}
+    <p class="small muted">${esc(a.model || "")} · version ${a.analysis_version} · ${fmtDateTime(a.completed_at || a.created_at)}
+      — observations and suggestions, not rules. You decide.</p>`;
+}
+
+async function startArt(entryId, mode, related = [], question = null) {
+  const a = await api(`/api/entries/${entryId}/art`, { method: "POST", json: { mode, related_entry_ids: related, question } });
+  location.hash = `#/art/analysis/${a.id}`;
+}
+
+function askQuestionThenStart(entryId) {
+  const q = prompt("Artist mode: what would you like to think through? (optional)", "");
+  if (q === null) return;
+  startArt(entryId, "artist", [], q).catch((err) => toast(err.message, true));
+}
+
+async function viewArtAnalysis(el, id) {
+  const a = await api(`/api/art/analyses/${id}`);
+  const mode = ART_MODES[a.mode] || { label: a.mode };
+  const busy = ART_ACTIVE.includes(a.status);
+  const thumbs = a.images.map((img, i) => `<a class="art-thumb" href="#/entry/${img.entry_id}">
+    ${img.url ? `<img src="${esc(img.url)}" alt="">` : ""}<span>${a.mode === "compare" ? (i ? "B" : "A") : `Image ${i + 1}`} · ${esc(img.title)}</span></a>`).join("");
+  el.innerHTML = `<p><a href="#/entry/${a.entry_id}" class="muted small">← Back to the artwork</a> · <a href="#/art" class="muted small">Art</a></p>
+    <div class="view-head"><div><div class="meta"><span class="pill type">${esc(mode.label)}</span><span class="pill">version ${a.analysis_version}</span></div>
+      <h1>Visual Art Intelligence</h1><p class="lede">${esc(mode.hint || "")}</p></div>
+      ${busy ? "" : `<button class="btn" data-act="again">Run again</button>`}</div>
+    <div class="art-thumbs">${thumbs}</div>
+    ${busy ? `<div class="busy-banner" id="artbusy"><span class="spinner"></span><div><strong>Looking at the artwork…</strong><br>
+      <span class="small muted">The local model is studying the image. This page updates by itself (usually under a minute or two).</span></div></div>` : ""}
+    ${a.status === "failed" ? prov("unknown", "Analysis couldn't run", `<div class="body">${esc(a.error || "Unknown error")}</div>`) : ""}
+    ${a.status === "done" ? renderArtAnalysis(a) : ""}
+    <h2>Other modes</h2><div class="row">${ONE_IMAGE_MODES.map((m) =>
+      `<button class="btn small" data-mode="${m}" title="${esc(ART_MODES[m].hint)}">${ART_MODES[m].label}</button>`).join("")}
+      <a class="btn ghost small" href="#/art">More (compare, sequence…)</a></div>`;
+  $$("[data-mode]", el).forEach((b) => (b.onclick = () =>
+    b.dataset.mode === "artist" ? askQuestionThenStart(a.entry_id) : startArt(a.entry_id, b.dataset.mode).catch((err) => toast(err.message, true))));
+  $("[data-act=again]", el)?.addEventListener("click", () =>
+    startArt(a.entry_id, a.mode, a.related_entry_ids, a.question).catch((err) => toast(err.message, true)));
+  if (busy) {
+    const node = $("#artbusy", el);
+    const route = location.hash;
+    const tick = async () => {
+      if (!node.isConnected) return;
+      try {
+        const x = await api(`/api/art/analyses/${id}`);
+        if (!ART_ACTIVE.includes(x.status)) { if (location.hash === route) render(); return; }
+      } catch { /* try again */ }
+      setTimeout(tick, 2500);
+    };
+    setTimeout(tick, 2500);
+  }
+}
+
+async function viewEvolution(el, id) {
+  const chain = await api(`/api/entries/${id}/evolution`);
+  const img = (e) => e.attachments.find((x) => x.kind === "image");
+  el.innerHTML = `<p><a href="#/entry/${id}" class="muted small">← Back</a></p>
+    <div class="view-head"><div><h1>How it evolved</h1>
+    <p class="lede">Every version linked with “new version of”, oldest first. Nothing is overwritten; each version keeps its own history.</p></div>
+    ${chain.length > 1 ? `<button class="btn primary" data-act="evo">ANALYZE THE EVOLUTION</button>` : ""}</div>
+    ${chain.length > 1 ? `<ol class="timeline">${chain.map((e, i) => `<li><a class="card" href="#/entry/${e.id}">
+      ${img(e) ? `<img class="thumb" src="${esc(img(e).url)}" alt="">` : ""}
+      <div class="meta"><span class="pill type">Version ${i + 1}</span><span class="spacer"></span><span>${fmtDate(e.created_at)}</span></div>
+      <h3>${esc(e.title)}</h3>${e.excerpt ? `<p class="summary">${esc(e.excerpt)}</p>` : ""}</a></li>`).join("")}</ol>`
+    : `<p class="empty">This artwork isn't linked to other versions yet. On a newer drawing, use “This is a new version of…” to connect them.</p>`}`;
+  $("[data-act=evo]", el)?.addEventListener("click", () => {
+    const ids = chain.map((e) => e.id).filter((x) => img(chain.find((e) => e.id === x)));
+    if (ids.length > 6) toast("Analyzing the 6 most recent versions.");
+    const use = ids.slice(-6);
+    startArt(use[0], "evolution", use.slice(1)).catch((err) => toast(err.message, true));
+  });
+}
+
+/** Art panels on an entry page (only for entries with an image). */
+async function mountArtPanels(el, e) {
+  const panel = $("#artpanel", el), evo = $("#evopanel", el);
+  if (!panel) return;
+  const [list, gallery, chain] = await Promise.all([
+    api(`/api/entries/${e.id}/art`), api("/api/art/gallery"), api(`/api/entries/${e.id}/evolution`),
+  ]).catch(() => [[], [], []]);
+  if (!panel.isConnected) return;
+  const latest = list[0];
+  const others = gallery.filter((g) => g.entry.id !== e.id);
+  const busy = latest && ART_ACTIVE.includes(latest.status);
+  panel.innerHTML = prov("ai", "Visual Art Intelligence", `
+    ${!latest ? `<p class="muted">No art analysis yet.</p>`
+      : busy ? `<p><span class="spinner inline"></span> Analyzing the artwork (${esc(ART_MODES[latest.mode]?.label || latest.mode)})…</p>`
+      : latest.status === "failed" ? `<p class="muted">Last analysis couldn't run: ${esc(latest.error || "")}</p>`
+      : `<p class="body">${esc(latest.visual_description || "")}</p>
+         ${latest.strengths?.[0] ? `<p class="small"><strong>Preserve:</strong> ${esc(latest.strengths[0])}</p>` : ""}
+         ${latest.development_opportunities?.[0] ? `<p class="small"><strong>Develop:</strong> ${esc(latest.development_opportunities[0])}</p>` : ""}`}
+    ${latest && !busy ? `<p><a href="#/art/analysis/${latest.id}">Open full analysis →</a>
+      ${list.length > 1 ? `<span class="muted small"> · ${list.length} versions: ${list.slice(0, 6).map((x) =>
+        `<a href="#/art/analysis/${x.id}">v${x.analysis_version} ${esc(ART_MODES[x.mode]?.label || x.mode)}</a>`).join(", ")}</span>` : ""}</p>` : ""}
+    <div class="row">${ONE_IMAGE_MODES.map((m) => `<button class="btn small" data-mode="${m}" title="${esc(ART_MODES[m].hint)}">${ART_MODES[m].label}</button>`).join("")}</div>
+    ${others.length ? `<div class="row" style="margin-top:8px"><select id="cmpwith" style="flex:1"><option value="">Compare with another artwork…</option>
+      ${others.map((g) => `<option value="${g.entry.id}">${esc(g.entry.title)}</option>`).join("")}</select></div>` : ""}`,
+    "an artist's reading, not a verdict");
+  $$("[data-mode]", panel).forEach((b) => (b.onclick = () =>
+    b.dataset.mode === "artist" ? askQuestionThenStart(e.id) : startArt(e.id, b.dataset.mode).catch((err) => toast(err.message, true))));
+  $("#cmpwith", panel)?.addEventListener("change", (ev) => {
+    if (ev.target.value) startArt(e.id, "compare", [Number(ev.target.value)]).catch((err) => toast(err.message, true));
+  });
+  if (busy) watchArt(latest.id, panel, () => mountArtPanels(el, e));
+
+  if (!evo) return;
+  const linkable = others.filter((g) => !chain.some((c) => c.id === g.entry.id));
+  evo.innerHTML = `<h3>Art development</h3>
+    ${chain.length > 1 ? `<p class="small">Version ${chain.findIndex((c) => c.id === e.id) + 1} of ${chain.length}.
+      <a href="#/art/evolution/${e.id}">Show how it evolved →</a></p>` : `<p class="small muted">Not linked to other versions yet.</p>`}
+    ${linkable.length ? `<select id="versionof"><option value="">This is a new version of…</option>
+      ${linkable.map((g) => `<option value="${g.entry.id}">${esc(g.entry.title)} (${fmtDate(g.entry.created_at)})</option>`).join("")}</select>` : ""}`;
+  $("#versionof", evo)?.addEventListener("change", async (ev) => {
+    if (!ev.target.value) return;
+    try {
+      await api(`/api/entries/${e.id}/relationships`, { method: "POST",
+        json: { target_entry_id: Number(ev.target.value), relationship_type: "evolved_from" } });
+      toast("Linked as a new version.");
+      render();
+    } catch (err) { toast(err.message, true); }
+  });
+}
+
+function watchArt(analysisId, node, onDone) {
+  const tick = async () => {
+    if (!node.isConnected) return;
+    try {
+      const a = await api(`/api/art/analyses/${analysisId}`);
+      if (!ART_ACTIVE.includes(a.status)) return onDone(a);
+    } catch { /* keep trying */ }
+    setTimeout(tick, 3000);
+  };
+  setTimeout(tick, 3000);
+}
+
+/* Art hub: artwork gallery (multi-select), creative memory, library */
+async function viewArt(el, _id, query) {
+  const tab = query.get("tab") || "artwork";
+  const tabs = [["artwork", "Artwork"], ["memory", "Creative memory"], ["library", "Art library"]];
+  el.innerHTML = `<div class="view-head"><div><h1>Art</h1>
+    <p class="lede">Visual Art Intelligence reads your artwork like an illustrator and visual storyteller would: it observes, explains and asks. You decide.</p></div></div>
+    <div class="tabs">${tabs.map(([k, l]) => `<a href="#/art?tab=${k}" class="${k === tab ? "active" : ""}">${l}</a>`).join("")}</div>
+    <div id="arttab"></div>`;
+  const box = $("#arttab", el);
+  if (tab === "memory") return artMemory(box);
+  if (tab === "library") return artLibrary(box);
+  return artGallery(box);
+}
+
+async function artGallery(box) {
+  const items = await api("/api/art/gallery");
+  if (!items.length) {
+    box.innerHTML = `<p class="empty">No artwork yet. Upload a sketch, panel or page from the <a href="#/">capture</a> screen (JPEG or PNG).</p>`;
+    return;
+  }
+  const picked = [];
+  box.innerHTML = `<div class="selbar" id="selbar"><span id="selcount" class="small muted">Tap artworks to select them. Order matters (Image 1, 2…).</span>
+      <span class="spacer"></span><span id="selactions" class="row"></span></div>
+    <div class="art-grid">${items.map((g) => {
+      const img = g.entry.attachments.find((a) => a.kind === "image");
+      return `<div class="art-tile" data-id="${g.entry.id}">
+        <button type="button" class="pick" aria-label="Select ${esc(g.entry.title)}"><span class="num"></span></button>
+        <a href="#/entry/${g.entry.id}">${img ? `<img src="${esc(img.url)}" alt="" loading="lazy">` : ""}
+        <span class="cap">${esc(g.entry.title)}</span></a>
+        <span class="small muted">${g.analyses ? `${g.analyses} analys${g.analyses === 1 ? "is" : "es"}` : "not analyzed"}${
+          g.latest_status && ART_ACTIVE.includes(g.latest_status) ? " · working…" : ""}</span></div>`;
+    }).join("")}</div>`;
+  const refresh = () => {
+    $$(".art-tile", box).forEach((t) => {
+      const i = picked.indexOf(Number(t.dataset.id));
+      t.classList.toggle("picked", i >= 0);
+      $(".num", t).textContent = i >= 0 ? i + 1 : "";
+    });
+    const n = picked.length;
+    $("#selcount", box).textContent = n ? `${n} selected` : "Tap artworks to select them. Order matters (Image 1, 2…).";
+    const modes = n === 0 ? [] : n === 1 ? ONE_IMAGE_MODES : MANY_IMAGE_MODES.filter((m) => m !== "compare" || n === 2);
+    $("#selactions", box).innerHTML = modes.map((m) =>
+      `<button class="btn small" data-mode="${m}" title="${esc(ART_MODES[m].hint)}">${ART_MODES[m].label}</button>`).join("")
+      + (n ? `<button class="btn ghost small" data-act="clear">Clear</button>` : "");
+    $$("[data-mode]", box).forEach((b) => (b.onclick = () => {
+      const [first, ...rest] = picked;
+      if (b.dataset.mode === "artist") return askQuestionThenStart(first);
+      startArt(first, b.dataset.mode, rest).catch((err) => toast(err.message, true));
+    }));
+    $("[data-act=clear]", box)?.addEventListener("click", () => { picked.length = 0; refresh(); });
+  };
+  $$(".art-tile .pick", box).forEach((b) => (b.onclick = () => {
+    const id = Number(b.closest(".art-tile").dataset.id);
+    const i = picked.indexOf(id);
+    if (i >= 0) picked.splice(i, 1); else if (picked.length < 6) picked.push(id); else toast("Up to 6 images at a time.", true);
+    refresh();
+  }));
+  refresh();
+}
+
+async function artMemory(box) {
+  const prefs = await api("/api/art/preferences");
+  const confirmed = prefs.filter((p) => p.status === "confirmed");
+  const suggested = prefs.filter((p) => p.status === "suggested");
+  box.innerHTML = `
+    <p class="lede">Preferences you confirm here are shared with the AI as context (never as rules). Patterns NEXUS notices
+      are only suggestions, always shown with the artworks behind them, until you confirm them.</p>
+    <h2>Your confirmed preferences</h2>
+    ${confirmed.length ? `<div class="meta">${confirmed.map((p) => `<span class="tag user">${esc(p.statement)}
+      <button data-pref="${p.id}" data-status="rejected" aria-label="Remove">×</button></span>`).join(" ")}</div>` : `<p class="muted small">None yet.</p>`}
+    <form class="row" id="addpref" style="margin-top:12px"><input type="text" name="statement" placeholder="e.g. I prefer heavy silhouettes and dramatic lighting" style="flex:1">
+      <button class="btn small">Add</button></form>
+    <h2>Observed patterns · AI inference</h2>
+    ${suggested.length ? suggested.map((p) => prov("infer", "Observed pattern", `
+      <div class="body">${p.evidence.length} of your artworks show “${esc(p.statement)}”.</div>
+      <div class="art-thumbs small">${p.evidence.map((i) => `<a class="art-thumb" href="#/entry/${i.entry_id}">${i.url ? `<img src="${esc(i.url)}" alt="">` : ""}<span>${esc(i.title)}</span></a>`).join("")}</div>
+      <div class="row"><button class="btn small" data-pref="${p.id}" data-status="confirmed">Yes, that's my preference</button>
+        <button class="btn ghost small" data-pref="${p.id}" data-status="rejected">No</button></div>`,
+      "not assumed until you confirm")).join("")
+      : `<p class="muted small">None yet. A pattern appears once at least 3 different artworks share the same trait.</p>`}`;
+  $$("[data-pref]", box).forEach((b) => (b.onclick = async () => {
+    await api(`/api/art/preferences/${b.dataset.pref}`, { method: "PATCH", json: { status: b.dataset.status } });
+    toast(b.dataset.status === "confirmed" ? "Saved as your preference." : "Removed.");
+    artMemory(box);
+  }));
+  $("#addpref", box).onsubmit = async (ev) => {
+    ev.preventDefault();
+    const v = ev.target.statement.value.trim();
+    if (!v) return;
+    try { await api("/api/art/preferences", { method: "POST", json: { statement: v } }); artMemory(box); }
+    catch (err) { toast(err.message, true); }
+  };
+}
+
+async function artLibrary(box) {
+  const [items, meta] = await Promise.all([api("/api/art/knowledge"), api("/api/art/topics")]);
+  box.innerHTML = `
+    <p class="lede">Add notes from art books, courses and references (anatomy, perspective, storyboarding, inking…).
+      When they're relevant, the analysis draws on them and tells you which note it used.</p>
+    <form class="filters" id="addk">
+      <label class="field" style="flex:2 1 220px">Title<input type="text" name="title" required placeholder="e.g. Silhouette and readability"></label>
+      <label class="field">Topic<select name="topic">${options(meta.topics, "composition")}</select></label>
+      <label class="field" style="flex:2 1 200px">Source<input type="text" name="source" placeholder="Book, course or link (optional)"></label>
+      <label class="field" style="flex:1 1 100%">Notes<textarea name="content" rows="6" required placeholder="Paste or write the principle in your own words…"></textarea></label>
+      <button class="btn primary" type="submit">ADD TO LIBRARY</button>
+    </form>
+    ${items.length ? items.map((k) => `<details class="panel libitem"><summary><strong>${esc(k.title)}</strong>
+        <span class="pill">${esc(k.topic)}</span>${k.source ? ` <span class="muted small">${esc(k.source)}</span>` : ""}</summary>
+        <div class="body small" style="white-space:pre-wrap">${esc(k.content)}</div>
+        <div class="row"><button class="btn danger ghost small" data-delk="${k.id}">Remove</button></div></details>`).join("")
+      : `<p class="empty">Your art library is empty.</p>`}`;
+  $("#addk", box).onsubmit = async (ev) => {
+    ev.preventDefault();
+    try {
+      await api("/api/art/knowledge", { method: "POST", json: Object.fromEntries(new FormData(ev.target)) });
+      toast("Added to your art library.");
+      artLibrary(box);
+    } catch (err) { toast(err.message, true); }
+  };
+  $$("[data-delk]", box).forEach((b) => (b.onclick = async () => {
+    if (!confirm("Remove this note from the library?")) return;
+    await api(`/api/art/knowledge/${b.dataset.delk}`, { method: "DELETE" });
+    artLibrary(box);
+  }));
+}
+
 /* ----------------------------------------------------------------- router */
 const ROUTES = [
   [/^\/?$/, viewHome, ""],
@@ -980,6 +1377,9 @@ const ROUTES = [
   [/^\/search$/, viewSearch, "search"],
   [/^\/settings$/, viewSettings, "settings"],
   [/^\/trash$/, viewTrash, "archive"],
+  [/^\/art$/, viewArt, "art"],
+  [/^\/art\/analysis\/(\d+)$/, viewArtAnalysis, "art"],
+  [/^\/art\/evolution\/(\d+)$/, viewEvolution, "art"],
 ];
 
 let renderToken = 0;

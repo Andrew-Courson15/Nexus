@@ -7,6 +7,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.models import (
+    ArtMode,
     CreativeEntry,
     EntryStatus,
     EntryType,
@@ -329,3 +330,93 @@ def project_out(p: Project, entry_count: int) -> ProjectOut:
         id=p.id, name=p.name, description=p.description, project_type=p.project_type, status=p.status,
         created_at=p.created_at, updated_at=p.updated_at, entry_count=entry_count, deleted_at=p.deleted_at,
     )
+
+
+# --------------------------------------------------------------------------- #
+# Visual Art Intelligence
+# --------------------------------------------------------------------------- #
+class ArtAnalysisCreate(BaseModel):
+    mode: ArtMode = ArtMode.analysis
+    related_entry_ids: list[int] = Field(default_factory=list, max_length=5)
+    question: str | None = Field(None, max_length=2000)
+
+
+class ArtImage(BaseModel):
+    entry_id: int
+    title: str
+    url: str | None
+
+
+class ArtAnalysisOut(BaseModel):
+    id: int
+    entry_id: int
+    analysis_version: int
+    mode: str
+    related_entry_ids: list[int]
+    question: str | None
+    status: str
+    error: str | None
+    model: str | None
+    visual_description: str | None
+    artistic_analysis: dict[str, Any]
+    composition_analysis: dict[str, Any]
+    character_analysis: dict[str, Any]
+    storytelling_analysis: dict[str, Any]
+    sequential_art_analysis: dict[str, Any]
+    strengths: list[Any]
+    development_opportunities: list[Any]
+    experiments: list[Any]
+    uncertainties: list[Any]
+    details: dict[str, Any]
+    created_at: datetime
+    completed_at: datetime | None
+    images: list[ArtImage] = []
+
+
+class ArtPreferenceCreate(BaseModel):
+    statement: str = Field(..., min_length=2, max_length=300)
+
+
+class ArtPreferenceReview(BaseModel):
+    status: Literal["confirmed", "rejected", "suggested"]
+
+
+class ArtPreferenceOut(BaseModel):
+    id: int
+    statement: str
+    origin: str
+    status: str
+    evidence: list[ArtImage]
+    created_at: datetime
+
+
+class ArtKnowledgeCreate(BaseModel):
+    title: str = Field(..., min_length=1, max_length=300)
+    topic: str = "other"
+    source: str | None = Field(None, max_length=300)
+    content: str = Field(..., min_length=1, max_length=200_000)
+
+    @field_validator("title", "content")
+    @classmethod
+    def _not_blank(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("cannot be empty")
+        return v
+
+
+class ArtKnowledgeOut(BaseModel):
+    id: int
+    title: str
+    topic: str
+    source: str | None
+    content: str
+    passages: int
+    created_at: datetime
+    updated_at: datetime
+
+
+class GalleryItem(BaseModel):
+    entry: EntrySummary
+    analyses: int
+    latest_status: str | None
+    latest_analysis_id: int | None

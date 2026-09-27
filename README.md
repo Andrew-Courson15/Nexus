@@ -213,6 +213,48 @@ Browsers only allow microphone access on `localhost` or HTTPS. Open NEXUS at
 
 ---
 
+## Visual Art Intelligence
+
+NEXUS reads artwork the way an illustrator, comic artist, storyboard artist and visual storyteller would.
+It covers comics, manga, cartooning, character, creature and environment design, storyboards, concept art
+and illustration. **It is not the artist**: it observes, understands, explains, connects, questions,
+suggests and compares, and you make every decision.
+
+**What it does:**
+- **Every new image gets a layered analysis automatically.**
+  - A literal description comes first, with no invented details, and anything unclear is marked unclear.
+  - Then: composition and eye flow, shape language, linework, value, lighting, color, perspective and depth,
+    character, environment, and storytelling (*visible* information kept apart from *possible interpretation*).
+  - Sequential-art notes: panel function, shot type and camera.
+  - Suggestions in three levels: **Preserve** (what already works), **Develop** (what could be stronger, and
+    why) and **Experiment** (optional, never required).
+  - Several **creative directions** (Option A / B / C) without picking one for you, plus questions for you.
+  - Stylization isn't treated as a mistake, and cartoons are judged as cartoons.
+- **Modes** (on any image's page, or from **Art → Artwork** with images selected in order):
+  - **Critique**: what I see, what's working, what could be stronger, why it matters, approaches, questions,
+    optional experiments.
+  - **Artist mode**: a collaborator that asks questions (ask it something specific if you like).
+  - **Comic page**: layout, panel hierarchy, reading order (it doesn't assume one if it's ambiguous) and
+    page-turn potential.
+  - **Storyboard**: camera, staging, pacing and clarity. Rendering isn't judged.
+  - **Sequence**: several panels. For each: what does the reader learn, and what changes?
+  - **Compare A / B**: what changed and its effect. No "winner".
+  - **Character consistency**: differences, which ones look intentional, and what stays constant.
+  - **Evolution**: how versions of a piece developed.
+- **Every analysis is kept.** Running again adds a new version (`artwork_analyses`).
+- **Art development history:** on a newer drawing, choose "This is a new version of…". Then use
+  **Show how it evolved** to see the timeline and analyze the evolution.
+- **Creative memory (Art → Creative memory):**
+  - Preferences you confirm are passed to the AI as context, never as rules.
+  - When at least 3 different artworks share a trait (for example "heavy silhouettes"), NEXUS *suggests* it as
+    an observed pattern and shows the artworks behind it. It's only used once you confirm it, and rejected
+    patterns never come back.
+- **Art library (Art → Art library):** add notes from your art books and courses (anatomy, perspective,
+  storyboarding, inking…). Relevant notes are given to the AI, and the analysis names the ones it drew on.
+
+Visual Art Intelligence needs a local model that can see images (`gemma3:12b` can). It reads JPEG and PNG.
+Set `NEXUS_ART_AUTO_ANALYZE=false` to analyze only when you press a button.
+
 ## Configuration (`.env`)
 
 | Variable | Default | Purpose |
@@ -238,6 +280,7 @@ Browsers only allow microphone access on `localhost` or HTTPS. Open NEXUS at
 | `NEXUS_EMBEDDING_MODEL` | `nomic-embed-text` | Local embedding model (about 0.3 GB) |
 | `NEXUS_SEMANTIC_MIN_SIMILARITY` | `0.5` | How close (0–1) a meaning match must be. Raise it if unrelated ideas show up |
 | `NEXUS_SEMANTIC_WINDOW` | `0.15` | Keep only meaning matches within this distance of the best one |
+| `NEXUS_ART_AUTO_ANALYZE` | `true` | Analyze every new image with Visual Art Intelligence |
 | `NEXUS_PROCESSING_MODE` | `background` | `background` (captures return instantly) or `sync` |
 | `OPENAI_API_KEY`, `ANTHROPIC_API_KEY` | empty | Read from the environment only. Never stored in the database. |
 
@@ -273,6 +316,7 @@ nexus/
 │   │   ├── ollama.py         OllamaProvider: local LLM, structured output, images, fallback
 │   │   ├── processing.py     Background queue: transcribe → organize → index, crash recovery
 │   │   ├── embeddings.py     Search by meaning: embedding provider, vector index, similarity
+│   │   ├── art.py            Visual Art Intelligence: prompts, modes, answer schema, memory, library, evolution
 │   │   ├── organizer.py      Organizer: runs the provider, stores derived data safely
 │   │   ├── relationships.py  Relationship discovery + review
 │   │   ├── search.py         SQLite FTS5 search, query parsing, SemanticSearchService seam
@@ -285,7 +329,8 @@ nexus/
 │   │   ├── projects.py       Projects and membership
 │   │   ├── search.py         POST /api/search
 │   │   ├── uploads.py        File/voice/image uploads and original-file serving
-│   │   └── system.py         Settings, tags, patterns
+│   │   ├── system.py         Settings, tags, patterns
+│   │   └── art.py            Art analyses, gallery, evolution, creative memory, art library
 │   └── templates/index.html  Single-page shell
 ├── static/css/style.css      Styles (dark/light, responsive)
 ├── static/js/app.js          Vanilla JS app (router, views, recorder)
@@ -313,6 +358,9 @@ nexus/
 | `tags` / `entry_tags` | Tags. `entry_tags.source` records whether you or the AI added the tag. |
 | `creative_revisions` | Append-only JSON snapshots (`version_number`, `content_snapshot`, `change_description`). Written on capture, every edit, every AI analysis, project change, trash and restore. |
 | `entry_search` | SQLite FTS5 index (porter stemming, BM25) over user and AI text. |
+| `artwork_analyses` | **Derived, append-only.** One Visual Art Intelligence analysis: `entry_id`, `analysis_version`, `mode`, `related_entry_ids` (other images, in order), `question`, `status`, `model`, `visual_description`, and JSON for `artistic_analysis`, `composition_analysis`, `character_analysis`, `storytelling_analysis`, `sequential_art_analysis`, `strengths`, `development_opportunities`, `experiments`, `uncertainties`. `details` holds the mode's extras (critique, comparison, page, sequence, creative directions, questions, style signals, library references). |
+| `art_preferences` | Creative memory: `statement`, `origin` (`user` / `observed`), `status` (`suggested` / `confirmed` / `rejected`), `evidence` (entry ids). |
+| `art_knowledge`, `art_knowledge_chunks` | The art library (user material) and its passages, with optional meaning vectors for retrieval. |
 | `entry_embeddings` | **Derived.** One meaning vector per entry (`model`, `dim`, normalised float32 `vector`, `content_hash`). Rebuilt automatically when the entry's text or the model changes. |
 
 Enumerations (entry types, statuses, source types, project types, relationship types) are
@@ -424,11 +472,24 @@ Transcription follows the same pattern in `services/transcription.py`: `Transcri
 | DELETE | `/api/projects/{id}/entries/{entry_id}` | Remove from project |
 | DELETE | `/api/projects/{id}` | Move a project to the trash (its entries are untouched) |
 | POST | `/api/projects/{id}/restore` | Restore a trashed project (`GET /api/projects?trashed=true` lists them) |
+| POST | `/api/entries/{id}/art` | Start an art analysis: `{"mode", "related_entry_ids", "question"}` (returns 202 while running) |
+| GET | `/api/entries/{id}/art` | All art analysis versions of an artwork |
+| GET | `/api/art/analyses/{id}` | One analysis |
+| GET | `/api/art/gallery` | Every artwork, with analysis counts |
+| GET | `/api/entries/{id}/evolution` | Versions linked by `evolved_from`, oldest first |
+| GET/POST | `/api/art/preferences` · PATCH `/api/art/preferences/{id}` | Creative memory; confirm or reject observed patterns |
+| GET/POST | `/api/art/knowledge` · PUT/DELETE `/api/art/knowledge/{id}` | Art library |
 | GET | `/api/tags`, `/api/settings`, `/api/insights/patterns` | Tags with counts, configuration (no secrets), evidence-backed patterns |
 
 ---
 
 ## Not built yet
+
+- **Project-level creative analysis** ("analyze my entire comic"): story, characters, sheets, pages,
+  dialogue, worldbuilding, visual consistency, pacing and themes across a whole project. This will be a
+  separate capability from single-image analysis, built on the per-image analyses, evolution links and
+  library that exist now.
+- Importing PDFs or ebooks into the art library (for now, paste the passages you care about).
 
 - Asking questions about the archive ("what are my recurring villains?"). `answer_question` works with Ollama; it needs an endpoint and UI.
 - Knowledge-graph entities beyond entries: people, places, themes and events.

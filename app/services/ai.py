@@ -101,6 +101,18 @@ class RelationshipSuggestion:
     rationale: str
 
 
+@dataclass
+class ArtworkRequest:
+    """A Visual Art Intelligence request, already turned into prompts by services/art.py."""
+    mode: str
+    system: str
+    prompt: str
+    schema: dict[str, Any]
+    images: list[dict[str, Any]]           # [{"path", "mime_type"}] in order: Image 1, Image 2 ...
+    knowledge_titles: list[str] = field(default_factory=list)
+    model_used: str = ""                   # filled in by the provider
+
+
 class AIProviderError(RuntimeError):
     """Raised when a provider cannot run (not implemented, not configured, API error)."""
 
@@ -127,6 +139,15 @@ class AIProvider(ABC):
     def health(self) -> dict[str, Any]:
         """Quick readiness check for the Settings page. Must be fast."""
         return {"ok": True, "detail": "Ready."}
+
+    #: True if this provider can look at artwork (Visual Art Intelligence).
+    supports_art: bool = False
+
+    def analyze_artwork(self, request: ArtworkRequest) -> dict[str, Any]:
+        """Return the raw structured analysis (a dict following request.schema)."""
+        raise AIProviderError(
+            "Visual Art Intelligence needs a local vision model. Set NEXUS_AI_PROVIDER=ollama and use a model "
+            "that can see images (for example gemma3:12b).")
 
 
 # --------------------------------------------------------------------------- #

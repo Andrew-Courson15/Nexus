@@ -43,13 +43,16 @@ class Job:
     analyze: bool = True
     force_transcribe: bool = False
     embed: bool = True
+    art_analysis_id: int | None = None  # Visual Art Intelligence job
 
     @property
     def embed_only(self) -> bool:
-        return not self.transcribe and not self.analyze
+        return not self.transcribe and not self.analyze and self.art_analysis_id is None
 
     @property
     def key(self) -> tuple[int, str]:
+        if self.art_analysis_id is not None:
+            return (self.entry_id, f"art:{self.art_analysis_id}")
         return (self.entry_id, "embed" if self.embed_only else "full")
 
 
@@ -102,8 +105,24 @@ def _embed(db: Session, entry: CreativeEntry) -> None:
         db.commit()
 
 
+def _auto_art(db: Session, entry: CreativeEntry) -> None:
+    """First Visual Art Intelligence analysis for a newly organised image (queued as its own job)."""
+    from app.services.art import maybe_auto_analyze
+
+    try:
+        maybe_auto_analyze(db, entry)
+    except Exception:  # optional extra: never fail the capture over it
+        log.exception("Couldn't queue art analysis for entry %s", entry.id)
+        db.rollback()
+
+
 def run_job(job: Job) -> str:
     """Run one job in its own session. Returns the final status."""
+    if job.art_analysis_id is not None:
+        from app.services.art import run_analysis
+
+        with SessionLocal() as db:
+            return run_analysis(db, job.art_analysis_id)
     with SessionLocal() as db:
         entry = _load(db, job.entry_id)
         if entry is None or entry.deleted_at is not None:
@@ -131,6 +150,8 @@ def run_job(job: Job) -> str:
             db.commit()
             if job.embed:
                 _embed(db, entry)
+            if ok and job.analyze:
+                _auto_art(db, entry)
             return entry.processing_status
         except Exception as exc:  # never let one entry kill the worker
             log.exception("Processing entry %s failed", job.entry_id)
@@ -203,8 +224,19 @@ class ProcessingQueue:
         for entry_id in ids:
             self.submit(Job(entry_id))
         with SessionLocal() as db:
+            from app.models import ArtworkAnalysis
+
+            art = db.execute(select(ArtworkAnalysis.id, ArtworkAnalysis.entry_id)
+                             .where(ArtworkAnalysis.status.in_(("queued", "running")))
+                             .order_by(ArtworkAnalysis.id)).all()
+            for analysis_id, _ in art:
+                db.get(ArtworkAnalysis, analysis_id).status = "queued"
+            db.commit()
+        for analysis_id, entry_id in art:
+            self.submit(Job(entry_id, transcribe=False, analyze=False, embed=False, art_analysis_id=analysis_id))
+        with SessionLocal() as db:
             queue_embedding_backfill(db)
-        return len(ids)
+        return len(ids) + len(art)
 
     def _worker(self) -> None:
         while True:

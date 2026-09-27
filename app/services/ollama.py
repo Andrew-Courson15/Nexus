@@ -29,7 +29,9 @@ from app.config import get_settings
 from app.models import EntryType, RelationshipType
 from app.services.ai import (
     AIProvider,
+    AIProviderError,
     AnalysisResult,
+    ArtworkRequest,
     EntryContext,
     LocalHeuristicProvider,
     RelationshipSuggestion,
@@ -564,6 +566,32 @@ class OllamaProvider(AIProvider):
             ], temperature=0.3).strip()
         except OllamaError:
             return self.fallback.answer_question(question, context)
+
+    supports_art = True
+
+    def analyze_artwork(self, request: ArtworkRequest) -> dict[str, Any]:
+        model = self.vision_model
+        if self._supports_vision(model) is False:
+            raise AIProviderError(
+                f"The model {model} can't see images. Set NEXUS_OLLAMA_VISION_MODEL to a vision model "
+                "(for example gemma3:12b) to use Visual Art Intelligence.")
+        images = []
+        for img in request.images:
+            try:
+                path = Path(img["path"])
+                if path.stat().st_size > MAX_IMAGE_BYTES:
+                    raise AIProviderError(f"{path.name} is too large to analyse (limit {MAX_IMAGE_BYTES // 2**20} MB).")
+                images.append(base64.b64encode(path.read_bytes()).decode("ascii"))
+            except OSError as exc:
+                raise AIProviderError(f"Couldn't read an image from disk: {exc}") from exc
+        messages = [{"role": "system", "content": request.system},
+                    {"role": "user", "content": request.prompt, "images": images}]
+        try:
+            raw = self.client.chat_json(model, messages, request.schema)
+        except OllamaError as exc:
+            raise AIProviderError(str(exc)) from exc
+        request.model_used = f"ollama:{model}"
+        return raw
 
     def health(self) -> dict[str, Any]:
         try:

@@ -50,6 +50,8 @@ class Settings:
     embedding_model: str = "nomic-embed-text"
     semantic_min_similarity: float = 0.5
     semantic_window: float = 0.15  # keep meaning-matches within this distance of the best one
+    # Visual Art Intelligence: analyse new images automatically (needs a vision model)
+    art_auto_analyze: bool = True
 
     @property
     def uploads_dir(self) -> Path:
@@ -101,4 +103,5 @@ def get_settings() -> Settings:
         embedding_model=os.getenv("NEXUS_EMBEDDING_MODEL", "nomic-embed-text").strip(),
         semantic_min_similarity=float(os.getenv("NEXUS_SEMANTIC_MIN_SIMILARITY", "0.5")),
         semantic_window=float(os.getenv("NEXUS_SEMANTIC_WINDOW", "0.15")),
+        art_auto_analyze=os.getenv("NEXUS_ART_AUTO_ANALYZE", "true").strip().lower() not in ("0", "false", "no", "off"),
     )
