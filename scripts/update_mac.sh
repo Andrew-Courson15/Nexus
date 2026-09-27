@@ -2,7 +2,9 @@
 # Update NEXUS in one step: stop it, get the latest version, set it up, start it again.
 # Your ideas and settings (the data folder and .env) are never touched by an update.
 #   ./scripts/update_mac.sh
+# (Settings > Updates in NEXUS runs this with --no-browser: the open page reloads by itself.)
 set -uo pipefail
+NO_BROWSER=""; [ "${1:-}" = "--no-browser" ] && NO_BROWSER=1
 cd "$(dirname "$0")/.."
 
 say()  { printf "\n\033[1m==> %s\033[0m\n" "$*"; }
@@ -32,13 +34,13 @@ say "Setting up..."
 # 4. Start the new version.
 VERSION="$(sed -n 's/^__version__ = "\(.*\)"/\1/p' app/__init__.py)"
 say "Starting NEXUS $VERSION..."
-if [ -d "$HOME/Applications/NEXUS.app" ]; then
+if [ -d "$HOME/Applications/NEXUS.app" ] && [ -z "$NO_BROWSER" ]; then
   open "$HOME/Applications/NEXUS.app"
 else
   mkdir -p data
   nohup .venv/bin/python run.py >> data/nexus.log 2>&1 &
   sleep 3
-  open "http://localhost:$PORT"
+  [ -n "$NO_BROWSER" ] || open "http://localhost:$PORT"
 fi
 echo "On your phone: open NEXUS while this Mac is on. It loads the new version by itself"
 echo "(or close it fully and open it again), then saves its copy for when the Mac is off."

@@ -1,6 +1,8 @@
 # Update NEXUS in one step: stop it, get the latest version, set it up, start it again.
 # Your ideas and settings (the data folder and .env) are never touched by an update.
 #   powershell -ExecutionPolicy Bypass -File scripts\update_windows.ps1
+# (Settings > Updates in NEXUS runs this with -NoBrowser: the open page reloads by itself.)
+param([switch]$NoBrowser)
 $ErrorActionPreference = "Continue"
 Set-Location (Split-Path $PSScriptRoot -Parent)
 $dir = (Get-Location).Path
@@ -49,7 +51,7 @@ if ($LASTEXITCODE -ne 0) { Fail "Setup stopped early (see the message above). Fi
 # 4. Start the new version (in the background, like the desktop icon) and open it.
 Say "Starting NEXUS..."
 Start-Process -FilePath (Join-Path $env:SystemRoot "System32\WindowsPowerShell\v1.0\powershell.exe") `
-    -ArgumentList "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$dir\scripts\nexus_launcher.ps1`"" `
+    -ArgumentList ("-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$dir\scripts\nexus_launcher.ps1`"" + $(if ($NoBrowser) { " -NoBrowser" } else { "" })) `
     -WindowStyle Hidden
 $version = (Select-String -Path "app\__init__.py" -Pattern '__version__ = "([^"]+)"').Matches[0].Groups[1].Value
 Say "NEXUS $version is starting and will open in your browser."

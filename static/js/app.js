@@ -2008,6 +2008,9 @@ async function viewSettings(el) {
       <div class="panel" id="device"></div>
       <div class="panel" id="lock"></div>
       ${HAS_OFFLINE_COPY ? "" : `<div class="panel" id="phone"></div>`}
+      ${HAS_OFFLINE_COPY ? "" : `<div class="panel" id="updates"><h3>Updates</h3>
+        <p class="small muted">NEXUS ${esc(APP_VERSION || "")} · your ideas and settings are never touched by an update.</p>
+        <button type="button" class="btn small" data-act="check-update">Check for updates</button><div id="update-info"></div></div>`}
       <div class="panel" id="report"><h3>Something not working?</h3>
         <p class="small muted">Make a report to paste when asking for help: versions, whether the AI and search are healthy,
           counts and recent log lines. It never includes what your entries say, and nothing is sent anywhere: you see it first and copy it yourself.</p>
@@ -2020,6 +2023,7 @@ async function viewSettings(el) {
   mountDevice($("#device", el));
   mountLock($("#lock", el));
   if ($("#phone", el)) mountPhone($("#phone", el));
+  $("[data-act=check-update]", el)?.addEventListener("click", (ev) => checkForUpdate(ev.target, $("#update-info", el)));
   $("[data-act=report]", el).onclick = async (ev) => {
     const box = $("#report", el);
     ev.target.disabled = true;
@@ -2045,6 +2049,46 @@ async function viewSettings(el) {
       toast(`Indexing ${r.queued} entr${r.queued === 1 ? "y" : "ies"} in the background…`);
       setTimeout(() => { if (location.hash === "#/settings") render(); }, 4000);
     } catch (err) { toast(err.message, true); ev.target.disabled = false; }
+  });
+}
+
+/** Settings → Updates (on the computer NEXUS runs on): check git, then run the update script. */
+async function checkForUpdate(button, box) {
+  button.disabled = true; button.textContent = "Checking…";
+  let info;
+  try { info = await api("/api/update", { timeout: 120000 }); }
+  catch (err) { box.innerHTML = `<p class="small" style="color:var(--danger)">${esc(err.message)}</p>`; return; }
+  finally { button.disabled = false; button.textContent = "Check again"; }
+  if (!info.behind) {
+    box.innerHTML = `<p class="health ${info.reason ? "bad" : "ok"}"><span class="dot"></span>${esc(info.reason || "NEXUS is up to date.")}</p>`;
+    return;
+  }
+  box.innerHTML = `<p class="health ok"><span class="dot"></span>NEXUS ${esc(info.latest_version || "")} is available
+      (${info.behind} change${info.behind === 1 ? "" : "s"}).</p>
+    ${info.changes.length ? `<ul class="small">${info.changes.map((c) => `<li>${esc(c)}</li>`).join("")}</ul>` : ""}
+    ${info.can_update ? `<button type="button" class="btn primary small" data-act="update-now">UPDATE NOW</button>
+      <p class="small muted">NEXUS stops for a minute or two while it updates, then this page reloads by itself.</p>`
+      : `<p class="small" style="color:var(--danger)">${esc(info.reason || "")}</p>`}`;
+  $("[data-act=update-now]", box)?.addEventListener("click", async (ev) => {
+    ev.target.disabled = true;
+    try { await api("/api/update", { method: "POST", timeout: 60000 }); }
+    catch (err) { toast(err.message, true); ev.target.disabled = false; return; }
+    box.innerHTML = `<p class="small"><span class="spinner inline"></span>Updating… NEXUS is stopping, downloading, setting up and starting again.</p>`;
+    const from = APP_VERSION, started = Date.now();
+    const poll = async () => {
+      try {
+        const r = await fetch("/api/ping", { cache: "no-store" });
+        const v = r.ok && (await r.json()).version;
+        if (v && v !== from) { location.reload(); return; }
+      } catch { /* still restarting */ }
+      if (Date.now() - started > 6 * 60 * 1000) {
+        box.innerHTML = `<p class="small" style="color:var(--danger)">The update is taking longer than expected. Details are in
+          <code>data/update.log</code> in the NEXUS folder. If NEXUS doesn't come back, run the update script from a terminal.</p>`;
+        return;
+      }
+      setTimeout(poll, 3000);
+    };
+    setTimeout(poll, 5000);
   });
 }
 

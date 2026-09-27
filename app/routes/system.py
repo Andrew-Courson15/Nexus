@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -257,3 +257,35 @@ def rediscover(today: date | None = None, tz_offset: int = Query(0, ge=-900, le=
     return {"today": today.isoformat(),
             "on_this_day": [entry_summary(e).model_dump(mode="json") for e in on_this_day],
             "resurfaced": [entry_summary(e).model_dump(mode="json") for e in resurfaced]}
+
+
+def _only_here(request: Request) -> None:
+    from app.services import lock
+
+    if not lock.is_local(request.client.host if request.client else None, request.headers):
+        raise HTTPException(403, "Updates are checked and started on the computer NEXUS runs on.")
+
+
+@router.get("/update")
+def update_check(request: Request):
+    """Is a newer NEXUS available? (Asks git; on the computer NEXUS runs on only.)"""
+    from app.services import updates
+
+    _only_here(request)
+    try:
+        return updates.check()
+    except updates.UpdateError as exc:
+        return {"can_update": False, "current_version": __version__, "reason": str(exc)}
+
+
+@router.post("/update", status_code=202)
+def update_start(request: Request):
+    """Stop, update, set up and restart NEXUS in the background (the update script)."""
+    from app.services import updates
+
+    _only_here(request)
+    try:
+        updates.start()
+    except updates.UpdateError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"started": True, "from_version": __version__}
