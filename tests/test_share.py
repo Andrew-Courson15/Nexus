@@ -6,7 +6,6 @@ import zipfile
 import pytest
 
 from app.config import get_settings
-from app.services import share
 from tests.test_images import _pil
 
 

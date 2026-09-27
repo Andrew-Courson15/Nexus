@@ -69,7 +69,9 @@ def test_a_damaged_preferences_file_is_ignored(client):
 def test_shares_are_signed_with_your_name(client):
     client.put("/api/preferences", json={"owner_name": "Andrew"})
     e = client.post("/api/entries", json={"original_text": "x"}).json()
-    import io, json, zipfile
+    import io
+    import json
+    import zipfile
     data = client.get("/api/share/export", params={"entry_ids": str(e["id"])}).content
     assert json.loads(zipfile.ZipFile(io.BytesIO(data)).read("manifest.json"))["by"] == "Andrew"
 

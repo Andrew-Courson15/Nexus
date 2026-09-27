@@ -302,7 +302,6 @@ class SemanticSearchService:
     def search(self, query: str, limit: int = 50, entry_types: list[str] | None = None,
                statuses: list[str] | None = None, date_from: datetime | None = None,
                date_to: datetime | None = None) -> SearchOutcome:
-        from app.config import get_settings
         from app.services.embeddings import EmbeddingError, confident_matches, nearest
 
         text = self.text_search.search(query, limit=limit, entry_types=entry_types, statuses=statuses,
@@ -315,8 +314,6 @@ class SemanticSearchService:
         except EmbeddingError as exc:
             text.note = f"Search by meaning is unavailable right now ({exc}) Showing word matches."
             return text
-
-        s = get_settings()
 
         def meaning_matches(use_filters: bool) -> list[tuple[int, float]]:
             ids_stmt = SearchService.apply_filters(select(CreativeEntry.id), pq, use_filters, date_from, date_to)
