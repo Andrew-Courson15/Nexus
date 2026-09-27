@@ -148,6 +148,7 @@ class AttachmentOut(BaseModel):
     sha256: str
     created_at: datetime
     url: str
+    preview_url: str | None = None  # JPEG/PNG to display (the original, or a rendering of it)
 
 
 class EntrySummary(BaseModel):
@@ -258,11 +259,20 @@ class SearchResponse(BaseModel):
 # --------------------------------------------------------------------------- #
 # ORM -> schema helpers
 # --------------------------------------------------------------------------- #
+def preview_url(a: Any) -> str | None:
+    from app.services.images import needs_preview
+
+    if a.kind == "image" or a.preview_path or needs_preview(a.mime_type, a.size_bytes):
+        return f"/api/uploads/{a.id}/preview"
+    return None
+
+
 def _attachments(e: CreativeEntry) -> list[AttachmentOut]:
     return [
         AttachmentOut(
             id=a.id, kind=a.kind, original_filename=a.original_filename, mime_type=a.mime_type,
             size_bytes=a.size_bytes, sha256=a.sha256, created_at=a.created_at, url=f"/api/uploads/{a.id}",
+            preview_url=preview_url(a),
         )
         for a in e.attachments
     ]

@@ -37,12 +37,11 @@ from app.models import (
 )
 from app.services import text as T
 from app.services.ai import AIProviderError, ArtworkRequest, get_ai_provider
+from app.services.images import ensure_preview, needs_preview, visual_file
 
 log = logging.getLogger("nexus.art")
 
 MAX_IMAGES = 6
-MAX_IMAGE_BYTES = 20 * 1024 * 1024
-VISION_MIME = {"image/jpeg", "image/png", "image/gif", "image/bmp"}
 PATTERN_MIN_ENTRIES = 3  # an observed preference needs this many different artworks as evidence
 
 ART_TOPICS = [
@@ -251,7 +250,9 @@ def clean(value: Any, schema: dict, max_items: int = 12) -> Any:
 # Images, context, knowledge, preferences
 # --------------------------------------------------------------------------- #
 def entry_image(entry: CreativeEntry):
-    return next((a for a in entry.attachments if a.kind == "image"), None)
+    """The entry's picture: an image upload, or failing that a document with a preview (e.g. a PDF)."""
+    return (next((a for a in entry.attachments if a.kind == "image"), None)
+            or next((a for a in entry.attachments if needs_preview(a.mime_type, a.size_bytes)), None))
 
 
 def _load_entries(db: Session, ids: list[int]) -> list[CreativeEntry]:
@@ -262,17 +263,16 @@ def _load_entries(db: Session, ids: list[int]) -> list[CreativeEntry]:
 
 
 def check_images(entries: list[CreativeEntry]) -> list[str]:
-    """Problems that stop an analysis (missing or unreadable images)."""
+    """Problems that stop an analysis (missing or unreadable images). Makes missing previews; caller commits."""
     problems = []
     for e in entries:
         img = entry_image(e)
         if img is None:
             problems.append(f"“{e.title or 'Untitled'}” has no image.")
-        elif img.mime_type not in VISION_MIME:
-            problems.append(f"“{img.original_filename}” is {img.mime_type}; the local model reads JPEG and PNG.")
-        elif img.size_bytes > MAX_IMAGE_BYTES:
-            problems.append(f"“{img.original_filename}” is {img.size_bytes // (1024 * 1024)} MB; images up to "
-                            f"{MAX_IMAGE_BYTES // (1024 * 1024)} MB can be analysed (export a smaller JPEG).")
+        elif problem := ensure_preview(img):
+            problems.append(f"Couldn't read {problem}.")
+        elif visual_file(img) is None:
+            problems.append(f"“{img.original_filename}” ({img.mime_type}) can't be shown to the local model.")
     return problems
 
 
@@ -461,11 +461,11 @@ def _build_request(db: Session, analysis: ArtworkAnalysis) -> ArtworkRequest:
         raise ArtError("Some of the selected artworks were moved to the trash, so this analysis can't run as asked.")
     if problems := check_images(entries):
         raise ArtError(" ".join(problems))
-    data_dir = get_settings().data_dir
     images, lines, words = [], [], []
     for n, e in enumerate(entries, 1):
         img = entry_image(e)
-        images.append({"path": str(data_dir / img.stored_path), "mime_type": img.mime_type})
+        path, mime = visual_file(img)
+        images.append({"path": str(path), "mime_type": mime})
         label = f"Image {n}: “{e.title or img.original_filename}” (captured {e.created_at:%Y-%m-%d})"
         if e.projects:
             label += " — project: " + ", ".join(p.name for p in e.projects if p.deleted_at is None)
@@ -565,7 +565,8 @@ def _fail(db: Session, analysis_id: int, message: str) -> str:
 
 def maybe_auto_analyze(db: Session, entry: CreativeEntry) -> ArtworkAnalysis | None:
     """After a new image is organised: queue the first layered analysis (once), if a vision model is set up."""
-    if not get_settings().art_auto_analyze or entry_image(entry) is None or check_images([entry]):
+    if (not get_settings().art_auto_analyze or not any(a.kind == "image" for a in entry.attachments)
+            or check_images([entry])):
         return None
     try:
         provider = get_ai_provider()

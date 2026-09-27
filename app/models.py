@@ -241,6 +241,10 @@ class Attachment(Base):
     size_bytes: Mapped[int] = mapped_column(Integer)
     sha256: Mapped[str] = mapped_column(String(64))
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
+    # Derived: a JPEG/PNG rendering for formats the browser or vision model can't read
+    # (TIFF, PSD, SVG, PDF, HEIC ...). Regenerable from the original; never replaces it.
+    preview_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    preview_mime: Mapped[str | None] = mapped_column(String(50), nullable=True)
 
     entry: Mapped[CreativeEntry] = relationship(back_populates="attachments")
 

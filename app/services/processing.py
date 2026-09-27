@@ -105,6 +105,17 @@ def _embed(db: Session, entry: CreativeEntry) -> None:
         db.commit()
 
 
+def _ensure_previews(entry: CreativeEntry) -> None:
+    """Viewable JPEG/PNG copies for uploads that need one (e.g. added before previews existed)."""
+    from app.services.images import ensure_preview
+
+    for a in entry.attachments:
+        if problem := ensure_preview(a):
+            meta = dict(entry.ai_metadata or {})
+            meta["preview_error"] = problem
+            entry.ai_metadata = meta
+
+
 def _auto_art(db: Session, entry: CreativeEntry) -> None:
     """First Visual Art Intelligence analysis for a newly organised image (queued as its own job)."""
     from app.services.art import maybe_auto_analyze
@@ -144,6 +155,7 @@ def run_job(job: Job) -> str:
             ok = True
             if job.analyze:
                 entry.processing_status = "analyzing"
+                _ensure_previews(entry)
                 db.commit()
                 ok = Organizer(db).organize(entry).ok
             entry.processing_status = "done" if ok else "failed"

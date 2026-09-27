@@ -27,7 +27,7 @@ async def lifespan(_app: FastAPI):
     processing_queue.stop()
 
 
-app = FastAPI(title="NEXUS", version="0.4.0", lifespan=lifespan,
+app = FastAPI(title="NEXUS", version="0.5.0", lifespan=lifespan,
               description="Private, local-first creative knowledge archive.")
 # Only answer to local host names (guards against DNS-rebinding from web pages).
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=get_settings().allowed_hosts)

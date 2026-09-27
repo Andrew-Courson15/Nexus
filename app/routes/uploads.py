@@ -12,6 +12,7 @@ from datetime import datetime
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -22,6 +23,7 @@ from app.models import Attachment, CreativeEntry, EntryType, Origin, Project, So
 from app.routes.entries import capture_time, existing_capture, load_entry
 from app.schemas import EntryDetail, entry_detail
 from app.services.history import record_revision
+from app.services.images import classify_image, ensure_preview, visual_file
 from app.services.processing import enqueue
 from app.services.search import index_entry
 
@@ -37,8 +39,8 @@ def _classify(content_type: str | None, filename: str) -> tuple[str, str]:
         mime = mimetypes.guess_type(filename)[0] or "application/octet-stream"
     if mime.startswith("audio/") or (mime == "video/webm" and "record" in filename.lower()):
         return "audio", mime
-    if mime.startswith("image/"):
-        return "image", mime
+    if image_mime := classify_image(mime, filename):
+        return "image", image_mime
     return "file", mime
 
 
@@ -118,10 +120,14 @@ async def upload_file(
         entry.entry_type, entry.entry_type_source = entry_type.value, Origin.user.value
     if project:
         entry.projects.append(project)
-    entry.attachments.append(Attachment(
+    attachment = Attachment(
         kind=kind, original_filename=original_name, stored_path=rel_path,
         mime_type=mime, size_bytes=size, sha256=sha,
-    ))
+    )
+    entry.attachments.append(attachment)
+    # A viewable JPEG/PNG copy for TIFF, PSD, SVG, PDF, HEIC ... (derived; the original stays as uploaded).
+    if problem := await run_in_threadpool(ensure_preview, attachment):
+        entry.ai_metadata = {"preview_error": problem}
     db.add(entry)
     try:
         db.flush()
@@ -138,6 +144,31 @@ async def upload_file(
         # Transcription (voice) and organization run after the upload is saved.
         enqueue(db, entry, transcribe=True, analyze=analyze)
     return entry_detail(load_entry(db, entry.id))
+
+
+@router.get("/{attachment_id}/preview")
+def get_preview(attachment_id: int, db: Session = Depends(get_db)):
+    """A JPEG/PNG to display: the original if the browser can show it, else a rendering of it."""
+    att = db.get(Attachment, attachment_id)
+    if att is None:
+        raise HTTPException(404, "File not found")
+    if visual_file(att) is None or not visual_file(att)[0].is_file():
+        # Uploaded before previews existed, or the preview was deleted: make it now.
+        att.preview_path = None
+        if problem := ensure_preview(att):
+            raise HTTPException(415, f"No preview: {problem}")
+        db.commit()
+    found = visual_file(att)
+    if found is None:
+        raise HTTPException(415, "No preview for this file type")
+    path, mime = found
+    data_dir = get_settings().data_dir.resolve()
+    path = path.resolve()
+    if not path.is_relative_to(data_dir) or not path.is_file():
+        raise HTTPException(404, "File missing on disk")
+    return FileResponse(path, media_type=mime,
+                        headers={"X-Content-Type-Options": "nosniff", "Content-Security-Policy": "sandbox",
+                                 "Cache-Control": "private, max-age=86400"})
 
 
 @router.get("/{attachment_id}")

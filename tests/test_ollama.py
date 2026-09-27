@@ -103,7 +103,7 @@ def test_unsupported_image_format_is_reported(tmp_path):
         {"kind": "image", "mime_type": "image/heic", "original_filename": "s.heic", "path": str(img)}])
     r = fake.provider().analyze_entry(entry)
     assert "images" not in fake.chats[0]["messages"][1]
-    assert any("JPEG or PNG" in u for u in r.uncertainties)
+    assert any("couldn't be converted" in u for u in r.uncertainties)
 
 
 def test_relationships_are_judged_and_invented_ids_dropped():

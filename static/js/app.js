@@ -13,6 +13,22 @@ const fmtDateTime = (iso) =>
   new Date(iso).toLocaleString(undefined, { year: "numeric", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 const fmtSize = (n) => (n < 1024 ? `${n} B` : n < 1048576 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1048576).toFixed(1)} MB`);
 const pct = (x) => (x == null ? "—" : `${Math.round(x * 100)}%`);
+// Picture formats NEXUS accepts. Anything the browser can't draw is shown through a server-made preview.
+const IMAGE_EXT = /\.(jpe?g|jfif|png|gif|webp|bmp|dib|tiff?|tga|psd|psb|heic|heif|avif|svg|wmf|emf|ico|jp2|pcx|ppm|dds|ai|procreate|kra|ora)$/i;
+const isImageFile = (f) => f.type.startsWith("image/") || IMAGE_EXT.test(f.name);
+// The entry's picture (an image upload, or a document with a preview such as a PDF).
+const picOf = (e) => e.attachments.find((a) => a.kind === "image" && a.preview_url) || e.attachments.find((a) => a.preview_url);
+// A preview that can't be drawn (e.g. WMF on a Mac) becomes a small note instead of a broken image.
+document.addEventListener("error", (ev) => {
+  const img = ev.target;
+  if (img.tagName !== "IMG" || img.dataset.fallback === "done") return;
+  img.dataset.fallback = "done";
+  if (img.dataset.local !== undefined) { img.remove(); return; }
+  const note = document.createElement("span");
+  note.className = "no-preview small muted";
+  note.textContent = "No preview for this format";
+  img.replaceWith(note);
+}, true);
 
 function store(key, value) {
   try {
@@ -251,10 +267,10 @@ function tagsHTML(tags, removable = false) {
 }
 
 function cardHTML(e, extra = "") {
-  const img = e.attachments.find((a) => a.kind === "image");
+  const img = picOf(e);
   const audio = e.attachments.find((a) => a.kind === "audio");
   return `<a class="card" href="#/entry/${e.id}">
-    ${img ? `<img class="thumb" src="${esc(img.url)}" alt="" loading="lazy">` : ""}
+    ${img ? `<img class="thumb" src="${esc(img.preview_url)}" alt="" loading="lazy">` : ""}
     <div class="meta">
       <span class="pill type">${esc(label(e.entry_type))}</span>
       <span class="pill status-${esc(e.status)}">${esc(e.status)}</span>
@@ -298,7 +314,7 @@ function mountCapture(root, opts = {}) {
         <button class="btn primary" data-act="capture">CAPTURE</button>
         <button class="btn rec" data-act="record"><span class="dot"></span><span>Record Idea</span></button>
         <button class="btn" data-act="upload">Upload image / file</button>
-        <input type="file" hidden multiple accept="image/*,audio/*,.pdf,.txt,.md,.doc,.docx">
+        <input type="file" hidden multiple accept="image/*,audio/*,.pdf,.txt,.md,.doc,.docx,.tif,.tiff,.tga,.psd,.psb,.heic,.heif,.svg,.wmf,.emf,.ai,.procreate,.kra,.ora">
         <span class="spacer"></span>
         <span class="hint">Ctrl/⌘ + Enter to capture · drop files here</span>
       </div>
@@ -341,7 +357,7 @@ function mountCapture(root, opts = {}) {
     pending.innerHTML = `<div class="recorder">
       <div class="row"><strong>${esc(kindLabel)}</strong><span class="muted small">${esc(file.name)} · ${fmtSize(file.size)}</span></div>
       ${file.type.startsWith("audio/") ? `<audio controls src="${previewURL}"></audio>` : ""}
-      ${file.type.startsWith("image/") ? `<img src="${previewURL}" alt="" style="max-height:220px;border-radius:8px">` : ""}
+      ${isImageFile(file) ? `<img src="${previewURL}" alt="" data-local style="max-height:220px;border-radius:8px">` : ""}
       <input type="text" placeholder="Add a few words about it (optional — stored as your words)" aria-label="Note">
       <div class="row"><button class="btn primary small" data-act="save">SAVE</button><button class="btn ghost small" data-act="discard">Discard</button></div>
     </div>`;
@@ -407,7 +423,7 @@ function mountCapture(root, opts = {}) {
 
   function takeFile(file) {
     if (!file) return;
-    const kind = file.type.startsWith("image/") ? "Image" : file.type.startsWith("audio/") ? "Audio" : "File";
+    const kind = isImageFile(file) ? "Image" : file.type.startsWith("audio/") ? "Audio" : "File";
     showPending(file, URL.createObjectURL(file), kind + " ready");
   }
 
@@ -805,10 +821,12 @@ async function viewEntry(el, id) {
     getSettings(), api("/api/projects"),
   ]);
   const m = e.ai_metadata || {};
-  const hasImage = e.attachments.some((a) => a.kind === "image");
+  const hasImage = !!picOf(e);
   const srcBadge = (src) => `<span class="source-badge ${src}">${src === "user" ? "yours" : "AI"}</span>`;
+  const original = (a) => (["image/jpeg", "image/png"].includes(a.mime_type) ? ""
+    : `<p class="small muted">Showing a preview. <a href="${esc(a.url)}">Download the original ${esc(a.original_filename)}</a> (never changed).</p>`);
   const media = e.attachments.map((a) =>
-    a.kind === "image" ? `<div class="media-preview"><img src="${esc(a.url)}" alt="${esc(a.original_filename)}"></div>`
+    a.preview_url ? `<div class="media-preview"><img src="${esc(a.preview_url)}" alt="${esc(a.original_filename)}"></div>${original(a)}`
     : a.kind === "audio" ? `<div class="media-preview"><audio controls preload="metadata" src="${esc(a.url)}"></audio></div>`
     : `<p><a class="btn small" href="${esc(a.url)}">Download ${esc(a.original_filename)}</a></p>`).join("");
   const list = (arr) => `<ul>${arr.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>`;
@@ -1159,13 +1177,13 @@ async function viewArtAnalysis(el, id) {
 
 async function viewEvolution(el, id) {
   const chain = await api(`/api/entries/${id}/evolution`);
-  const img = (e) => e.attachments.find((x) => x.kind === "image");
+  const img = picOf;
   el.innerHTML = `<p><a href="#/entry/${id}" class="muted small">← Back</a></p>
     <div class="view-head"><div><h1>How it evolved</h1>
     <p class="lede">Every version linked with “new version of”, oldest first. Nothing is overwritten; each version keeps its own history.</p></div>
     ${chain.length > 1 ? `<button class="btn primary" data-act="evo">ANALYZE THE EVOLUTION</button>` : ""}</div>
     ${chain.length > 1 ? `<ol class="timeline">${chain.map((e, i) => `<li><a class="card" href="#/entry/${e.id}">
-      ${img(e) ? `<img class="thumb" src="${esc(img(e).url)}" alt="">` : ""}
+      ${img(e) ? `<img class="thumb" src="${esc(img(e).preview_url)}" alt="">` : ""}
       <div class="meta"><span class="pill type">Version ${i + 1}</span><span class="spacer"></span><span>${fmtDate(e.created_at)}</span></div>
       <h3>${esc(e.title)}</h3>${e.excerpt ? `<p class="summary">${esc(e.excerpt)}</p>` : ""}</a></li>`).join("")}</ol>`
     : `<p class="empty">This artwork isn't linked to other versions yet. On a newer drawing, use “This is a new version of…” to connect them.</p>`}`;
@@ -1256,17 +1274,17 @@ async function viewArt(el, _id, query) {
 async function artGallery(box) {
   const items = await api("/api/art/gallery");
   if (!items.length) {
-    box.innerHTML = `<p class="empty">No artwork yet. Upload a sketch, panel or page from the <a href="#/">capture</a> screen (JPEG or PNG).</p>`;
+    box.innerHTML = `<p class="empty">No artwork yet. Upload a sketch, panel or page from the <a href="#/">capture</a> screen: JPEG, PNG, TIFF, PSD, SVG, PDF, WebP, HEIC and more.</p>`;
     return;
   }
   const picked = [];
   box.innerHTML = `<div class="selbar" id="selbar"><span id="selcount" class="small muted">Tap artworks to select them. Order matters (Image 1, 2…).</span>
       <span class="spacer"></span><span id="selactions" class="row"></span></div>
     <div class="art-grid">${items.map((g) => {
-      const img = g.entry.attachments.find((a) => a.kind === "image");
+      const img = picOf(g.entry);
       return `<div class="art-tile" data-id="${g.entry.id}">
         <button type="button" class="pick" aria-label="Select ${esc(g.entry.title)}"><span class="num"></span></button>
-        <a href="#/entry/${g.entry.id}">${img ? `<img src="${esc(img.url)}" alt="" loading="lazy">` : ""}
+        <a href="#/entry/${g.entry.id}">${img ? `<img src="${esc(img.preview_url)}" alt="" loading="lazy">` : ""}
         <span class="cap">${esc(g.entry.title)}</span></a>
         <span class="small muted">${g.analyses ? `${g.analyses} analys${g.analyses === 1 ? "is" : "es"}` : "not analyzed"}${
           g.latest_status && ART_ACTIVE.includes(g.latest_status) ? " · working…" : ""}</span></div>`;

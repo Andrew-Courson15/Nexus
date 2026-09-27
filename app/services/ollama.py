@@ -27,6 +27,7 @@ from pydantic import BaseModel, ConfigDict, field_validator
 
 from app.config import get_settings
 from app.models import EntryType, RelationshipType
+from app.services.images import DIRECT_MIME
 from app.services.ai import (
     AIProvider,
     AIProviderError,
@@ -39,7 +40,6 @@ from app.services.ai import (
 
 ENTRY_TYPES = [e.value for e in EntryType]
 RELATIONSHIP_TYPES = [r.value for r in RelationshipType]
-VISION_MIME = {"image/jpeg", "image/png", "image/gif", "image/bmp"}
 MAX_IMAGES = 3
 MAX_IMAGE_BYTES = 20 * 1024 * 1024
 MAX_TEXT_CHARS = 12_000
@@ -337,13 +337,14 @@ class OllamaProvider(AIProvider):
     def _images(entry: EntryContext, notes: list[str]) -> list[str]:
         images = []
         for a in entry.attachments:
-            if a.get("kind") != "image" or len(images) >= MAX_IMAGES:
+            if len(images) >= MAX_IMAGES or (a.get("kind") != "image" and not a.get("vision_path")):
                 continue
-            if a.get("mime_type") not in VISION_MIME:
-                notes.append(f"{a.get('original_filename')} ({a.get('mime_type')}) is a format the local model "
-                             "can't read; its visual content is UNKNOWN. JPEG or PNG works.")
+            vision = a.get("vision_path") or (a.get("path") if a.get("mime_type") in DIRECT_MIME else None)
+            if not vision:  # not JPEG/PNG, and no preview could be made from it
+                notes.append(f"{a.get('original_filename')} ({a.get('mime_type')}) couldn't be converted into a "
+                             "picture the local model can read; its visual content is UNKNOWN.")
                 continue
-            path = Path(a.get("path", ""))
+            path = Path(vision)
             try:
                 if path.stat().st_size > MAX_IMAGE_BYTES:
                     notes.append(f"{a.get('original_filename')} is too large to analyse; visual content is UNKNOWN.")
@@ -383,10 +384,9 @@ class OllamaProvider(AIProvider):
     # -- AIProvider ----------------------------------------------------------
     def analyze_entry(self, entry: EntryContext) -> AnalysisResult:
         notes: list[str] = []
-        has_image = any(a.get("kind") == "image" for a in entry.attachments)
         images: list[str] = []
         model = self.model
-        if has_image:
+        if has_image(entry):
             model = self.vision_model
             if self._supports_vision(model) is False:
                 notes.append(f"The model {model} can't see images, so the picture's content is UNKNOWN. "
@@ -616,5 +616,6 @@ class OllamaProvider(AIProvider):
 
 
 def has_image(entry: EntryContext) -> bool:
-    return any(a.get("kind") == "image" for a in entry.attachments)
+    """An image upload, or a document with a picture preview (e.g. a PDF page)."""
+    return any(a.get("kind") == "image" or a.get("vision_path") for a in entry.attachments)
 

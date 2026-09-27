@@ -45,7 +45,7 @@ def _images(db: Session, ids: list[int]) -> list[ArtImage]:
             continue
         img = art.entry_image(e)
         out.append(ArtImage(entry_id=e.id, title=e.title or "Untitled",
-                            url=f"/api/uploads/{img.id}" if img else None))
+                            url=f"/api/uploads/{img.id}/preview" if img else None))
     return out
 
 

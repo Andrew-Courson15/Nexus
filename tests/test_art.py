@@ -1,4 +1,5 @@
 """Visual Art Intelligence."""
+import base64
 import pytest
 
 from app.database import SessionLocal
@@ -109,7 +110,7 @@ def test_entries_without_images_or_with_unreadable_images(client, vision):
     t = client.post("/api/entries", json={"original_text": "Just text."}).json()
     assert "has no image" in client.post(f"/api/entries/{t['id']}/art", json={}).json()["detail"]
     heic = upload(client, "photo.heic", mime="image/heic", data=b"heic-bytes")
-    assert "JPEG and PNG" in client.post(f"/api/entries/{heic['id']}/art", json={}).json()["detail"]
+    assert "Couldn't read photo.heic" in client.post(f"/api/entries/{heic['id']}/art", json={}).json()["detail"]
 
 
 def test_model_errors_are_recorded_not_lost(client, monkeypatch):
@@ -264,8 +265,19 @@ def test_saving_errors_mark_the_analysis_failed(client, monkeypatch, vision):
     assert r["status"] == "failed" and "database is locked" in r["error"]
 
 
-def test_oversized_images_are_refused_with_a_reason(client, monkeypatch, vision):
-    monkeypatch.setattr(art, "MAX_IMAGE_BYTES", 10)
-    e = upload(client)
+def test_oversized_images_are_analysed_through_a_smaller_preview(client, monkeypatch, vision):
+    from app.services import images
+
+    import io
+
+    from PIL import Image
+
+    buf = io.BytesIO()
+    Image.new("RGB", (64, 48), "white").save(buf, "PNG")
+    monkeypatch.setattr(images, "MAX_DIRECT_BYTES", 10)
+    e = upload(client, data=buf.getvalue())
+    assert e["attachments"][0]["preview_url"]
     r = client.post(f"/api/entries/{e['id']}/art", json={"mode": "critique"})
-    assert r.status_code == 400 and "can be analysed" in r.json()["detail"]
+    assert r.status_code == 200 and r.json()["status"] == "done", r.text
+    sent = vision.art_chats[-1]["messages"][1]["images"][0]
+    assert base64.b64decode(sent)[:3] == b"\xff\xd8\xff" or base64.b64decode(sent)[:4] == b"\x89PNG"

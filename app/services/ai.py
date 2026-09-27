@@ -31,6 +31,17 @@ from app.services import text as T
 # --------------------------------------------------------------------------- #
 # Data passed to and from providers
 # --------------------------------------------------------------------------- #
+def _attachment_context(a: Any, data_dir) -> dict[str, Any]:
+    from app.services.images import visual_file
+
+    ctx = {"kind": a.kind, "original_filename": a.original_filename, "mime_type": a.mime_type,
+           "path": str(data_dir / a.stored_path)}
+    visual = visual_file(a) if hasattr(a, "preview_path") else None
+    if visual:  # the JPEG/PNG a vision model can read: the original, or a preview rendered from it
+        ctx["vision_path"], ctx["vision_mime"] = str(visual[0]), visual[1]
+    return ctx
+
+
 @dataclass
 class EntryContext:
     id: int | None
@@ -59,11 +70,7 @@ class EntryContext:
             transcript=entry.transcript or "",
             entry_type=entry.entry_type,
             source_type=entry.source_type,
-            attachments=[
-                {"kind": a.kind, "original_filename": a.original_filename, "mime_type": a.mime_type,
-                 "path": str(data_dir / a.stored_path)}
-                for a in getattr(entry, "attachments", [])
-            ],
+            attachments=[_attachment_context(a, data_dir) for a in getattr(entry, "attachments", [])],
             concepts=meta.get("concepts"),
             summary=entry.ai_summary or "",
             title_is_user=getattr(entry, "title_source", "ai") == "user",

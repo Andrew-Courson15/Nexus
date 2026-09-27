@@ -266,7 +266,16 @@ suggests and compares, and you make every decision.
 - **Art library (Art → Art library):** add notes from your art books and courses (anatomy, perspective,
   storyboarding, inking…). Relevant notes are given to the AI, and the analysis names the ones it drew on.
 
-Visual Art Intelligence needs a local model that can see images (`gemma3:12b` can). It reads JPEG and PNG.
+Visual Art Intelligence needs a local model that can see images (`gemma3:12b` can).
+
+**Picture formats.** You can upload JPEG, PNG, TIFF, PSD/PSB, TGA, WebP, BMP, GIF, HEIC/HEIF (iPhone),
+AVIF, SVG, Illustrator (`.ai`), PDF (first page), Procreate, Krita (`.kra`), OpenRaster (`.ora`), ICO
+and WMF/EMF. WMF/EMF previews only work on Windows.
+- The original file is stored untouched and can always be downloaded.
+- For formats the browser or the model can't read, NEXUS makes a viewable JPEG/PNG **preview** in
+  `data/previews/`. The preview is derived data and can be rebuilt from the original at any time.
+- Very large JPEG/PNG files get a smaller preview so they can still be analysed.
+- PSD, Procreate and Krita files are shown and analysed as the flattened picture, not layer by layer.
 Set `NEXUS_ART_AUTO_ANALYZE=false` to analyze only when you press a button.
 
 ## Configuration (`.env`)
@@ -416,9 +425,10 @@ class AIProvider(ABC):
     JSON schema. The reply is validated again: unknown types become `other`, confidences are
     clamped, lists are cleaned, and the model is told to separate interpretation, inference
     and uncertainty.
-  - **Images:** if the model supports vision (Ollama reports this), JPEG and PNG images are sent
-    and the description is stored in `ai_metadata.visual`. It is shown as "what the model saw"
-    and is searchable. Other formats (for example HEIC) are marked UNKNOWN.
+  - **Images:** if the model supports vision (Ollama reports this), the image (or its preview, for
+    formats like TIFF, PSD or HEIC) is sent and the description is stored in `ai_metadata.visual`.
+    It is shown as "what the model saw" and is searchable. A file that can't be converted is
+    marked UNKNOWN.
   - **Relationships:** a cheap keyword pre-filter picks up to 8 candidates, then the model judges
     which are really related and why. Candidate ids the model invents are discarded.
   - **Fallback:** if Ollama is down, the model is missing, or the reply is unusable, the offline
