@@ -1261,7 +1261,8 @@ async function viewCharacters(el) {
         <div class="char-head">${pic ? `<img src="${esc(pic.thumb_url || pic.preview_url)}" alt="" loading="lazy">` : ""}
           <div><h2><a href="#/entry/${e.id}">${esc(e.title)}</a></h2>
           ${e.excerpt ? `<p class="small">${esc(e.excerpt)}</p>` : e.ai_summary ? `<p class="small muted">${esc(e.ai_summary)}</p>` : ""}
-          ${e.projects.length ? `<p class="small muted">In ${e.projects.map((p) => `<a href="#/projects/${p.id}">${esc(p.name)}</a>`).join(", ")}</p>` : ""}</div></div>
+          ${e.projects.length ? `<p class="small muted">In ${e.projects.map((p) => `<a href="#/projects/${p.id}">${esc(p.name)}</a>`).join(", ")}</p>` : ""}
+          <p class="small"><a href="#/ask?q=${encodeURIComponent(`What do I know about ${e.title}?`)}">Ask NEXUS about ${world ? "this place" : "them"} →</a></p></div></div>
         <h3>Linked <span class="muted small">${c.link_count}</span></h3>
         ${c.links.length ? `<div class="strip">${c.links.map((x) => tileHtml(x.entry, linkNote(x, e.title))).join("")}</div>`
           : `<p class="small muted">Nothing linked yet. Open a sketch or scene and use “Link to another idea”.</p>`}
