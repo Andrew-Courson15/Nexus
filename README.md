@@ -218,6 +218,11 @@ on **MagicDNS** and **HTTPS Certificates**, and run it again.
 
 ## Updating NEXUS
 
+**Easiest (from 0.14):** on the computer NEXUS runs on, open **Settings → Updates → Check for
+updates**. It lists what's new; **Update now** does everything below in the background, and the
+page reloads into the new version by itself. (It's offered only when the NEXUS folder has no
+changes of its own, and never on phones.) The terminal commands below do the same thing.
+
 One command does everything: it stops NEXUS (including the hidden one the desktop icon starts),
 downloads the new version, installs anything new, and starts NEXUS again. Your ideas in `data`
 and your `.env` are never touched. The database upgrades itself.

@@ -43,8 +43,8 @@ can make; the rest is engineering.
   - Tools: PyInstaller or Briefcase.
   - **Code signing:** an Apple Developer ID (about $99/year) and a Windows signing
     certificate. Without them, both systems warn users away.
-- **Updates without Git.** Replace `git pull` with a signed download plus an in-app
-  "Update available" button.
+- **Updates without Git.** 0.14 has an in-app "Check for updates / Update now" (Settings →
+  Updates), still using git underneath. A public release would swap git for a signed download.
 - **Simpler phone setup.** Tailscale works well but is a separate app and account. Options:
   guide it inside NEXUS (show a QR code of the address), or later a paid relay service.
 - **Model management in the app.** Download, switch and remove Ollama models from Preferences
