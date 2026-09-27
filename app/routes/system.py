@@ -178,3 +178,48 @@ def model_pulls():
     from app.services import preferences
 
     return preferences.pulls()
+
+
+LOG_LINES = 80
+
+
+def _log_tail(path, lines: int = LOG_LINES) -> list[str]:
+    try:
+        with open(path, "rb") as f:
+            f.seek(0, 2)
+            f.seek(max(0, f.tell() - 64_000))
+            return f.read().decode("utf-8", "replace").splitlines()[-lines:]
+    except OSError:
+        return []
+
+
+@router.get("/problem-report")
+def problem_report(db: Session = Depends(get_db)):
+    """A plain-text report for getting help when something goes wrong. Nothing is sent anywhere:
+    the app shows it, and you decide whether to copy it. It holds versions, settings health,
+    counts and recent log lines, never your entries' text."""
+    import platform
+    import sys
+
+    s = get_settings()
+    info = read_settings(db)
+    active = CreativeEntry.deleted_at.is_(None)
+    by_status = dict(db.execute(select(CreativeEntry.processing_status, func.count())
+                                .where(active).group_by(CreativeEntry.processing_status)).all())
+    search = info["search"]
+    lines = [
+        f"NEXUS {__version__}",
+        f"System: {platform.system()} {platform.release()} ({platform.machine()}), Python {sys.version.split()[0]}",
+        f"AI: {info['ai_provider']['name']} - {info['ai_provider']['health'].get('detail') or info['ai_provider']['health']}",
+        f"Picture model: {s.ollama_vision_model or '(same as AI)'} | AI model: {s.ollama_model}",
+        f"Speech to text: {info['transcription_provider']['name']} - {info['transcription_provider']['health'].get('detail', '')}",
+        f"Search: {search['mode']}, by meaning: {'on' if search['semantic_enabled'] else 'off'} "
+        f"({search['embedding_provider']} {search['embedding_model'] or ''}".rstrip() + ")",
+        f"Entries: {info['counts']['entries']}, projects: {info['counts']['projects']}, trash: {info['counts']['trash']}",
+        "Processing: " + (", ".join(f"{k or 'not needed'}={v}" for k, v in sorted(by_status.items(), key=lambda x: str(x[0])))
+                          or "nothing"),
+        f"Port: {s.port}, uploads up to {s.max_upload_mb} MB",
+    ]
+    tail = _log_tail(s.data_dir / "nexus.log")
+    lines += ["", f"Last {len(tail)} lines of nexus.log:" if tail else "No nexus.log (NEXUS was started in a window).", *tail]
+    return {"text": "\n".join(lines)}

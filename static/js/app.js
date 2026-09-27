@@ -1930,6 +1930,10 @@ async function viewSettings(el) {
       <div class="panel" id="device"></div>
       <div class="panel" id="lock"></div>
       ${HAS_OFFLINE_COPY ? "" : `<div class="panel" id="phone"></div>`}
+      <div class="panel" id="report"><h3>Something not working?</h3>
+        <p class="small muted">Make a report to paste when asking for help: versions, whether the AI and search are healthy,
+          counts and recent log lines. It never includes what your entries say, and nothing is sent anywhere: you see it first and copy it yourself.</p>
+        <button type="button" class="btn small" data-act="report">Make a problem report</button></div>
     </div>`;
   el.querySelector(".view-head").insertAdjacentHTML("afterend", `<section class="panel prefs" id="prefs"><p class="loading">Loading…</p></section>`);
   mountPreferences($("#prefs", el));
@@ -1938,6 +1942,24 @@ async function viewSettings(el) {
   mountDevice($("#device", el));
   mountLock($("#lock", el));
   if ($("#phone", el)) mountPhone($("#phone", el));
+  $("[data-act=report]", el).onclick = async (ev) => {
+    const box = $("#report", el);
+    ev.target.disabled = true;
+    try {
+      const { text } = await api("/api/problem-report");
+      ev.target.remove();
+      box.insertAdjacentHTML("beforeend", `<textarea class="report" readonly rows="12" aria-label="Problem report">${esc(text)}</textarea>
+        <div class="row"><button type="button" class="btn small" data-act="copy-report">Copy</button></div>`);
+      $("[data-act=copy-report]", box).onclick = async () => {
+        const area = $("textarea", box);
+        try { await navigator.clipboard.writeText(area.value); } catch { area.select(); document.execCommand("copy"); }
+        toast("Copied. Paste it wherever you're asking for help.");
+      };
+    } catch (err) {
+      toast(err.offline ? "The report can be made when NEXUS is on." : err.message, true);
+      ev.target.disabled = false;
+    }
+  };
   $("[data-act=reindex]", el)?.addEventListener("click", async (ev) => {
     ev.target.disabled = true;
     try {

@@ -123,3 +123,13 @@ def test_failed_downloads_say_why(client, monkeypatch):
         time.sleep(0.02)
     assert state["state"] == "failed" and "does not exist" in state["error"]
     preferences._pulls.clear()
+
+
+def test_problem_report_has_health_and_log_but_not_entry_text(client):
+    from app.config import get_settings
+
+    client.post("/api/entries", json={"original_text": "my secret comic plot", "analyze": False})
+    (get_settings().data_dir / "nexus.log").write_text("line one\nERROR something broke\n")
+    text = client.get("/api/problem-report").json()["text"]
+    assert text.startswith("NEXUS ") and "Entries: 1" in text and "ERROR something broke" in text
+    assert "secret comic plot" not in text
