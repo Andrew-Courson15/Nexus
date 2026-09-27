@@ -219,7 +219,7 @@ const offlineCopy = {
   },
 };
 
-let lastSync = 0, syncing = false;
+let lastSync = 0, syncing = false, lastSyncError = "";
 /** Refresh the offline copy (at most every few minutes unless forced). Never throws. */
 async function syncOfflineCopy({ force = false } = {}) {
   if (!HAS_OFFLINE_COPY || syncing || (!force && Date.now() - lastSync < SYNC_EVERY_MS)) return;
@@ -230,8 +230,11 @@ async function syncOfflineCopy({ force = false } = {}) {
     lastSync = Date.now();
     navigator.storage?.persist?.().catch(() => {});  // ask the phone not to clear it
     await Promise.allSettled(COPY_LISTS.map((u) => api(u, { timeout: 20000 })));
+    lastSyncError = "";
     await saveThumbnails(snap);
-  } catch { /* unreachable or storage full: keep the previous copy */ } finally {
+  } catch (err) {  // unreachable, locked, or storage full: keep the previous copy, and say why in Settings
+    lastSyncError = err.offline ? "" : err.locked ? "This device is locked (enter the passcode)." : err.message || String(err);
+  } finally {
     syncing = false;
     window.dispatchEvent(new Event("nexus:synced"));
   }
@@ -823,7 +826,8 @@ async function viewHome(el) {
       $("#recent", el).innerHTML = `<p class="empty">NEXUS isn't reachable right now, but you can still capture.
         Ideas are kept on this device and sent automatically when NEXUS is back.${HAS_OFFLINE_COPY
           ? `<br><br>This device hasn't saved a copy of your archive yet. Open NEXUS once while your PC is on
-             and it saves one, so next time you can browse your ideas and pictures even when the PC is off.` : ""}</p>`;
+             and it saves one, so next time you can browse your ideas and pictures even when the PC is off.
+             You can check it in <a href="#/settings">Settings → This device</a>.` : ""}</p>`;
     }
   };
   const cap = mountCapture($("#cap", el), {
@@ -1291,6 +1295,7 @@ async function mountDevice(box) {
         <dt>Entries</dt><dd>${snap.entries.length}</dd><dt>Projects</dt><dd>${snap.projects.length}</dd>
         <dt>Pictures</dt><dd>${pictures}</dd></dl>`
     : `<p class="health bad"><span class="dot"></span>${syncing ? "Saving a copy on this device…" : "No copy saved on this device yet"}</p>`)
+    + (lastSyncError ? `<p class="small" style="color:var(--danger)">The last attempt to save it failed: ${esc(lastSyncError)}</p>` : "")
     + `<button class="btn small" data-act="sync-now">Update the saved copy now</button>
     <p class="small muted">While NEXUS is reachable, this device keeps a read-only copy of your archive (refreshed every few
       minutes), so you can browse it when the PC is off.</p>`;

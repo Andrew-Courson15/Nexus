@@ -43,3 +43,35 @@ def test_snapshot_is_compressed_when_the_phone_accepts_it(client):
     raw = client.get("/api/offline/snapshot", headers={"Accept-Encoding": "identity"})
     assert "content-encoding" not in raw.headers
     assert len(gzip.compress(raw.content)) < len(raw.content)
+
+
+def test_snapshot_carries_art_analyses_exactly_as_the_app_shows_them(client, monkeypatch):
+    from app.services import art, organizer
+    from tests.fake_ollama import FakeOllama
+
+    fake = FakeOllama(models=["test-model"], capabilities=["completion", "vision"])
+    provider = fake.provider()
+    monkeypatch.setattr(organizer, "get_ai_provider", lambda: provider)
+    monkeypatch.setattr(art, "get_ai_provider", lambda: provider)
+    e = client.post("/api/uploads", files={"file": ("hero.png", _pil("PNG"), "image/png")}).json()
+    client.post(f"/api/entries/{e['id']}/art", json={"mode": "critique"})
+    shown = client.get(f"/api/entries/{e['id']}/art").json()
+    assert len(shown) == 2 and shown[0]["status"] == "done"
+    snap = client.get("/api/offline/snapshot").json()
+    assert snap["art"][str(e["id"])] == shown
+
+
+def test_one_broken_record_never_blocks_the_whole_copy(client, monkeypatch):
+    from app.routes import offline
+
+    good = client.post("/api/entries", json={"original_text": "fine"}).json()
+    bad = client.post("/api/entries", json={"original_text": "odd"}).json()
+    real = offline.entry_detail
+
+    def flaky(e):
+        if e.id == bad["id"]:
+            raise ValueError("unexpected data")
+        return real(e)
+    monkeypatch.setattr(offline, "entry_detail", flaky)
+    snap = client.get("/api/offline/snapshot").json()
+    assert [x["id"] for x in snap["entries"]] == [good["id"]]

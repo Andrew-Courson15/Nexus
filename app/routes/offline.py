@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import gzip
 import json
+import logging
 from collections import defaultdict
 
 from fastapi import APIRouter, Depends, Request, Response
@@ -24,6 +25,18 @@ from app.routes.projects import list_projects
 from app.schemas import entry_detail, relationship_out
 
 router = APIRouter(prefix="/api/offline", tags=["offline"])
+log = logging.getLogger("nexus.offline")
+
+
+def _each(items, convert, what: str) -> list:
+    """Convert every item; one that can't be converted is skipped (and logged), never the whole copy."""
+    out = []
+    for item in items:
+        try:
+            out.append(convert(item))
+        except Exception:
+            log.exception("Left %s %s out of the phone's offline copy", what, getattr(item, "id", "?"))
+    return out
 
 
 def build_snapshot(db: Session) -> dict:
@@ -37,17 +50,17 @@ def build_snapshot(db: Session) -> dict:
                       .order_by(Relationship.confidence.desc().nullslast(), Relationship.id)).all()
     for r in rels:
         if r.source_entry_id in alive and r.target_entry_id in alive:
-            relationships[r.source_entry_id].append(relationship_out(r, r.source_entry_id))
-            relationships[r.target_entry_id].append(relationship_out(r, r.target_entry_id))
+            for eid in (r.source_entry_id, r.target_entry_id):
+                relationships[eid].extend(_each([r], lambda x, eid=eid: relationship_out(x, eid), "link"))
 
     art: dict[int, list] = defaultdict(list)
     for a in db.scalars(select(ArtworkAnalysis).where(ArtworkAnalysis.entry_id.in_(alive))
                         .order_by(ArtworkAnalysis.analysis_version.desc())):
-        art[a.entry_id].append(art_routes._out(db, a))
+        art[a.entry_id].extend(_each([a], lambda x: art_routes._out(db, x), "art analysis"))
 
     return {
         "generated_at": utcnow(),
-        "entries": [entry_detail(e) for e in entries],
+        "entries": _each(entries, entry_detail, "entry"),
         "relationships": relationships,
         "art": art,
         "projects": list_projects(False, db),

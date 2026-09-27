@@ -13,6 +13,9 @@ data/images/*
 data/exports/*
 data/*.log
 data/*.pid
+data/*.json
+data/*.tmp
+data/install_id
 data/backups/
 data/previews/
 data-before-restore-*/

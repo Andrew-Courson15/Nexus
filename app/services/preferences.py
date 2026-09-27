@@ -137,7 +137,11 @@ def describe() -> dict:
     try:
         from app.services.ollama import OllamaClient
 
-        installed = sorted(OllamaClient(s.ollama_url, 3).list_models(timeout=2))
+        client = OllamaClient(s.ollama_url, 3)
+        try:
+            installed = sorted(client.list_models(timeout=2))
+        finally:
+            client._http.close()
     except Exception:
         pass
     return {

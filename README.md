@@ -164,22 +164,30 @@ on **MagicDNS** and **HTTPS Certificates**, and run it again.
 
 ## Updating NEXUS
 
-Close NEXUS first. Your ideas in `data\` are never touched by an update, and the database
-upgrades itself on the next start.
+One command does everything: it stops NEXUS (including the hidden one the desktop icon starts),
+downloads the new version, installs anything new, and starts NEXUS again. Your ideas in `data`
+and your `.env` are never touched. The database upgrades itself.
 
 **Windows (PowerShell):**
 ```powershell
 cd $HOME\nexus
-git pull
-powershell -ExecutionPolicy Bypass -File scripts\setup_windows.ps1
+powershell -ExecutionPolicy Bypass -File scripts\update_windows.ps1
 ```
 
 **Mac (Terminal):**
 ```bash
-cd ~/nexus && git pull && ./scripts/setup_mac.sh
+cd ~/nexus && ./scripts/update_mac.sh
 ```
 
-Re-running setup installs anything new, such as the search-by-meaning model. It skips what you already have.
+**Then, on your phone:**
+1. Open NEXUS while the computer is on. It notices the new version and reloads by itself (or
+   close it fully and open it again).
+2. Wait a few seconds. **Settings → This device** should say **Copy saved on this device**.
+   From then on it works with the computer off.
+
+Stopping NEXUS before updating matters: if the old one keeps running, your phone keeps getting
+the old version. (The first time only, use the manual steps if `update_windows.ps1` doesn't exist
+yet: close NEXUS, `git pull`, then run the update script.)
 
 ### Manual setup (any OS)
 
@@ -503,7 +511,7 @@ nexus/
 ├── static/css/style.css      Styles (dark/light, responsive)
 ├── static/js/app.js          Vanilla JS app (router, views, recorder)
 ├── data/{uploads,audio,images,previews,exports}/
-├── scripts/                 setup_mac.sh, make_mac_app.sh, setup_windows.ps1, make_windows_app.ps1, nexus_launcher.ps1, start_windows.bat, phone_setup_windows.ps1
+├── scripts/                 setup_mac.sh, update_mac.sh, make_mac_app.sh, setup_windows.ps1, update_windows.ps1, make_windows_app.ps1, nexus_launcher.ps1, start_windows.bat, phone_setup_windows.ps1
 ├── static/sw.js, manifest.webmanifest, icons/   Installable phone app + offline support
 ├── tests/                    pytest suite (includes a fake Ollama)
 ├── requirements.txt          NEXUS itself

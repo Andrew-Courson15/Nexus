@@ -84,3 +84,4 @@ try { & powershell -NoProfile -ExecutionPolicy Bypass -File scripts\make_windows
 
 Say "All set. Double-click the NEXUS icon on your desktop, or  scripts\start_windows.bat"
 Write-Host "(or run:  .venv\Scripts\python.exe run.py  and open http://localhost:8000)"
+exit 0  # finished (optional steps above may have warned, but setup is done)
