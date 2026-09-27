@@ -15,7 +15,6 @@ import subprocess
 import sys
 import threading
 import webbrowser
-from pathlib import Path
 
 from app.config import BASE_DIR, FROZEN, get_settings
 
@@ -55,35 +54,18 @@ def _open_when_ready(url: str) -> None:
             time.sleep(0.5)
 
 
-# -- "Start with Windows": a shortcut in the Startup folder that starts NEXUS quietly -------------
-def startup_shortcut() -> Path:
-    startup = Path(os.environ.get("APPDATA", "")) / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Startup"
-    return startup / "NEXUS.lnk"
-
-
+# -- "Start with Windows": see app/services/autostart.py (also in Settings → This computer) ------
 def starts_with_windows() -> bool:
-    return sys.platform == "win32" and startup_shortcut().is_file()
+    from app.services import autostart
+
+    return sys.platform == "win32" and autostart.enabled()
 
 
 def set_start_with_windows(on: bool) -> None:
-    if sys.platform != "win32":
-        return
-    link = startup_shortcut()
-    if not on:
-        link.unlink(missing_ok=True)
-        return
-    ps = str(Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32" / "WindowsPowerShell" / "v1.0" / "powershell.exe")
-    args = f'-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "{BASE_DIR / "scripts" / "nexus_launcher.ps1"}" -NoBrowser'
-    target, workdir = ps, BASE_DIR
-    if FROZEN:  # the packaged app starts itself directly
-        target, args, workdir = sys.executable, "--no-browser", Path(sys.executable).parent
-    script = ("$s = (New-Object -ComObject WScript.Shell).CreateShortcut($env:NEXUS_LNK); "
-              "$s.TargetPath = $env:NEXUS_PS; $s.Arguments = $env:NEXUS_ARGS; $s.WorkingDirectory = $env:NEXUS_DIR; "
-              "$s.IconLocation = $env:NEXUS_ICON; $s.WindowStyle = 7; $s.Save()")
-    env = {**os.environ, "NEXUS_LNK": str(link), "NEXUS_PS": target, "NEXUS_ARGS": args, "NEXUS_DIR": str(workdir),
-           "NEXUS_ICON": f"{BASE_DIR / 'static' / 'icons' / 'nexus.ico'},0"}
-    subprocess.run([ps, "-NoProfile", "-Command", script], env=env, check=False, timeout=30,
-                   creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    from app.services import autostart
+
+    if sys.platform == "win32":
+        autostart.set_enabled(on)
 
 
 def _load_tray():

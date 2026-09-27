@@ -20,7 +20,8 @@ The version is in `app/__init__.py` and shown in **Settings → This device**.
   page, linked to the PDF, with previous/next page links, and can then be read as a comic
   sequence six pages at a time. The PDF is never changed.
 - **Phone setup inside NEXUS**: Settings → Your phone walks through Tailscale and turns on private
-  phone access with one button, then shows the QR code. No script or restart needed.
+  phone access with one button, then shows the QR code. No script or restart needed. It also has
+  **Start NEXUS when I sign in** (Windows and Mac).
 - **Phone**: keeps up to 2,000 pictures for when the PC is off (was 500). Settings → This device
   shows how many are saved.
 - **Uploading many files at once** shows its progress, and can date each picture by the file's

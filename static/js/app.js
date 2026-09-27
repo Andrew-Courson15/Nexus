@@ -504,6 +504,18 @@ async function mountPhone(box) {
     : `<h3>Your phone</h3><p class="small muted">Use NEXUS on your phone from anywhere, privately: Tailscale gives this computer an
       address only your own devices can open.</p><div id="phone-steps"><p class="loading">Checking…</p></div>`;
   if (!d.url) mountPhoneSteps(box, d);
+  api("/api/autostart", { noCopy: true }).then((a) => {
+    if (!a.supported || !box.isConnected) return;
+    box.insertAdjacentHTML("beforeend", `<label class="check small autostart"><input type="checkbox" id="autostart"${a.enabled ? " checked" : ""}>
+      Start NEXUS when I sign in to this computer, so my phone can always reach it</label>`);
+    $("#autostart", box).onchange = async (ev) => {
+      try {
+        const r = await api("/api/autostart", { method: "PUT", json: { enabled: ev.target.checked } });
+        ev.target.checked = r.enabled;
+        toast(r.enabled ? "NEXUS will start by itself when you sign in." : "NEXUS won't start by itself any more.");
+      } catch (err) { toast(err.message, true); ev.target.checked = !ev.target.checked; }
+    };
+  }).catch(() => {});
 }
 
 /** Step by step to phone access: install Tailscale, sign in, then one button (no script needed). */

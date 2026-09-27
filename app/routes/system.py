@@ -335,3 +335,23 @@ def phone_setup_turn_on(request: Request):
         return phone.turn_on()
     except phone.PhoneSetupError as exc:
         raise HTTPException(400, str(exc)) from exc
+
+
+@router.get("/autostart")
+def autostart_get(request: Request):
+    """Does NEXUS start when you sign in to this computer?"""
+    from app.services import autostart
+
+    _only_here(request, "This is set on the computer NEXUS runs on.")
+    return {"supported": autostart.supported(), "enabled": autostart.enabled()}
+
+
+@router.put("/autostart")
+def autostart_set(payload: dict, request: Request):
+    from app.services import autostart
+
+    _only_here(request, "This is set on the computer NEXUS runs on.")
+    if not autostart.supported():
+        raise HTTPException(400, "Starting with the computer is available on Windows and Mac.")
+    autostart.set_enabled(bool(payload.get("enabled")))
+    return {"supported": True, "enabled": autostart.enabled()}

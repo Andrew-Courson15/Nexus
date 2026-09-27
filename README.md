@@ -169,6 +169,7 @@ exposed to the public internet.
 2. In NEXUS, open **Settings → Your phone** and press **Turn on phone access**. It finds the PC's
    private address (for example `https://gaming-pc.tail1234.ts.net`), lets NEXUS answer to it,
    turns on the private HTTPS link, and shows a QR code to scan. No restart needed.
+   Tick **Start NEXUS when I sign in** there too, so the phone can always reach it.
    (The script does the same from PowerShell, in the nexus folder, and can also make NEXUS start
    with Windows: `powershell -ExecutionPolicy Bypass -File scripts\phone_setup_windows.ps1`.)
 
