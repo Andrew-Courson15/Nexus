@@ -18,6 +18,36 @@ Everything runs on your own computer. The AI is a language model running locally
 [Ollama](https://ollama.com), and voice notes are transcribed locally with Whisper. By default
 nothing is sent anywhere.
 
+**What it does, at a glance**
+
+- **Capture anything, instantly**:
+  - text, voice notes, sketches and photos in almost any picture format (PSD, TIFF, HEIC,
+    Procreate …)
+  - from your computer or your phone, even when the computer is off
+- **Organized by a local AI**:
+  - titles, types, tags, summaries and suggested links, all clearly labeled as the AI's
+  - long voice logs are read in full
+- **Find it again**:
+  - search by words and by meaning
+  - **Ask NEXUS** questions answered only from your archive, with citations
+  - a **connections map**
+- **Visual Art Intelligence**: critiques, artist-mode conversations, comic-page and storyboard
+  reading, character consistency, and how a piece evolved.
+- **Projects**, with an AI **project analysis**: characters, story threads, contradictions,
+  open questions.
+- **Your phone**:
+  - private access from anywhere through Tailscale
+  - a saved copy to browse when the computer is off
+  - captures wait on the phone until NEXUS is back
+  - an optional passcode
+- **Yours to keep**:
+  - automatic backups and a readable Markdown export
+  - share entries or whole projects with a friend's NEXUS as a file
+  - trash with restore, and delete forever when you mean it
+
+See [CHANGELOG.md](CHANGELOG.md) for what's new and [RELEASE.md](RELEASE.md) for what a public
+release still needs.
+
 ---
 
 ## Setup on a Mac (recommended)
