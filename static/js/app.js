@@ -1081,6 +1081,9 @@ async function viewArchive(el) {
       <label class="field">Status<select name="status">${options(s.vocab.statuses, f.status, "All statuses")}</select></label>
       <label class="field">Project<select name="project_id"><option value="">All projects</option>${projects
         .map((p) => `<option value="${p.id}"${String(p.id) === f.project_id ? " selected" : ""}>${esc(p.name)}</option>`).join("")}</select></label>
+      <label class="field">Kind<select name="source_type">${[["", "Everything"], ["image", "Pictures"], ["voice", "Voice notes"],
+        ["text", "Written"], ["file", "Files"], ["import", "Imported"]].map(([v, l]) =>
+        `<option value="${v}"${v === (f.source_type || "") ? " selected" : ""}>${l}</option>`).join("")}</select></label>
       <label class="field">Tag<select name="tag"><option value="">All tags</option>${tags
         .map((t) => `<option value="${esc(t.name)}"${t.name === f.tag ? " selected" : ""}>${esc(t.name)} (${t.count})</option>`).join("")}</select></label>
       <label class="field">From<input type="date" name="date_from" value="${esc(f.date_from || "")}"></label>

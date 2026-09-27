@@ -314,7 +314,8 @@ Browsers only allow microphone access on `localhost` or HTTPS. Open NEXUS at
   behind it), and recently touched entries.
   - **Rediscover** brings back ideas captured on this day of an earlier month or year, and a few
     unfinished ideas you haven't touched for over a month (a different few each day).
-- **Creative Archive**: every entry as a card. Filter by type, status, project, tag and date.
+- **Creative Archive**: every entry as a card. Filter by type, status, project, kind (pictures,
+  voice notes, written, files), tag and date.
   Sort by newest, oldest, recently modified or alphabetical.
   - **Select** lets you pick several entries (or **Select all shown**) and act on them together:
     add them to a project, set their status, add a tag, export them as a `.nexus` file, or move them
