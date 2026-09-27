@@ -175,7 +175,7 @@ function unreachable() {
 const HAS_OFFLINE_COPY = !["localhost", "127.0.0.1", "[::1]"].includes(location.hostname) && "indexedDB" in window;
 const SYNC_EVERY_MS = 5 * 60 * 1000;
 const THUMB_CACHE = "media-thumbs";
-const MAX_OFFLINE_THUMBS = 500;
+const MAX_OFFLINE_THUMBS = 2000;  // newest first; about 100 KB each
 // Lists the offline copy keeps exactly as NEXUS sent them (refreshed whenever they're fetched).
 const COPY_LISTS = ["/api/settings", "/api/tags", "/api/insights/patterns", "/api/art/gallery",
   "/api/art/preferences", "/api/art/knowledge", "/api/art/topics"];
@@ -1461,12 +1461,13 @@ async function mountDevice(box) {
   }
   const snap = await offlineCopy.snapshot();
   let pictures = 0;
+  const withPic = snap ? snap.entries.filter((e) => picOf(e)?.thumb_url).length : 0;
   try { pictures = (await (await caches.open(THUMB_CACHE)).keys()).length; } catch { /* no Cache API */ }
   box.innerHTML = head + (snap
     ? `<p class="health ok"><span class="dot"></span>Copy saved on this device</p><dl class="kv">
         <dt>Saved</dt><dd>${fmtDateTime(snap.generated_at)}</dd>
         <dt>Entries</dt><dd>${snap.entries.length}</dd><dt>Projects</dt><dd>${snap.projects.length}</dd>
-        <dt>Pictures</dt><dd>${pictures}</dd></dl>`
+        <dt>Pictures</dt><dd>${pictures}${withPic > pictures ? ` of ${withPic}${withPic > MAX_OFFLINE_THUMBS ? ` (the newest ${MAX_OFFLINE_THUMBS} are kept)` : syncing ? " (still saving)" : ""}` : ""}</dd></dl>`
     : `<p class="health bad"><span class="dot"></span>${syncing ? "Saving a copy on this device…" : "No copy saved on this device yet"}</p>`)
     + (lastSyncError ? `<p class="small" style="color:var(--danger)">The last attempt to save it failed: ${esc(lastSyncError)}</p>` : "")
     + `<button class="btn small" data-act="sync-now">Update the saved copy now</button>
