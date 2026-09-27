@@ -151,6 +151,20 @@ def main() -> None:
         icon.stop()
 
     threading.Thread(target=watch, name="nexus-tray-watch", daemon=True).start()
+    intro = s.data_dir / ".tray-intro-shown"
+    if not intro.exists():  # the first time: say where NEXUS lives now
+
+        def hello():
+            import time
+
+            time.sleep(3)
+            _notify(icon, "NEXUS is running. Its icon is here by the clock: click to open, right-click to quit.")
+            try:
+                intro.touch()
+            except OSError:
+                pass
+
+        threading.Thread(target=hello, name="nexus-tray-hello", daemon=True).start()
     try:
         icon.run()
     except Exception:  # the icon couldn't be shown after all: keep NEXUS running without it
