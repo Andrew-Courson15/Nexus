@@ -621,3 +621,4 @@ a.cite:hover { border-color: var(--text); }
 .help-topic p, .help-topic li { line-height: 1.6; }
 kbd { font-family: var(--mono); font-size: 12px; padding: 1px 6px; border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 5px; background: var(--surface-2); }
 .art-tile[hidden] { display: none !important; } .art-filters { margin-bottom: 10px; align-items: flex-end; }
+.develop-row { margin: 12px 0; gap: 10px; }

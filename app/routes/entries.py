@@ -375,3 +375,17 @@ def similar(entry_id: int, db: Session = Depends(get_db)):
     found = {e.id: e for e in db.scalars(select(CreativeEntry).where(CreativeEntry.id.in_([i for i, _ in best])).options(*_LOAD))}
     return {"available": True, "items": [{"entry": entry_summary(found[i]).model_dump(mode="json"), "similarity": round(sim, 3)}
                                          for i, sim in best if i in found]}
+
+
+@router.post("/entries/{entry_id}/develop")
+async def develop_idea(entry_id: int, db: Session = Depends(get_db)):
+    """Directions, questions and a next step for this idea, from the local AI (kept with the entry)."""
+    from fastapi.concurrency import run_in_threadpool
+
+    from app.services import develop
+
+    entry = load_entry(db, entry_id)
+    try:
+        return await run_in_threadpool(develop.develop, db, entry)
+    except develop.DevelopError as exc:
+        raise HTTPException(400, str(exc)) from exc

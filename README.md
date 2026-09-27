@@ -384,6 +384,9 @@ Browsers only allow microphone access on `localhost` or HTTPS. Open NEXUS at
   - add and remove tags (a removed AI tag doesn't come back)
   - add the entry to projects, or **start a project from it** (named after it, same kind)
   - see **More like this**: the entries closest in meaning (from the search-by-meaning index)
+  - **Develop this idea**: the local AI suggests a few directions, questions to think about and a
+    next step, labelled as AI inference and kept with the entry (every result). **Write from this**
+    starts your own new capture that points at a direction; the AI's words never become yours.
   - **accept / reject / ignore** AI-suggested relationships
   - **link it to another idea yourself** (*Related ideas → Link to another idea*: find it, pick how
     they're related, e.g. "character in"), or remove a link. A link you remove isn't suggested again.

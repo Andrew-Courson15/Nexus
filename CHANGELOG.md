@@ -44,6 +44,8 @@ The version is in `app/__init__.py` and shown in **Settings → This device**.
 - **What's new** (this list) shows once on Home after an update.
 - **Theme** per device (Settings → This device): same as the device, dark, or light.
 - **Tag suggestions** while typing a tag.
+- **Develop this idea**: directions, questions and a next step from the local AI, labelled as AI
+  inference and kept with the entry.
 - **More like this** on an entry: the entries closest in meaning (needs search by meaning).
 - **Art gallery filter**: find artworks by title, tag or file name, by project, or those not analysed
   yet, and **analyse all the ones not analysed yet** in one go (they run one after another).

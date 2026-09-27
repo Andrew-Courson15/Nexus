@@ -2578,6 +2578,18 @@ async function viewEntry(el, id) {
     : isBusy(e) ? ""
     : prov("unknown", "Not analysed", `<div class="body">${esc(m.analysis_error || "The AI organizer hasn't looked at this entry yet.")}</div>`);
 
+  const devs = m.developments || [], dev = devs[0];
+  const developBlock = dev ? prov("infer", "AI suggestions · develop this idea", `
+      <div class="directions">${dev.directions.map((d, i) => `<div class="direction"><strong>${esc(d.name)}</strong><p>${esc(d.description)}</p>
+        <button type="button" class="btn ghost small" data-write="${i}">Write from this</button></div>`).join("")}</div>
+      ${dev.questions.length ? `<div class="small" style="margin-top:8px"><strong>Questions to think about</strong><ul>${dev.questions.map((q) => `<li>${esc(q)}</li>`).join("")}</ul></div>` : ""}
+      ${dev.next_step ? `<p class="small"><strong>A next step:</strong> ${esc(dev.next_step)}</p>` : ""}
+      <div class="row"><button type="button" class="btn small" data-act="develop">More directions</button>
+        ${devs.length > 1 ? `<details class="small"><summary>${devs.length - 1} earlier</summary><ul>${devs.slice(1).map((x) =>
+          `<li>${fmtDateTime(x.created_at)}: ${x.directions.map((d) => esc(d.name)).join(" · ")}</li>`).join("")}</ul></details>` : ""}</div>`,
+      `options, not decisions · ${esc(dev.model || "")} · ${fmtDateTime(dev.created_at)}`)
+    : `<div class="row develop-row"><button type="button" class="btn small" data-act="develop">Develop this idea</button>
+        <span class="small muted">The local AI suggests directions and questions. Your words stay as they are.</span></div>`;
   const isPdf = e.attachments.some((a) => a.mime_type === "application/pdf");
   const pagesBlock = m.page_of ? `<nav class="row small page-nav" id="page-nav" aria-label="Pages">Page ${m.page_of.page} of ${m.page_of.pages} ·
       <a href="#/entry/${m.page_of.id}">the whole PDF</a></nav>`
@@ -2613,6 +2625,7 @@ async function viewEntry(el, id) {
       "additions you've written later")}
     ${transcriptBlock}
     ${analysisBlocks}
+    ${developBlock}
     ${hasImage ? `<div id="artpanel"></div>` : ""}
     ${isBusy(e) ? "" : `<div class="row"><button class="btn" data-act="analyze">Re-run AI organizer</button>
       <span class="small muted">Regenerates AI data only. Your words, title and type choices are kept.</span></div>`}
@@ -2695,6 +2708,17 @@ async function viewEntry(el, id) {
   $("#status", el).onchange = (ev) => put({ status: ev.target.value }, "Status updated.");
   $("[data-act=confirm]", el)?.addEventListener("click", () => put({ user_confirmed: true }, "Confirmed."));
   mountBrowseNav(el, e.id);
+  $$("[data-act=develop]", el).forEach((b) => (b.onclick = async () => {
+    b.disabled = true;
+    b.innerHTML = `<span class="spinner inline"></span> Thinking… (up to a minute)`;
+    try { await api(`/api/entries/${e.id}/develop`, { method: "POST", timeout: 240000 }); render(); }
+    catch (err) { toast(err.offline ? "Developing an idea needs your computer on." : err.message, true); b.disabled = false; b.textContent = "Develop this idea"; }
+  }));
+  $$("[data-write]", el).forEach((b) => (b.onclick = () => {  // your own new capture, pointing at the direction (not the AI's words)
+    const d = dev.directions[+b.dataset.write];
+    store("nexus.draft", `Developing “${e.title}” (direction: ${d.name}):\n\n`);
+    location.hash = "#/";
+  }));
   api(`/api/entries/${e.id}/similar`, { noCopy: true }).then((r) => {
     const box = $("#similar", el);
     if (!box || !r.items.length) return;

@@ -84,6 +84,14 @@ ART_REPLY = {
 }
 
 
+DEVELOP_REPLY = {
+    "directions": [{"name": "The cost of crossing", "description": "What if each memory he loses is one someone else gains?"},
+                   {"name": "Told backwards", "description": "Start with the last crossing, when he remembers almost nothing."},
+                   {"name": "The keeper", "description": "A character who collects the lost memories."}],
+    "questions": ["Who does he lose first?", "Does he know it's happening?", "What would make him stop?"],
+    "next_step": "Sketch the moment right after his first crossing.",
+}
+
 class FakeOllama:
     def __init__(self, models=("test-model:latest",), capabilities=("completion",), analysis=None,
                  relationships=None, reachable=True, chat_status=200, raw_reply=None, art_reply=None):
@@ -127,6 +135,8 @@ class FakeOllama:
             system = body["messages"][0]["content"]
             if self.raw_reply is not None:
                 content = self.raw_reply
+            elif "DEVELOP AN IDEA" in system:
+                content = json.dumps(DEVELOP_REPLY)
             elif "VISUAL ART INTELLIGENCE" in system:
                 content = json.dumps(self.art_reply)
             elif "link entries" in system:
