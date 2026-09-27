@@ -1929,7 +1929,6 @@ async function viewMap(el, _id, query) {
   const edges = g.edges.filter((e) => byId.has(e.source) && byId.has(e.target));
   const radius = (n) => 9 + 2.2 * Math.sqrt(degree.get(n.id) || 0);
   const short = (t) => (t.length > 24 ? t.slice(0, 22) + "…" : t);
-  const NS = "http://www.w3.org/2000/svg";
   svg.innerHTML = `<defs>${nodes.filter((n) => n.thumb_url).map((n) =>
       `<clipPath id="clip${n.id}"><circle cx="${n.x}" cy="${n.y}" r="${radius(n) + 5}"/></clipPath>`).join("")}</defs>
     <g class="edges">${edges.map((e) => { const a = byId.get(e.source), b = byId.get(e.target);
