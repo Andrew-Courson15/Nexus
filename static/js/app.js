@@ -303,7 +303,8 @@ function searchCopy(snap, query) {
   const results = [];
   for (const e of snap.entries) {
     const fields = [e.title, e.original_text, e.user_notes, e.transcript, e.ai_summary, e.ai_interpretation,
-      e.tags.map((t) => t.name).join(" "), (e.ai_metadata?.concepts || []).join(" ")].filter(Boolean);
+      e.tags.map((t) => t.name).join(" "), (e.ai_metadata?.concepts || []).join(" "),
+      e.attachments.map((a) => a.original_filename.replace(/\.[^.]+$/, "").replace(/[\W_]+/g, " ")).join(" ")].filter(Boolean);
     const text = fields.join("\n").toLowerCase();
     const title = (e.title || "").toLowerCase();
     let score = 0;
