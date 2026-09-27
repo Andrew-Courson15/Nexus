@@ -1656,9 +1656,7 @@ async function mountPreferences(box) {
       ${d.from_app.length ? `<button type="button" class="btn ghost small" data-act="prefs-reset">Reset to defaults</button>` : ""}</div>
     <form id="prefs-form" class="prefs-grid">
       <label class="field">Your name <input type="text" name="owner_name" maxlength="80" value="${esc(v.owner_name)}" placeholder="shown when you share with a friend"></label>
-      <label class="field">AI model ${modelField("ollama_model", v.ollama_model)}${d.machine?.recommended_model ? `<span class="small muted">This computer has
-        ${Math.round(d.machine.memory_gb)} GB of memory: <strong>${esc(d.machine.recommended_model)}</strong> fits it${
-        sameModel(v.ollama_model, d.machine.recommended_model) ? " (in use)" : ""}.</span>` : ""}</label>
+      <label class="field">AI model ${modelField("ollama_model", v.ollama_model)}</label>
       <label class="field">Model for pictures ${modelField("ollama_vision_model", v.ollama_vision_model, true)}</label>
       <label class="field">Search-by-meaning model ${modelField("embedding_model", v.embedding_model)}</label>
       <label class="field">Speech-to-text model <select name="whisper_model">${d.choices.whisper_models.map((m) =>
@@ -1676,7 +1674,9 @@ async function mountPreferences(box) {
         <input type="text" id="pull-name" placeholder="other model name" aria-label="Model to download" style="max-width:180px">
         <button type="button" class="btn ghost small" data-pull-custom>Download</button>
         <div id="pulls" class="small"></div>
-        <p class="small muted">${d.choices.suggested_models.map((m) => `<strong>${esc(m.name)}</strong>: ${esc(m.note)}`).join(" · ")}</p></div>
+        <p class="small muted">${d.machine?.recommended_model ? `This computer has ${Math.round(d.machine.memory_gb)} GB of memory:
+          <strong>${esc(d.machine.recommended_model)}</strong> fits it${sameModel(v.ollama_model, d.machine.recommended_model) ? " (in use)" : ""}. ` : ""}
+          ${d.choices.suggested_models.map((m) => `<strong>${esc(m.name)}</strong>: ${esc(m.note)}`).join(" · ")}</p></div>
       <div class="row wide"><button class="btn primary small" type="submit">Save preferences</button>
         <span class="small muted">They apply straight away. ${models.length ? "" : "Ollama isn't answering, so type model names."}</span></div>
     </form>`;
@@ -2242,6 +2242,14 @@ async function viewSettings(el) {
       <code>.env</code> file next to <code>run.py</code> (restart after changing it). API keys stay in the environment and are never stored in the database.</p></div>
       <a class="btn small" href="#/help">Help</a></div>
     <div class="grid">
+      ${HAS_OFFLINE_COPY ? "" : `<div class="panel" id="phone"></div>`}
+      ${HAS_OFFLINE_COPY ? "" : `<div class="panel" id="updates"><h3>Updates</h3>
+        <p class="small muted">NEXUS ${esc(APP_VERSION || "")} · your ideas and settings are never touched by an update.</p>
+        <button type="button" class="btn small" data-act="check-update">Check for updates</button><div id="update-info"></div></div>`}
+      <div class="panel" id="backups"><h3>Backups</h3><p class="loading">Loading…</p></div>
+      <div class="panel" id="device"></div>
+      <div class="panel" id="lock"></div>
+      <div class="panel" id="import"></div>
       <div class="panel"><h3>AI provider</h3>${health(ai.health)}<dl class="kv">
         <dt>Active</dt><dd>${esc(ai.name)}</dd>
         <dt>Sends data off this machine</dt><dd>${ai.external == null ? "—" : ai.external ? "Yes" : "No"}</dd>
@@ -2268,14 +2276,6 @@ async function viewSettings(el) {
       <div class="panel"><h3>Archive</h3><dl class="kv">
         <dt>Entries</dt><dd>${s.counts.entries}</dd><dt>Projects</dt><dd>${s.counts.projects}</dd>
         <dt>Tags</dt><dd>${s.counts.tags}</dd><dt>In trash</dt><dd><a href="#/trash">${s.counts.trash} · view trash</a></dd></dl></div>
-      <div class="panel" id="backups"><h3>Backups</h3><p class="loading">Loading…</p></div>
-      <div class="panel" id="import"></div>
-      <div class="panel" id="device"></div>
-      <div class="panel" id="lock"></div>
-      ${HAS_OFFLINE_COPY ? "" : `<div class="panel" id="phone"></div>`}
-      ${HAS_OFFLINE_COPY ? "" : `<div class="panel" id="updates"><h3>Updates</h3>
-        <p class="small muted">NEXUS ${esc(APP_VERSION || "")} · your ideas and settings are never touched by an update.</p>
-        <button type="button" class="btn small" data-act="check-update">Check for updates</button><div id="update-info"></div></div>`}
       <div class="panel" id="report"><h3>Something not working?</h3>
         <p class="small muted">Make a report to paste when asking for help: versions, whether the AI and search are healthy,
           counts and recent log lines. It never includes what your entries say, and nothing is sent anywhere: you see it first and copy it yourself.</p>
