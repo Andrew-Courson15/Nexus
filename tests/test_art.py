@@ -281,3 +281,25 @@ def test_oversized_images_are_analysed_through_a_smaller_preview(client, monkeyp
     assert r.status_code == 200 and r.json()["status"] == "done", r.text
     sent = vision.art_chats[-1]["messages"][1]["images"][0]
     assert base64.b64decode(sent)[:3] == b"\xff\xd8\xff" or base64.b64decode(sent)[:4] == b"\x89PNG"
+
+
+def test_analyze_every_artwork_not_analysed_yet(client, vision, monkeypatch):
+    from app.config import get_settings
+
+    monkeypatch.setenv("NEXUS_ART_AUTO_ANALYZE", "false")  # older art, uploaded before analyses existed
+    get_settings.cache_clear()
+    a, b = upload(client, name="a.png"), upload(client, name="b.png")
+    client.post("/api/entries", json={"original_text": "just words", "analyze": False})
+    assert analyses(client, a["id"]) == [] and analyses(client, b["id"]) == []
+    r = client.post("/api/art/analyze-missing").json()
+    assert r == {"queued": 2, "skipped": []}
+    assert [x["status"] for x in analyses(client, a["id"])] == ["done"]
+    assert client.post("/api/art/analyze-missing").json()["queued"] == 0  # each once
+    monkeypatch.undo()
+    get_settings.cache_clear()
+
+
+def test_analyze_missing_needs_a_vision_model(client, monkeypatch):
+    monkeypatch.setattr(art, "get_ai_provider", lambda: ai.LocalHeuristicProvider())
+    r = client.post("/api/art/analyze-missing")
+    assert r.status_code == 400 and "see images" in r.json()["detail"]

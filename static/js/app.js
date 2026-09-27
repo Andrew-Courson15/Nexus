@@ -3082,7 +3082,9 @@ async function artGallery(box) {
       ${projects.length ? `<label class="field">Project<select name="project"><option value="">All projects</option>${projects.map((p) =>
         `<option value="${p.id}">${esc(p.name)}</option>`).join("")}</select></label>` : ""}
       <label class="check small"><input type="checkbox" name="fresh"> Not analysed yet</label>
-      <span class="small muted" id="artcount">${items.length} artworks</span></form>
+      <span class="small muted" id="artcount">${items.length} artworks</span>
+      ${items.some((g) => !g.analyses) ? `<button type="button" class="btn ghost small" data-act="analyze-missing">Analyse the
+        ${items.filter((g) => !g.analyses).length} not analysed yet</button>` : ""}</form>
     <div class="selbar" id="selbar"><span id="selcount" class="small muted">Tap artworks to select them. Order matters (Image 1, 2…).</span>
       <span class="spacer"></span><span id="selactions" class="row"></span></div>
     <div class="art-grid">${items.map((g) => {
@@ -3128,6 +3130,17 @@ async function artGallery(box) {
   };
   form.oninput = filter;
   form.onsubmit = (ev) => ev.preventDefault();
+  $("[data-act=analyze-missing]", box)?.addEventListener("click", async (ev) => {
+    const n = items.filter((g) => !g.analyses).length;
+    if (!confirm(`Analyse ${n} artwork${n === 1 ? "" : "s"}? They run one after another in the background on this computer${
+      n > 20 ? " (with many, this can take a while)" : ""}. Nothing you made is changed.`)) return;
+    ev.target.disabled = true;
+    try {
+      const r = await api("/api/art/analyze-missing", { method: "POST", timeout: 60000 });
+      toast(`${r.queued} analys${r.queued === 1 ? "is" : "es"} queued.${r.skipped.length ? ` ${r.skipped.length} skipped (see the entries).` : ""}`);
+      setTimeout(() => box.isConnected && artGallery(box), 1500);
+    } catch (err) { toast(err.message, true); ev.target.disabled = false; }
+  });
   $$(".art-tile .pick", box).forEach((b) => (b.onclick = () => {
     const id = Number(b.closest(".art-tile").dataset.id);
     const i = picked.indexOf(id);

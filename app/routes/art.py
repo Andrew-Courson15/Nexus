@@ -214,3 +214,37 @@ def delete_knowledge(kid: int, db: Session = Depends(get_db)):
     k.deleted_at = utcnow()
     db.commit()
     return Response(status_code=204)
+
+
+MAX_BATCH = 200
+
+
+@router.post("/art/analyze-missing")
+def analyze_missing(db: Session = Depends(get_db)):
+    """Queue an analysis for every artwork that has none yet (oldest first, up to 200 at a time).
+    They run one after another in the background; each is a new version, nothing is replaced."""
+    from app.services.ai import AIProviderError
+
+    try:
+        ready = getattr(art.get_ai_provider(), "supports_art", False)
+    except AIProviderError:
+        ready = False
+    if not ready:
+        raise HTTPException(400, "Analysing artwork needs the local AI with a model that can see images "
+                                 "(Settings → Preferences).")
+    analysed = select(ArtworkAnalysis.entry_id)
+    entries = db.scalars(
+        select(CreativeEntry)
+        .where(CreativeEntry.deleted_at.is_(None), CreativeEntry.id.not_in(analysed),
+               CreativeEntry.id.in_(select(Attachment.entry_id).where(Attachment.kind == "image")))
+        .options(selectinload(CreativeEntry.attachments))
+        .order_by(CreativeEntry.created_at).limit(MAX_BATCH)
+    ).all()
+    queued, skipped = 0, []
+    for e in entries:
+        try:
+            art.start_analysis(db, e, "analysis")
+            queued += 1
+        except art.ArtError as exc:
+            skipped.append({"id": e.id, "title": e.title or "Untitled", "why": str(exc)})
+    return {"queued": queued, "skipped": skipped}
