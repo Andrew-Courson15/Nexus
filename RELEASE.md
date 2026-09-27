@@ -70,7 +70,8 @@ can make; the rest is engineering.
   report to copy. A future version could offer to send it, with the same preview.
 - **Documentation.** 0.14 has an in-app Help page for everyday use. Still to do: split this README
   into a user guide (website) and a developer guide.
-- **Legal pages.** A privacy policy (short, since nothing leaves the device) and terms of use.
+- **Legal pages.** `PRIVACY.md` (0.14) says what's stored where and what NEXUS connects to. Still
+  to do: terms of use, and a license (your decision, above).
 
 ## Nice next features
 

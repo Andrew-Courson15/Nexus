@@ -50,6 +50,8 @@ release still needs.
 
 ---
 
+Privacy in plain words: [PRIVACY.md](PRIVACY.md).
+
 ## Easiest install (double-click)
 
 1. Get the NEXUS folder: **Code → Download ZIP** on GitHub, then unzip it. On Windows, put it in
