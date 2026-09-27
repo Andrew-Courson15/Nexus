@@ -1019,7 +1019,7 @@ async function viewArchive(el) {
   el.innerHTML = `<div class="view-head"><div><h1>Creative Archive</h1>
     <p class="lede">Everything you've captured. Your words are never altered.</p></div>
     <div class="row"><span class="muted small" id="count"></span><button type="button" class="btn ghost small" data-act="select">Select</button>
-      <a class="btn ghost small" href="#/timeline">Timeline</a><a class="btn ghost small" href="#/characters">Characters</a><a class="btn ghost small" href="#/tags">Tags</a><a class="btn ghost small" href="#/map">Connections map</a>${trash.total ? `<a class="btn ghost small" href="#/trash">Trash (${trash.total})</a>` : ""}</div></div>
+      <a class="btn ghost small" href="#/timeline">Timeline</a><a class="btn ghost small" href="#/characters">Characters</a><a class="btn ghost small" href="#/tags">Tags</a><a class="btn ghost small" href="#/map">Connections map</a>${trash.total ? `<a class="btn ghost small" href="#/trash">Trash (${trash.total})</a>` : ""}<span id="dup-link"></span></div></div>
     <details class="filterbox" ${matchMedia("(min-width: 641px)").matches ? "open" : ""}>
     <summary class="btn ghost small">Filters &amp; sort</summary>
     <form class="filters" id="filters">
@@ -1117,6 +1117,9 @@ async function viewArchive(el) {
       run({ action: "trash" }, (n) => `Moved ${n} to the trash.`);
     }
   });
+  api("/api/duplicates?count_only=true").then((d) => {
+    if (d.groups) $("#dup-link", el).outerHTML = `<a class="btn ghost small" href="#/duplicates">Duplicates (${d.groups})</a>`;
+  }).catch(() => {});
   await load();
 }
 
@@ -1199,6 +1202,38 @@ async function viewCharacters(el) {
   $$("[data-char]", el).forEach((a) => (a.onclick = (ev) => { ev.preventDefault(); $(`#c-${a.dataset.char}`, el)?.scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" }); }));
   const wanted = new URLSearchParams(location.hash.split("?")[1] || "").get("c");
   if (wanted) $(`#c-${CSS.escape(wanted)}`, el)?.scrollIntoView();
+}
+
+async function viewDuplicates(el) {
+  const d = await api("/api/duplicates");
+  el.innerHTML = `<p><a href="#/archive" class="muted small">← Creative Archive</a></p>
+    <div class="view-head"><div><h1>Duplicates</h1>
+    <p class="lede">Entries holding the very same file (identical, byte for byte). Moving a copy to the Trash hides it; you can
+      restore it from the Trash any time.</p></div></div>
+    ${d.groups.length ? `<p class="small muted">${d.groups.length} file${d.groups.length === 1 ? "" : "s"} saved more than once ·
+      ${d.extra_copies} extra cop${d.extra_copies === 1 ? "y" : "ies"}</p>` : ""}
+    ${d.groups.map((g) => `<section class="panel dup-group" data-sha="${esc(g.sha256)}">
+      <div class="row"><h3>${esc(g.filename)}</h3><span class="muted small">${fmtSize(g.size_bytes)} · ${g.entries.length} copies</span><span class="spacer"></span>
+        <button type="button" class="btn small" data-keep-first>Keep the oldest, trash the others</button></div>
+      <div class="strip">${g.entries.map((e, i) => { const pic = picOf(e);
+        return `<div class="dup-copy">${tileHtml({ id: e.id, title: e.title, entry_type: e.entry_type, thumb_url: pic && (pic.thumb_url || pic.preview_url),
+          excerpt: e.excerpt }, `${i === 0 ? "oldest · " : ""}${fmtDate(e.created_at)}${e.has_notes ? " · has your words" : ""}${e.projects.length ? ` · in ${e.projects.length} project${e.projects.length === 1 ? "" : "s"}` : ""}`)}
+          <button type="button" class="btn ghost small" data-trash-one="${e.id}">Move to trash</button></div>`; }).join("")}</div></section>`).join("")
+      || `<p class="empty">No duplicates: every file in your archive is saved once.</p>`}`;
+  const trash = async (ids, what) => {
+    try {
+      await api("/api/entries/bulk", { method: "POST", json: { entry_ids: ids, action: "trash" } });
+      toast(`${what} moved to the Trash.`);
+      render();
+    } catch (err) { toast(err.message, true); }
+  };
+  $$("[data-keep-first]", el).forEach((b) => (b.onclick = () => {
+    const box = b.closest(".dup-group"), ids = $$("[data-trash-one]", box).slice(1).map((x) => +x.dataset.trashOne);
+    const worded = $$(".dup-copy", box).slice(1).some((c) => c.textContent.includes("has your words"));
+    if (worded && !confirm("Some of the newer copies have your own words or notes. Move them to the Trash anyway? (You can restore them.)")) return;
+    trash(ids, `${ids.length} cop${ids.length === 1 ? "y" : "ies"}`);
+  }));
+  $$("[data-trash-one]", el).forEach((b) => (b.onclick = () => trash([+b.dataset.trashOne], "The copy")));
 }
 
 async function viewTags(el) {
@@ -2899,6 +2934,7 @@ const ROUTES = [
   [/^\/tags$/, viewTags, "archive"],
   [/^\/timeline$/, viewTimeline, "archive"],
   [/^\/characters$/, viewCharacters, "archive"],
+  [/^\/duplicates$/, viewDuplicates, "archive"],
   [/^\/settings$/, viewSettings, "settings"],
   [/^\/trash$/, viewTrash, "archive"],
   [/^\/art$/, viewArt, "art"],

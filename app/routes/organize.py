@@ -211,3 +211,31 @@ def empty_trash(db: Session = Depends(get_db)):
         db.delete(p)
     db.commit()
     return {"entries": len(entries), "projects": len(projects)}
+
+
+@router.get("/duplicates")
+def duplicates(count_only: bool = False, db: Session = Depends(get_db)):
+    """Entries holding the very same file (same fingerprint), grouped, oldest copy first."""
+    from sqlalchemy import func
+
+    from app.models import Attachment
+    from app.routes.entries import _LOAD
+    from app.schemas import entry_summary
+
+    live = CreativeEntry.deleted_at.is_(None)
+    shas = db.execute(select(Attachment.sha256).join(CreativeEntry, CreativeEntry.id == Attachment.entry_id)
+                      .where(live).group_by(Attachment.sha256)
+                      .having(func.count(func.distinct(Attachment.entry_id)) > 1)).scalars().all()
+    if count_only:
+        return {"groups": len(shas)}
+    groups = []
+    for sha in shas:
+        entries = db.scalars(select(CreativeEntry).join(Attachment, Attachment.entry_id == CreativeEntry.id)
+                             .where(live, Attachment.sha256 == sha).options(*_LOAD).distinct()
+                             .order_by(CreativeEntry.created_at, CreativeEntry.id)).all()
+        att = next(a for a in entries[0].attachments if a.sha256 == sha)
+        groups.append({"sha256": sha, "filename": att.original_filename, "size_bytes": att.size_bytes,
+                       "entries": [{**entry_summary(e).model_dump(mode="json"),
+                                    "has_notes": bool(e.user_notes or e.original_text)} for e in entries]})
+    groups.sort(key=lambda g: g["entries"][-1]["created_at"], reverse=True)
+    return {"groups": groups, "extra_copies": sum(len(g["entries"]) - 1 for g in groups)}

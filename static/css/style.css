@@ -575,3 +575,9 @@ a.cite:hover { border-color: var(--text); }
 .lightbox.zoomed { display: block; }
 .lightbox.zoomed img { max-width: none; max-height: none; cursor: zoom-out; }
 .lightbox-close { position: fixed; top: max(12px, env(safe-area-inset-top)); right: 12px; z-index: 101; font-size: 20px; line-height: 1; }
+
+/* ---------- duplicates ---------- */
+.dup-group { margin-top: 14px; }
+.panel.dup-group h3 { text-transform: none; letter-spacing: 0; font-size: 15px; color: var(--text); overflow-wrap: anywhere; }
+.dup-copy { display: grid; gap: 6px; align-content: start; }
+.dup-copy .btn { justify-self: start; }

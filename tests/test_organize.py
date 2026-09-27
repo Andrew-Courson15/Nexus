@@ -96,3 +96,28 @@ def test_uploading_the_same_file_twice_is_kept_but_flagged(client):
     assert "duplicate_of" not in first["ai_metadata"]
     assert second["ai_metadata"]["duplicate_of"]["id"] == first["id"]
     assert client.get("/api/entries").json()["total"] == 2
+
+
+def test_duplicates_are_grouped_oldest_first(client):
+    import io
+
+    from PIL import Image
+
+    def png(color):
+        b = io.BytesIO()
+        Image.new("RGB", (10, 10), color).save(b, "PNG")
+        return b.getvalue()
+
+    up = lambda name, data, **kw: client.post("/api/uploads", files={"file": (name, data, "image/png")},  # noqa: E731
+                                              data={"analyze": "false", **kw}).json()
+    a = up("faro.png", png("red"))
+    b = up("faro copy.png", png("red"), note="second upload, with words")
+    c = up("faro again.png", png("red"))
+    up("other.png", png("blue"))
+    d = client.get("/api/duplicates").json()
+    assert d["extra_copies"] == 2 and len(d["groups"]) == 1
+    g = d["groups"][0]
+    assert [e["id"] for e in g["entries"]] == [a["id"], b["id"], c["id"]] and g["filename"] == "faro.png"
+    assert [e["has_notes"] for e in g["entries"]] == [False, True, False]
+    client.post("/api/entries/bulk", json={"entry_ids": [b["id"], c["id"]], "action": "trash"})
+    assert client.get("/api/duplicates").json() == {"groups": [], "extra_copies": 0}
