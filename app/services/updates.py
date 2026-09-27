@@ -62,7 +62,7 @@ def check() -> dict:
     changes = _git("log", "--format=%s", "-n", "12", f"HEAD..origin/{branch}").splitlines() if behind else []
     latest = _version_in(_git("show", f"origin/{branch}:app/__init__.py")) if behind else __version__
     reason = None
-    if dirty:
+    if dirty and behind:
         reason = ("Files in the NEXUS folder were changed on this computer, so updating could overwrite them. "
                   "Update from a terminal instead (scripts/update_windows.ps1 or scripts/update_mac.sh).")
     return {"can_update": behind > 0 and not dirty, "current_version": __version__, "latest_version": latest,
