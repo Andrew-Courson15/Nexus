@@ -36,11 +36,12 @@ document.addEventListener("error", (ev) => {
   img.replaceWith(note);
 }, true);
 
-function store(key, value) {
+function store(key, value, session = false) {
   try {
-    if (value === undefined) return localStorage.getItem(key);
-    if (value === null) localStorage.removeItem(key);
-    else localStorage.setItem(key, value);
+    const st = session ? sessionStorage : localStorage;
+    if (value === undefined) return st.getItem(key);
+    if (value === null) st.removeItem(key);
+    else st.setItem(key, value);
   } catch { /* storage unavailable: ignore */ }
   return null;
 }
@@ -1138,12 +1139,12 @@ async function viewTimeline(el) {
       <a class="btn ghost small" href="#/archive">Archive list</a></div>
       ${months.size ? `<nav class="month-jump" aria-label="Months">${[...months].map(([k, m]) =>
         `<a href="#/timeline" data-month="${k}">${esc(m.label)} <span class="muted">${m.items.length}</span></a>`).join("")}</nav>` : ""}
-      ${[...months].map(([k, m]) => `<section class="month" id="m-${k}"><h2>${esc(m.label)}</h2>
+      <div data-browse>${[...months].map(([k, m]) => `<section class="month" id="m-${k}"><h2>${esc(m.label)}</h2>
         <div class="strip">${m.items.map((e) => { const pic = picOf(e);
           return tileHtml({ id: e.id, title: e.title, entry_type: e.entry_type, thumb_url: pic && (pic.thumb_url || pic.preview_url),
             excerpt: e.excerpt || e.ai_summary || e.attachments[0]?.original_filename },
             `${new Date(e.created_at).toLocaleDateString(undefined, { day: "numeric", month: "short" })} · ${esc(label(e.entry_type))}`); }).join("")}</div></section>`).join("")
-        || `<p class="empty">Nothing captured yet.</p>`}
+        || `<p class="empty">Nothing captured yet.</p>`}</div>
       ${total > items.length ? `<p class="row"><button type="button" class="btn" id="older">Show older (${total - items.length} more)</button></p>` : ""}`;
     const scroll = (id) => $(`#m-${id}`, el)?.scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
     $$("[data-month]", el).forEach((a) => (a.onclick = (ev) => { ev.preventDefault(); scroll(a.dataset.month); }));
@@ -1795,6 +1796,29 @@ async function viewMap(el, _id, query) {
   if (focus) highlight(String(focus));
 }
 
+/** "← Previous · 3 of 40 · Next →" on an entry opened from a grid, plus swiping on its picture. */
+function mountBrowseNav(el, id) {
+  let ids = [];
+  try { ids = JSON.parse(store("nexus.browse", undefined, true) || "[]"); } catch { /* none */ }
+  const i = ids.indexOf(id);
+  if (i < 0 || ids.length < 2) return;
+  const prev = ids[i - 1], next = ids[i + 1];
+  el.querySelector(".detail")?.insertAdjacentHTML("beforebegin", `<nav class="row small browse-nav" id="browse-nav" aria-label="Browse">
+    ${prev ? `<a href="#/entry/${prev}" rel="prev" class="btn ghost small">← Previous</a>` : `<span></span>`}
+    <span class="muted">${i + 1} of ${ids.length}</span>
+    ${next ? `<a href="#/entry/${next}" rel="next" class="btn ghost small">Next →</a>` : `<span></span>`}</nav>`);
+  const pic = $(".media-preview", el);
+  if (!pic) return;
+  let x0 = null, y0 = 0;
+  pic.addEventListener("touchstart", (ev) => { if (ev.touches.length === 1) { x0 = ev.touches[0].clientX; y0 = ev.touches[0].clientY; } }, { passive: true });
+  pic.addEventListener("touchend", (ev) => {
+    if (x0 === null) return;
+    const t = ev.changedTouches[0], dx = t.clientX - x0, dy = t.clientY - y0;
+    x0 = null;
+    if (Math.abs(dx) > 60 && Math.abs(dy) < 50) { const to = dx < 0 ? next : prev; if (to) location.hash = `#/entry/${to}`; }
+  });
+}
+
 /* ---------------------------------------------------------- manual links */
 /** "Link to another idea": find an entry by title/words, pick how they're related, link. */
 function mountLinker(el, e, rels) {
@@ -2379,6 +2403,7 @@ async function viewEntry(el, id) {
   $("#type", el).onchange = (ev) => put({ entry_type: ev.target.value }, "Type set by you.");
   $("#status", el).onchange = (ev) => put({ status: ev.target.value }, "Status updated.");
   $("[data-act=confirm]", el)?.addEventListener("click", () => put({ user_confirmed: true }, "Confirmed."));
+  mountBrowseNav(el, e.id);
   $("[data-act=split-pages]", el)?.addEventListener("click", async (ev) => {
     ev.target.disabled = true; ev.target.textContent = "Splitting…";
     try {
@@ -2888,9 +2913,22 @@ async function render() {
 
 window.addEventListener("hashchange", () => { render(); window.scrollTo(0, 0); });
 
+// Opening an entry from a grid (Archive, Timeline, a project, Characters, Art…) remembers the
+// entries around it, so its page can offer previous / next (buttons, ← →, or a swipe on the picture).
+document.addEventListener("click", (ev) => {
+  const a = ev.target.closest?.('a[href^="#/entry/"]'), list = a && (a.closest("[data-browse]") || a.closest(".grid, .strip, .art-grid"));
+  if (!list) return;
+  const ids = [...new Set($$('a[href^="#/entry/"]', list).map((x) => Number(x.getAttribute("href").split("/")[2])))];
+  store("nexus.browse", JSON.stringify(ids), true);
+}, true);
+
 // Keyboard shortcuts (desktop): / search, n new capture, a ask, m map, ? list them.
 document.addEventListener("keydown", (ev) => {
   if (ev.ctrlKey || ev.metaKey || ev.altKey || ev.target.closest?.("input, textarea, select, [contenteditable]")) return;
+  if ((ev.key === "ArrowLeft" || ev.key === "ArrowRight") && $("#browse-nav")) {
+    $(`#browse-nav a[rel=${ev.key === "ArrowLeft" ? "prev" : "next"}]`)?.click();
+    return;
+  }
   const go = { "/": "#/search", n: "#/", a: "#/ask", m: "#/map", t: "#/today" }[ev.key];
   if (go) {
     ev.preventDefault();

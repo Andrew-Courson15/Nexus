@@ -567,3 +567,4 @@ a.cite:hover { border-color: var(--text); }
   .bible-section h2 { break-after: avoid; }
   @page { margin: 16mm; }
 }
+.browse-nav { justify-content: space-between; margin: 0 0 10px; }

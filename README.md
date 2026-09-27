@@ -357,7 +357,9 @@ Browsers only allow microphone access on `localhost` or HTTPS. Open NEXUS at
 - **Duplicates**: uploading a file you've already saved keeps both. NEXUS tells you, and the entry
   shows "Same file as …".
 - **Entry detail**: your material, notes, transcript, AI summary, interpretation, inference and
-  uncertainty, each visually distinct. You can:
+  uncertainty, each visually distinct. Opened from a grid (Archive, Timeline, a project, Art…), it
+  has **← Previous / Next →** through that list: the buttons, the arrow keys, or a swipe on the
+  picture on a phone. You can:
   - edit the title, type and status (your choices are never overwritten by the AI)
   - confirm the AI's title and type
   - add notes

@@ -22,6 +22,8 @@ The version is in `app/__init__.py` and shown in **Settings → This device**.
   own date, so older work lands in the right month on the Timeline.
 - **Search** finds pictures and files by their file name ("el_faro_pose.png" → *faro*), leaving
   out camera names like IMG_2041. Existing entries are re-indexed once, in about a second.
+- **Previous / Next** on an entry opened from a grid (Archive, Timeline, a project, Art…): buttons,
+  arrow keys, or swiping the picture on a phone.
 - **Map**: tapping just beside an idea opens it, which is much easier on a phone.
 - **Settings → Something not working?**: a problem report to paste when asking for help. You
   see it first and copy it yourself; nothing is sent.
