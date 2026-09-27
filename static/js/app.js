@@ -2024,6 +2024,10 @@ async function viewSettings(el) {
   mountLock($("#lock", el));
   if ($("#phone", el)) mountPhone($("#phone", el));
   $("[data-act=check-update]", el)?.addEventListener("click", (ev) => checkForUpdate(ev.target, $("#update-info", el)));
+  if (location.hash.includes("check-update=1") && $("[data-act=check-update]", el)) {  // from the tray menu
+    $("#updates", el).scrollIntoView();
+    $("[data-act=check-update]", el).click();
+  }
   $("[data-act=report]", el).onclick = async (ev) => {
     const box = $("#report", el);
     ev.target.disabled = true;

@@ -38,7 +38,8 @@ def test_quit_in_the_tray_menu_stops_the_server(monkeypatch):
         def run(self):  # a user left-clicks (Open), backs up, then chooses Quit
             server.ran.wait(2)
             menu = {i.text: i for i in self.items}
-            assert list(menu) == ["Open NEXUS", "Back up now", "Start with Windows", "Open data folder", "Quit NEXUS"]
+            assert list(menu) == ["Open NEXUS", "Back up now", "Check for updates", "Start with Windows", "Open data folder",
+                                  "Quit NEXUS"]
             menu["Open NEXUS"].action(self, None)
             menu["Back up now"].action(self, None)
             menu["Quit NEXUS"].action(self, None)

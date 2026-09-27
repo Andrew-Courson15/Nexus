@@ -1,7 +1,7 @@
 """Start NEXUS with an icon in the system tray (the icons at the bottom right on Windows).
 
 Left-click the icon (or right-click > Open NEXUS) to open it in the browser. Right-click for:
-Back up now, Start with Windows (on/off), Open data folder, and Quit NEXUS.
+Back up now, Check for updates, Start with Windows (on/off), Open data folder, and Quit NEXUS.
 The desktop icon starts NEXUS this way.
 
 If the tray can't be shown (for example the `pystray` package isn't installed, or there's no
@@ -100,6 +100,9 @@ def main() -> None:
         started = runner.start_now()
         _notify(icon, "Backing up NEXUS in the background…" if started else "A backup is already running.")
 
+    def check_updates(icon, item):
+        webbrowser.open(url + "/#/settings?check-update=1")
+
     def toggle_startup(icon, item):
         set_start_with_windows(not starts_with_windows())
 
@@ -119,6 +122,7 @@ def main() -> None:
     icon = pystray.Icon("NEXUS", image, "NEXUS is running", menu=pystray.Menu(
         pystray.MenuItem("Open NEXUS", open_nexus, default=True),
         pystray.MenuItem("Back up now", back_up),
+        pystray.MenuItem("Check for updates", check_updates),
         pystray.MenuItem("Start with Windows", toggle_startup, checked=lambda item: starts_with_windows(),
                          visible=sys.platform == "win32"),
         pystray.MenuItem("Open data folder", open_folder),
