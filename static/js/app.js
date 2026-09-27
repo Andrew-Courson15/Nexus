@@ -799,19 +799,26 @@ function mountCapture(root, opts = {}) {
     if (files.length <= 1) return takeFile(files[0]);
     // Several files (e.g. panels of a page): each becomes its own entry, in order.
     pending.hidden = false;
+    const shown = files.slice(0, 8).map((f) => esc(f.name)).join(", ") + (files.length > 8 ? ` and ${files.length - 8} more` : "");
     pending.innerHTML = `<div class="recorder"><strong>${files.length} files ready</strong>
-      <span class="muted small">${files.map((f) => esc(f.name)).join(", ")}</span>
+      <span class="muted small">${shown}</span>
       <input type="text" placeholder="A few words for all of them (optional)" aria-label="Note">
-      <div class="row"><button class="btn primary small" data-act="saveall">SAVE ALL</button><button class="btn ghost small" data-act="discard">Discard</button></div></div>`;
+      <label class="check small"><input type="checkbox" data-own-dates> Date each one by the file's own date (for older work, so it lands in the right month on the Timeline)</label>
+      <div class="row"><button class="btn primary small" data-act="saveall">SAVE ALL</button><button class="btn ghost small" data-act="discard">Discard</button>
+        <span class="small muted" data-progress role="status"></span></div></div>`;
     $("[data-act=discard]", pending).onclick = () => { pending.hidden = true; pending.innerHTML = ""; };
     $("[data-act=saveall]", pending).onclick = async (ev) => {
       ev.target.disabled = true;
-      const note = $("input", pending).value.trim() || null;
+      const note = $("input[type=text]", pending).value.trim() || null;
+      const ownDates = $("[data-own-dates]", pending).checked, progress = $("[data-progress]", pending);
+      $("[data-act=discard]", pending).disabled = true;
       let queued = 0, saved = 0, last = null;
       const failed = [];
-      for (const file of files) {
+      for (const [i, file] of files.entries()) {
+        progress.textContent = `Saving ${i + 1} of ${files.length}…`;
         try {
-          const r = await captureOrQueue({ file, filename: file.name, note, project_id: opts.projectId || null });
+          const r = await captureOrQueue({ file, filename: file.name, note, project_id: opts.projectId || null,
+            ...(ownDates && file.lastModified ? { captured_at: new Date(file.lastModified).toISOString() } : {}) });
           if (r.queued) queued++; else { saved++; last = r.entry; }
         } catch (err) { failed.push(`${file.name}: ${err.message}`); }
       }
