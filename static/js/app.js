@@ -343,12 +343,14 @@ function listFromCopy(snap, q) {
 
 /** Answer a read request from the offline copy. `undefined` means the copy can't answer it. */
 /** /api/characters from the offline copy (same rules as the server: links, then whole-word name mentions). */
-function charactersFromCopy(snap) {
+const KIND_OF = { character: ["character", ["character"]], world: ["worldbuilding", ["world", "place", "location", "setting", "worldbuilding"]] };
+function charactersFromCopy(snap, kind = "character") {
+  const [kindType, kindTags] = KIND_OF[kind] || KIND_OF.character;
   const MAX = 24, entries = snap.entries, byId = snap._byId ??= new Map(entries.map((e) => [e.id, e]));
   const ref = (e) => { const pic = picOf(e);
     return { id: e.id, title: e.title, entry_type: e.entry_type, created_at: e.created_at, thumb_url: pic?.thumb_url || null, excerpt: e.excerpt || e.ai_summary }; };
   const edges = snap.edges || [];
-  return entries.filter((e) => e.entry_type === "character" || e.tags.some((t) => t.name === "character")).map((c) => {
+  return entries.filter((e) => e.entry_type === kindType || e.tags.some((t) => kindTags.includes(t.name))).map((c) => {
     const seen = new Set([c.id]), links = [];
     for (const [, source, target, type, origin, status] of edges) {
       const other = source === c.id ? target : target === c.id ? source : null;
@@ -389,7 +391,7 @@ async function offlineAnswer(path, opts = {}) {
     } else if (p === "/api/trash") out = { items: [], total: 0 };
     else if (p === "/api/search") out = searchCopy(snap, opts.json?.query || "");
     else if (p === "/api/graph") out = graphFromCopy(snap, q);
-    else if (p === "/api/characters") out = charactersFromCopy(snap);
+    else if (p === "/api/characters") out = charactersFromCopy(snap, q.get("kind") || "character");
   }
   if (out === undefined && COPY_LISTS.includes(path)) out = await offlineCopy.get("url:" + path).catch(() => undefined);
   if (out === undefined || out === null || out === false) return undefined;
@@ -1127,13 +1129,16 @@ function tileHtml(r, note) {
 }
 
 async function viewCharacters(el) {
-  const chars = await api("/api/characters");
+  const params = new URLSearchParams(location.hash.split("?")[1] || "");
+  const world = params.get("kind") === "world";
+  const chars = await api(`/api/characters${world ? "?kind=world" : ""}`);
   const linkNote = (x, who) => `${x.direction === "incoming" ? `${esc(label(x.relationship_type))} → ${esc(who)}` : `${esc(who)} ${esc(label(x.relationship_type))} →`}${
     x.origin === "ai" && x.status !== "accepted" ? " · AI suggested" : ""}`;
   el.innerHTML = `<p><a href="#/archive" class="muted small">← Creative Archive</a></p>
-    <div class="view-head"><div><h1>Characters</h1>
-    <p class="lede">Each character with the sketches, scenes and notes connected to them.</p></div></div>
-    ${chars.length ? `<nav class="month-jump" aria-label="Characters">${chars.map((c) =>
+    <div class="view-head"><div><h1>${world ? "Places &amp; worlds" : "Characters"}</h1>
+    <p class="lede">${world ? "Each place and world with the sketches, scenes and notes set there." : "Each character with the sketches, scenes and notes connected to them."}</p></div>
+    <div class="seg" role="group" aria-label="Show"><a class="btn small ${world ? "ghost" : ""}" href="#/characters" ${world ? "" : 'aria-current="page"'}>Characters</a><a class="btn small ${world ? "" : "ghost"}" href="#/characters?kind=world" ${world ? 'aria-current="page"' : ""}>Places &amp; worlds</a></div></div>
+    ${chars.length ? `<nav class="month-jump" aria-label="${world ? "Places" : "Characters"}">${chars.map((c) =>
       `<a href="#/characters" data-char="${c.character.id}">${esc(c.character.title)} <span class="muted">${c.link_count + c.mention_count}</span></a>`).join("")}</nav>` : ""}
     ${chars.map((c) => { const e = c.character, pic = picOf(e);
       return `<section class="panel character" id="c-${e.id}">
@@ -1151,7 +1156,8 @@ async function viewCharacters(el) {
             : `<p class="small muted">No other entry mentions this name.</p>`}
           ${c.mention_count > c.mentions.length ? `<p class="small muted">…and ${c.mention_count - c.mentions.length} more: <a href="#/search?q=${encodeURIComponent(c.name_searched)}">search for them</a>.</p>` : ""}` : ""}
       </section>`; }).join("")
-      || `<p class="empty">No characters yet. Capture one and set its type to <b>character</b> (or tag it “character”), then link sketches and scenes to it.</p>`}`;
+      || (world ? `<p class="empty">No places or worlds yet. Capture one and set its type to <b>worldbuilding</b> (or tag it “place” or “world”), then link scenes to it.</p>`
+        : `<p class="empty">No characters yet. Capture one and set its type to <b>character</b> (or tag it “character”), then link sketches and scenes to it.</p>`)}`;
   $$("[data-char]", el).forEach((a) => (a.onclick = (ev) => { ev.preventDefault(); $(`#c-${a.dataset.char}`, el)?.scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" }); }));
   const wanted = new URLSearchParams(location.hash.split("?")[1] || "").get("c");
   if (wanted) $(`#c-${CSS.escape(wanted)}`, el)?.scrollIntoView();
@@ -2166,7 +2172,8 @@ async function viewEntry(el, id) {
           : `<div class="row"><button class="btn small ghost" data-rel="${r.id}" data-status="rejected" data-unlink>Remove link</button></div>`}
       </div>`).join("") : `<span class="muted small">No related entries found yet.</span>`}
       <p class="small"><a href="#/map?focus=${e.id}${rels.some((r) => r.status === "suggested") ? "&suggested=1" : ""}">See it on the connections map →</a></p>
-      ${e.entry_type === "character" || e.tags.some((t) => t.name === "character") ? `<p class="small"><a href="#/characters?c=${e.id}">Everything about this character →</a></p>` : ""}
+      ${e.entry_type === "character" || e.tags.some((t) => t.name === "character") ? `<p class="small"><a href="#/characters?c=${e.id}">Everything about this character →</a></p>`
+        : e.entry_type === "worldbuilding" || e.tags.some((t) => KIND_OF.world[1].includes(t.name)) ? `<p class="small"><a href="#/characters?kind=world&amp;c=${e.id}">Everything set here →</a></p>` : ""}
       <details class="linker"><summary class="btn small ghost">+ Link to another idea</summary>
         <div class="linker-body">
           <input type="search" id="link-q" placeholder="Find an entry by title or words" aria-label="Find an entry to link" autocomplete="off">

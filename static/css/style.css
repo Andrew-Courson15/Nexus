@@ -538,3 +538,5 @@ a.cite:hover { border-color: var(--text); }
   html { scroll-behavior: auto !important; }
   *, *::before, *::after { transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; }
 }
+.seg { display: flex; gap: 6px; flex-wrap: wrap; }
+.seg [aria-current="page"] { background: var(--text); color: var(--bg); border-color: var(--text); }

@@ -1,4 +1,4 @@
-"""Characters: every character entry with the sketches, scenes and notes connected to it.
+"""Characters, and places & worlds: each one with the sketches, scenes and notes connected to it.
 
 Two kinds of connection, kept apart so it's always clear where each came from:
 - links: relationships between entries (made by you, or suggested by the AI and labelled so);
@@ -7,6 +7,8 @@ Two kinds of connection, kept apart so it's always clear where each came from:
 from __future__ import annotations
 
 import re
+
+from typing import Literal
 
 from fastapi import APIRouter, Depends
 from sqlalchemy import select
@@ -22,8 +24,20 @@ router = APIRouter(prefix="/api", tags=["characters"])
 MAX_PER_CHARACTER = 24  # each list is capped; the counts stay complete
 
 
+# What makes an entry a character, or a place/world: its type, or one of these tags.
+KINDS = {
+    "character": (EntryType.character.value, {"character"}),
+    "world": (EntryType.worldbuilding.value, {"world", "place", "location", "setting", "worldbuilding"}),
+}
+
+
+def is_kind(e: CreativeEntry, kind: str = "character") -> bool:
+    entry_type, tags = KINDS[kind]
+    return e.entry_type == entry_type or any(et.tag.name in tags for et in e.entry_tags)
+
+
 def is_character(e: CreativeEntry) -> bool:
-    return e.entry_type == EntryType.character.value or any(et.tag.name == "character" for et in e.entry_tags)
+    return is_kind(e, "character")
 
 
 def name_of(e: CreativeEntry) -> str | None:
@@ -47,11 +61,11 @@ def _text(e: CreativeEntry) -> str:
 
 
 @router.get("/characters")
-def list_characters(db: Session = Depends(get_db)) -> list[dict]:
+def list_characters(kind: Literal["character", "world"] = "character", db: Session = Depends(get_db)) -> list[dict]:
     entries = db.scalars(select(CreativeEntry).where(CreativeEntry.deleted_at.is_(None)).options(*_LOAD)
                          .order_by(CreativeEntry.created_at.desc(), CreativeEntry.id.desc())).all()
     by_id = {e.id: e for e in entries}
-    characters = [e for e in entries if is_character(e)]
+    characters = [e for e in entries if is_kind(e, kind)]
     if not characters:
         return []
     wanted = {c.id for c in characters}

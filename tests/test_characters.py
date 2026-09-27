@@ -41,3 +41,14 @@ def test_trashed_and_rejected_are_left_out(client):
 def test_untitled_or_sentence_titles_are_not_searched(client):
     cap(client, "someone", title="A very long description of a character", entry_type="character")
     assert client.get("/api/characters").json()[0]["name_searched"] is None
+
+
+def test_places_and_worlds(client):
+    town = cap(client, "A fishing town built on stilts", title="Puerto Niebla", entry_type="worldbuilding")
+    cap(client, "a hero", title="Nova", entry_type="character")
+    tagged = cap(client, "The ring under the pier", title="Pier ring", tags=["place"])
+    scene = cap(client, "Rain over Puerto Niebla", title="Storm")
+    worlds = client.get("/api/characters", params={"kind": "world"}).json()
+    assert {w["character"]["id"] for w in worlds} == {town["id"], tagged["id"]}
+    assert [m["id"] for m in worlds[0]["mentions"]] == [scene["id"]]
+    assert [c["character"]["title"] for c in client.get("/api/characters").json()] == ["Nova"]
