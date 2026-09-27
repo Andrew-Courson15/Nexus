@@ -342,6 +342,32 @@ function listFromCopy(snap, q) {
 }
 
 /** Answer a read request from the offline copy. `undefined` means the copy can't answer it. */
+/** /api/characters from the offline copy (same rules as the server: links, then whole-word name mentions). */
+function charactersFromCopy(snap) {
+  const MAX = 24, entries = snap.entries, byId = snap._byId ??= new Map(entries.map((e) => [e.id, e]));
+  const ref = (e) => { const pic = picOf(e);
+    return { id: e.id, title: e.title, entry_type: e.entry_type, created_at: e.created_at, thumb_url: pic?.thumb_url || null, excerpt: e.excerpt || e.ai_summary }; };
+  const edges = snap.edges || [];
+  return entries.filter((e) => e.entry_type === "character" || e.tags.some((t) => t.name === "character")).map((c) => {
+    const seen = new Set([c.id]), links = [];
+    for (const [, source, target, type, origin, status] of edges) {
+      const other = source === c.id ? target : target === c.id ? source : null;
+      if (other === null || seen.has(other) || !byId.has(other)) continue;
+      seen.add(other);
+      links.push({ entry: ref(byId.get(other)), relationship_type: type, direction: source === c.id ? "outgoing" : "incoming", origin, status });
+    }
+    const t = (c.title || "").trim();
+    const name = t.length >= 3 && t.toLowerCase() !== "untitled" && t.length <= 40 && t.split(/\s+/).length <= 4 ? t : null;
+    let mentions = [];
+    if (name) {
+      const re = new RegExp(`(?<![\\p{L}\\p{N}_])${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![\\p{L}\\p{N}_])`, "iu");
+      mentions = entries.filter((e) => !seen.has(e.id) && re.test([e.title, e.original_text, e.transcript, e.user_notes].filter(Boolean).join(" ")));
+    }
+    return { character: c, name_searched: name, link_count: links.length, mention_count: mentions.length,
+      links: links.slice(0, MAX), mentions: mentions.slice(0, MAX).map(ref) };
+  }).sort((a, b) => (b.link_count + b.mention_count) - (a.link_count + a.mention_count));
+}
+
 async function offlineAnswer(path, opts = {}) {
   const snap = await offlineCopy.snapshot();
   const [p, qs] = path.split("?");
@@ -363,6 +389,7 @@ async function offlineAnswer(path, opts = {}) {
     } else if (p === "/api/trash") out = { items: [], total: 0 };
     else if (p === "/api/search") out = searchCopy(snap, opts.json?.query || "");
     else if (p === "/api/graph") out = graphFromCopy(snap, q);
+    else if (p === "/api/characters") out = charactersFromCopy(snap);
   }
   if (out === undefined && COPY_LISTS.includes(path)) out = await offlineCopy.get("url:" + path).catch(() => undefined);
   if (out === undefined || out === null || out === false) return undefined;
@@ -952,7 +979,7 @@ async function viewArchive(el) {
   el.innerHTML = `<div class="view-head"><div><h1>Creative Archive</h1>
     <p class="lede">Everything you've captured. Your words are never altered.</p></div>
     <div class="row"><span class="muted small" id="count"></span><button type="button" class="btn ghost small" data-act="select">Select</button>
-      <a class="btn ghost small" href="#/timeline">Timeline</a><a class="btn ghost small" href="#/tags">Tags</a><a class="btn ghost small" href="#/map">Connections map</a>${trash.total ? `<a class="btn ghost small" href="#/trash">Trash (${trash.total})</a>` : ""}</div></div>
+      <a class="btn ghost small" href="#/timeline">Timeline</a><a class="btn ghost small" href="#/characters">Characters</a><a class="btn ghost small" href="#/tags">Tags</a><a class="btn ghost small" href="#/map">Connections map</a>${trash.total ? `<a class="btn ghost small" href="#/trash">Trash (${trash.total})</a>` : ""}</div></div>
     <details class="filterbox" ${matchMedia("(min-width: 641px)").matches ? "open" : ""}>
     <summary class="btn ghost small">Filters &amp; sort</summary>
     <form class="filters" id="filters">
@@ -1073,6 +1100,42 @@ async function viewTimeline(el) {
       || `<p class="empty">Nothing captured yet.</p>`}
     ${data.total > data.items.length ? `<p class="small muted">Showing the newest ${data.items.length} of ${data.total}. Older ones are in the <a href="#/archive">Creative Archive</a>.</p>` : ""}`;
   $$("[data-month]", el).forEach((a) => (a.onclick = (ev) => { ev.preventDefault(); $(`#m-${a.dataset.month}`, el)?.scrollIntoView({ behavior: "smooth" }); }));
+}
+
+/** One small picture-or-text tile linking to an entry (Timeline, Characters). */
+function tileHtml(r, note) {
+  return `<a class="tile${r.thumb_url ? "" : " text"}" href="#/entry/${r.id}" title="${esc(r.title)}">
+    ${r.thumb_url ? `<img src="${esc(r.thumb_url)}" alt="" loading="lazy">` : `<span>${esc((r.excerpt || label(r.entry_type)).slice(0, 120))}</span>`}
+    <b>${esc(r.title)}</b><i>${note}</i></a>`;
+}
+
+async function viewCharacters(el) {
+  const chars = await api("/api/characters");
+  const linkNote = (x, who) => `${x.direction === "incoming" ? `${esc(label(x.relationship_type))} → ${esc(who)}` : `${esc(who)} ${esc(label(x.relationship_type))} →`}${
+    x.origin === "ai" && x.status !== "accepted" ? " · AI suggested" : ""}`;
+  el.innerHTML = `<p><a href="#/archive" class="muted small">← Creative Archive</a></p>
+    <div class="view-head"><div><h1>Characters</h1>
+    <p class="lede">Each character with the sketches, scenes and notes connected to them.</p></div></div>
+    ${chars.length ? `<nav class="month-jump" aria-label="Characters">${chars.map((c) =>
+      `<a href="#/characters" data-char="${c.character.id}">${esc(c.character.title)} <span class="muted">${c.link_count + c.mention_count}</span></a>`).join("")}</nav>` : ""}
+    ${chars.map((c) => { const e = c.character, pic = picOf(e);
+      return `<section class="panel character" id="c-${e.id}">
+        <div class="char-head">${pic ? `<img src="${esc(pic.thumb_url || pic.preview_url)}" alt="" loading="lazy">` : ""}
+          <div><h2><a href="#/entry/${e.id}">${esc(e.title)}</a></h2>
+          ${e.excerpt ? `<p class="small">${esc(e.excerpt)}</p>` : e.ai_summary ? `<p class="small muted">${esc(e.ai_summary)}</p>` : ""}
+          ${e.projects.length ? `<p class="small muted">In ${e.projects.map((p) => `<a href="#/projects/${p.id}">${esc(p.name)}</a>`).join(", ")}</p>` : ""}</div></div>
+        <h3>Linked <span class="muted small">${c.link_count}</span></h3>
+        ${c.links.length ? `<div class="strip">${c.links.map((x) => tileHtml(x.entry, linkNote(x, e.title))).join("")}</div>`
+          : `<p class="small muted">Nothing linked yet. Open a sketch or scene and use “Link to another idea”.</p>`}
+        ${c.link_count > c.links.length ? `<p class="small muted">…and ${c.link_count - c.links.length} more on <a href="#/entry/${e.id}">their page</a>.</p>` : ""}
+        ${c.name_searched ? `<h3>Mentions “${esc(c.name_searched)}” <span class="muted small">${c.mention_count}</span></h3>
+          <p class="small muted">Entries whose own words contain the name (a text match, not the AI).</p>
+          ${c.mentions.length ? `<div class="strip">${c.mentions.map((r) => tileHtml(r, new Date(r.created_at).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }))).join("")}</div>`
+            : `<p class="small muted">No other entry mentions this name.</p>`}
+          ${c.mention_count > c.mentions.length ? `<p class="small muted">…and ${c.mention_count - c.mentions.length} more: <a href="#/search?q=${encodeURIComponent(c.name_searched)}">search for them</a>.</p>` : ""}` : ""}
+      </section>`; }).join("")
+      || `<p class="empty">No characters yet. Capture one and set its type to <b>character</b> (or tag it “character”), then link sketches and scenes to it.</p>`}`;
+  $$("[data-char]", el).forEach((a) => (a.onclick = (ev) => { ev.preventDefault(); $(`#c-${a.dataset.char}`, el)?.scrollIntoView({ behavior: "smooth" }); }));
 }
 
 async function viewTags(el) {
@@ -2578,6 +2641,7 @@ const ROUTES = [
   [/^\/map$/, viewMap, "map"],
   [/^\/tags$/, viewTags, "archive"],
   [/^\/timeline$/, viewTimeline, "archive"],
+  [/^\/characters$/, viewCharacters, "archive"],
   [/^\/settings$/, viewSettings, "settings"],
   [/^\/trash$/, viewTrash, "archive"],
   [/^\/art$/, viewArt, "art"],
