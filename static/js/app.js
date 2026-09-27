@@ -830,14 +830,14 @@ async function viewHome(el) {
     onCaptured: (entry) => {
       const just = $("#just", el);
       const dup = entry.ai_metadata?.duplicate_of;
-      just.innerHTML = `<h2>Just captured</h2>${dup ? `<p class="small notice">You saved this same file before:
-          <a href="#/entry/${dup.id}">${esc(dup.title)}</a> (${fmtDate(dup.created_at)}). Both are kept; trash one if you like.</p>` : ""}
-        <div class="grid">${cardHTML(entry)}</div>`;
+      const show = (e) => {
+        just.innerHTML = `<h2>Just captured</h2>${dup ? `<p class="small notice">You saved this same file before:
+            <a href="#/entry/${dup.id}">${esc(dup.title)}</a> (${fmtDate(dup.created_at)}). Both are kept; trash one if you like.</p>` : ""}
+          <div class="grid">${cardHTML(e)}</div>`;
+      };
+      show(entry);
       loadRecent();
-      if (isBusy(entry)) {
-        const show = (e) => { just.innerHTML = `<h2>Just captured</h2><div class="grid">${cardHTML(e)}</div>`; };
-        watchEntry(entry.id, just, (e) => { show(e); loadRecent(); }, show);
-      }
+      if (isBusy(entry)) watchEntry(entry.id, just, (e) => { show(e); loadRecent(); }, show);
     },
   });
   cap.focus();
