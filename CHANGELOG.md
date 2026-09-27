@@ -38,6 +38,8 @@ The version is in `app/__init__.py` and shown in **Settings → This device**.
   the Trash in one click (restorable). Copies with your own words are marked.
 - **Archive filter by kind**: pictures, voice notes, written, files.
 - **First-run check** links to Ollama when it's missing and downloads the AI model in one click.
+- **Help** (Settings → Help, or press `h`): how NEXUS works and fixes for common problems. Also
+  works on the phone when the computer is off.
 - **What's new** (this list) shows once on Home after an update.
 - **Theme** per device (Settings → This device): same as the device, dark, or light.
 - **Tag suggestions** while typing a tag.

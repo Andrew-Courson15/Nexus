@@ -301,6 +301,7 @@ Browsers only allow microphone access on `localhost` or HTTPS. Open NEXUS at
   Unsent text is kept as a draft in your browser, so a refresh doesn't lose it.
   Choose or drop **many files at once** and each becomes its own entry. Tick **Date each one by
   the file's own date** when importing older work, so it lands in the right month on the Timeline.
+- **Help** (Settings → Help, or `h`): the everyday how-tos and common fixes, inside the app.
 - **First run**: the home screen welcomes you and checks whether this computer is ready (AI
   model, voice notes, search by meaning), each with a green or red light and what to do.
 - **Keyboard shortcuts** (desktop): `/` search, `n` new capture, `a` ask, `m` map, `t` today,

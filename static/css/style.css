@@ -616,3 +616,7 @@ a.cite:hover { border-color: var(--text); }
 .arrange-list .t { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 #similar .strip { grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 8px; margin: 8px 0; }
 .install-tip { display: flex; gap: 10px; align-items: flex-start; margin-bottom: 12px; } .install-tip p { margin: 0; flex: 1; }
+.help-topic { margin: 14px 0; scroll-margin-top: 70px; }
+.panel.help-topic h2 { margin: 0 0 8px; }
+.help-topic p, .help-topic li { line-height: 1.6; }
+kbd { font-family: var(--mono); font-size: 12px; padding: 1px 6px; border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 5px; background: var(--surface-2); }

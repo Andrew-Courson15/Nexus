@@ -2238,7 +2238,8 @@ async function viewSettings(el) {
   const ai = s.ai_provider;
   el.innerHTML = `<div class="view-head"><div><h1>Settings</h1>
     <p class="lede">Everyday choices are in <strong>Preferences</strong> below and apply straight away. Advanced settings live in the
-      <code>.env</code> file next to <code>run.py</code> (restart after changing it). API keys stay in the environment and are never stored in the database.</p></div></div>
+      <code>.env</code> file next to <code>run.py</code> (restart after changing it). API keys stay in the environment and are never stored in the database.</p></div>
+      <a class="btn small" href="#/help">Help</a></div>
     <div class="grid">
       <div class="panel"><h3>AI provider</h3>${health(ai.health)}<dl class="kv">
         <dt>Active</dt><dd>${esc(ai.name)}</dd>
@@ -2357,6 +2358,51 @@ async function checkForUpdate(button, box) {
     };
     setTimeout(poll, 5000);
   });
+}
+
+const HELP = [
+  ["Capturing", `<p>Type in the big box on the home screen and press <strong>CAPTURE</strong> (or Ctrl/⌘ + Enter). <strong>Record Idea</strong>
+    records your voice; <strong>Upload</strong> (or drag and drop) saves pictures, voice memos and documents, many at once.
+    Your words and files are saved exactly as they are and never changed.</p>
+    <p>The local AI then gives each capture a title, a type and tags, and suggests related ideas. It runs on your own computer.</p>`],
+  ["What the colours mean", `<ul><li><strong>User said</strong> (amber): your own words and files, never altered.</li>
+    <li><strong>AI interpretation</strong> (blue): what the AI understood.</li><li><strong>AI inference</strong> (violet): possibilities the AI suggests, not facts.</li>
+    <li><strong>Unknown</strong> (grey): what nobody knows yet.</li></ul>
+    <p>Titles, types and tags you choose yourself are never overwritten by the AI. Every change is kept as a version you can restore.</p>`],
+  ["Finding things", `<p><strong>Search</strong> understands plain requests like “unfinished comic ideas” or “sketches with monsters”, and
+    (with the meaning index) finds ideas by what they're about. <strong>Ask</strong> answers questions only from your archive, with links.
+    The Creative Archive has <strong>Timeline</strong>, <strong>Characters</strong>, <strong>Places &amp; worlds</strong>, <strong>Tags</strong>,
+    the <strong>Connections map</strong> and <strong>Duplicates</strong>.</p>`],
+  ["Projects", `<p>Group entries into projects (a comic, a film…). A project can be <strong>analysed</strong> as a whole, <strong>arranged</strong>
+    in story or page order, <strong>printed</strong> as a story bible, and <strong>exported</strong> for a friend's NEXUS.
+    A multi-page PDF can be split into one entry per page.</p>`],
+  ["Your phone", `<p>On the computer NEXUS runs on: <strong>Settings → Your phone</strong>. Install Tailscale (free), sign in, press
+    <strong>Turn on phone access</strong>, and scan the QR code with the phone (the phone needs Tailscale too, with the same account).
+    Then add NEXUS to the home screen and always open it from there.</p>
+    <p>When the computer is off, the phone shows the copy it saved (entries, projects, pictures, word search). New captures wait on the
+    phone and are sent when the computer is back. <strong>Settings → This device</strong> shows how recent the copy is.</p>`],
+  ["Backups and your files", `<p>NEXUS makes a backup every week (<strong>Settings → Backups</strong>), a zip with everything. Keep backups on another
+    drive or a cloud folder if you can. <strong>Export as readable files</strong> gives you all your words as plain Markdown plus every original file.
+    Nothing ever leaves your computer unless you export or share it.</p>`],
+  ["Updating", `<p>On the computer NEXUS runs on: <strong>Settings → Updates → Check for updates</strong>, then <strong>Update now</strong>.
+    Your ideas and settings are never touched by an update. Phones load the new version by themselves.</p>`],
+  ["Sharing with a friend", `<p>Export an entry or a project as a <code>.nexus</code> file and send it. Your friend imports it in
+    <strong>Settings → Import</strong>; it shows who it's from, and importing twice adds nothing.</p>`],
+  ["Keyboard shortcuts", `<p><kbd>/</kbd> search · <kbd>n</kbd> new capture · <kbd>a</kbd> ask · <kbd>m</kbd> map · <kbd>t</kbd> today ·
+    <kbd>←</kbd> <kbd>→</kbd> previous / next entry · <kbd>?</kbd> list the shortcuts</p>`],
+  ["When something isn't working", `<ul>
+    <li><strong>The phone says NEXUS isn't reachable:</strong> is the computer on and NEXUS running (its icon near the clock on Windows)?
+      Is Tailscale on, on both? Turning on <em>Start NEXUS when I sign in</em> (Settings → Your phone) helps.</li>
+    <li><strong>The phone shows old things:</strong> open NEXUS on the phone while the computer is on; the copy refreshes by itself.</li>
+    <li><strong>No AI titles or tags:</strong> the home screen's setup check says what's missing (Ollama or a model), with a button to fix it.</li>
+    <li><strong>Anything else:</strong> Settings → Something not working? makes a report you can copy when asking for help.</li></ul>`],
+];
+
+function viewHelp(el) {
+  el.innerHTML = `<div class="view-head"><div><h1>Help</h1><p class="lede">How NEXUS works, in short. It also works on the phone when the computer is off.</p></div></div>
+    <nav class="month-jump" aria-label="Topics">${HELP.map(([t], i) => `<a href="#/help" data-topic="${i}">${esc(t)}</a>`).join("")}</nav>
+    ${HELP.map(([t, body], i) => `<section class="panel help-topic" id="help-${i}"><h2>${esc(t)}</h2>${body}</section>`).join("")}`;
+  $$("[data-topic]", el).forEach((a) => (a.onclick = (ev) => { ev.preventDefault(); $(`#help-${a.dataset.topic}`, el).scrollIntoView(); }));
 }
 
 async function viewTrash(el) {
@@ -3151,6 +3197,7 @@ const ROUTES = [
   [/^\/characters$/, viewCharacters, "archive"],
   [/^\/duplicates$/, viewDuplicates, "archive"],
   [/^\/settings$/, viewSettings, "settings"],
+  [/^\/help$/, viewHelp, "settings"],
   [/^\/trash$/, viewTrash, "archive"],
   [/^\/art$/, viewArt, "art"],
   [/^\/art\/analysis\/(\d+)$/, viewArtAnalysis, "art"],
@@ -3202,13 +3249,13 @@ document.addEventListener("keydown", (ev) => {
     $(`#browse-nav a[rel=${ev.key === "ArrowLeft" ? "prev" : "next"}]`)?.click();
     return;
   }
-  const go = { "/": "#/search", n: "#/", a: "#/ask", m: "#/map", t: "#/today" }[ev.key];
+  const go = { "/": "#/search", n: "#/", a: "#/ask", m: "#/map", t: "#/today", h: "#/help" }[ev.key];
   if (go) {
     ev.preventDefault();
     if (location.hash === go || (go === "#/" && !location.hash)) render(); else location.hash = go;
     setTimeout(() => $("#view input[type=search], #view #cap-text, #view #aform input")?.focus(), 150);
   } else if (ev.key === "?") {
-    toast("Shortcuts: / search · n new capture · a ask · m map · t today · ← → previous/next entry · Ctrl/⌘+Enter capture");
+    toast("Shortcuts: / search · n new capture · a ask · m map · t today · ← → previous/next entry · Ctrl/⌘+Enter capture · h help");
   }
 });
 /** True if the service worker just had to open the app from its saved copy (NEXUS unreachable). */
