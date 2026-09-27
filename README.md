@@ -301,8 +301,9 @@ Set `NEXUS_ART_AUTO_ANALYZE=false` to analyze only when you press a button.
 | `NEXUS_WHISPER_DEVICE` / `_COMPUTE_TYPE` | `auto` / `auto` | CPU on Mac; CUDA is used automatically on NVIDIA |
 | `NEXUS_EMBEDDING_PROVIDER` | `ollama` | `ollama` (search by meaning) or `none` (words only) |
 | `NEXUS_EMBEDDING_MODEL` | `nomic-embed-text` | Local embedding model (about 0.3 GB) |
-| `NEXUS_SEMANTIC_MIN_SIMILARITY` | `0.5` | How close (0–1) a meaning match must be. Raise it if unrelated ideas show up |
-| `NEXUS_SEMANTIC_WINDOW` | `0.15` | Keep only meaning matches within this distance of the best one |
+| `NEXUS_SEMANTIC_MIN_SIMILARITY` | `0.6` | How close (0–1) a meaning match must be. Raise it if unrelated ideas show up; lower it if related ones are missed |
+| `NEXUS_SEMANTIC_MARGIN` | `0.08` | A meaning match must also beat the archive's typical score for that search by this much, so a search with nothing relevant returns nothing |
+| `NEXUS_SEMANTIC_WINDOW` | `0.12` | Keep only meaning matches within this distance of the best one |
 | `NEXUS_ART_AUTO_ANALYZE` | `true` | Analyze every new image with Visual Art Intelligence |
 | `NEXUS_PROCESSING_MODE` | `background` | `background` (captures return instantly) or `sync` |
 | `OPENAI_API_KEY`, `ANTHROPIC_API_KEY` | empty | Read from the environment only. Never stored in the database. |

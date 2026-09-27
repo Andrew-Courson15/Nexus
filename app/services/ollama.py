@@ -44,6 +44,8 @@ MAX_IMAGES = 3
 MAX_IMAGE_BYTES = 20 * 1024 * 1024
 MAX_TEXT_CHARS = 12_000
 RELATIONSHIP_CANDIDATES = 8
+MAX_RELATIONSHIP_SUGGESTIONS = 3   # show only the strongest few
+MODEL_RELATIONSHIP_MIN = 0.7       # the model's own confidence a suggestion needs
 
 _TYPE_SYNONYMS = {
     "film": "movie", "feature": "movie", "screenplay": "movie", "short film": "short_film", "short": "short_film",
@@ -294,10 +296,16 @@ Rules:
 Reply with JSON only."""
 
 RELATIONSHIP_SYSTEM_PROMPT = f"""You link entries in a private creative archive.
-Given a NEW entry and some CANDIDATE entries, return only the candidates that are meaningfully related to the new entry
-(shared characters, world, premise, motif, or one clearly developing from another). Leave out candidates that only share common words.
+Given a NEW entry and some CANDIDATE entries, return only candidates that share something SPECIFIC with the new entry:
+the same character, the same story/world/premise, the same named place or object, a distinctive motif, or one clearly
+being a version or development of the other.
+Do NOT link entries just because they share generic features, for example: both are drawings/photos/sketches, both show
+a person or figure, both have costumes, armor, a mask, a dark or night setting, a similar colour, pose or style, or both
+mention common words like "website" or "comic". Those are not relationships.
+Most new entries relate to zero or one candidate. Returning an empty list is normal and correct when nothing specific is shared.
 relationship_type is one of: {", ".join(RELATIONSHIP_TYPES)}. Use "related_to" when unsure of the exact kind.
-"rationale" is one short sentence naming the specific shared element. "confidence" is 0 to 1.
+"rationale" is one short sentence naming the specific shared element. "confidence" is 0 to 1; use 0.8 or more only when
+the shared element is unmistakable.
 Use only the text provided. Reply with JSON only."""
 
 
@@ -541,7 +549,7 @@ class OllamaProvider(AIProvider):
                 continue
             rtype = str(item.get("relationship_type", "related_to"))
             conf = _clamp(item.get("confidence"), 0.5)
-            if conf < threshold:
+            if conf < max(threshold, MODEL_RELATIONSHIP_MIN):
                 continue
             seen.add(cid)
             out.append(RelationshipSuggestion(
@@ -550,7 +558,7 @@ class OllamaProvider(AIProvider):
                 confidence=min(conf, 0.95),
                 rationale=str(item.get("rationale", "")).strip()[:300] or "Suggested by the local model.",
             ))
-        return sorted(out, key=lambda r: -r.confidence)
+        return sorted(out, key=lambda r: -r.confidence)[:MAX_RELATIONSHIP_SUGGESTIONS]
 
     def answer_question(self, question: str, context: list[EntryContext]) -> str:
         if not context:

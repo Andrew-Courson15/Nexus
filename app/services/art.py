@@ -137,9 +137,12 @@ MODE_INSTRUCTIONS = {
         "perspective, lighting, anatomy, linework, storytelling, readability) and the effect of each change. Do not "
         "declare one image better."),
     "consistency": (
-        "CHARACTER CONSISTENCY MODE: the images show the same character. In 'consistency', compare facial structure, "
-        "hair, costume, proportions, accessories, silhouette, weapon and markings. List differences, list the ones that "
-        "look possibly intentional (a redesign), and what stays constant. Never call a difference a mistake outright."),
+        "CHARACTER CONSISTENCY MODE: the artist believes these images show the same character, but check it first. "
+        "In 'consistency.same_character', say plainly whether the images look like one character, and name any image "
+        "that seems to show a different character (for example 'Image 2 looks like a different character: ...'). "
+        "Do not force a match. Then compare facial structure, hair, costume, proportions, accessories, silhouette, "
+        "weapon and markings across the images that do look like the same character. List differences, list the ones "
+        "that look possibly intentional (a redesign), and what stays constant. Never call a difference a mistake outright."),
     "evolution": (
         "EVOLUTION MODE: the images are versions of the same piece or character in chronological order (Image 1 is the "
         "earliest). In 'consistency', describe how it evolved from version to version, what each change achieved, and "
@@ -213,7 +216,7 @@ def art_schema(mode: str) -> dict:
             "composition", "character", "perspective", "lighting", "anatomy", "linework", "storytelling",
             "readability")}})
     if mode in ("consistency", "evolution"):
-        props["consistency"] = _obj({**{k: _s() for k in (
+        props["consistency"] = _obj({**({"same_character": _s()} if mode == "consistency" else {}), **{k: _s() for k in (
             "facial_structure", "hair", "costume", "proportions", "accessories", "silhouette", "weapon", "markings")},
             "differences": _list(), "possibly_intentional": _list(), "constants": _list()})
         if mode == "evolution":

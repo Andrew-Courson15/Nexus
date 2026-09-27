@@ -225,7 +225,7 @@ def embed_entry(db: Session, entry: CreativeEntry, provider: EmbeddingProvider |
 
 
 def nearest(db: Session, query_vec: list[float], model: str, allowed_ids: set[int] | None = None,
-            limit: int = 50) -> list[tuple[int, float]]:
+            limit: int | None = 50) -> list[tuple[int, float]]:
     """Entries most similar in meaning to `query_vec`, as (entry_id, cosine similarity)."""
     q = normalize(query_vec)
     rows = db.execute(select(EntryEmbedding.entry_id, EntryEmbedding.vector)
@@ -239,7 +239,33 @@ def nearest(db: Session, query_vec: list[float], model: str, allowed_ids: set[in
             continue
         scored.append((entry_id, dot(q, vec)))
     scored.sort(key=lambda t: -t[1])
-    return scored[:limit]
+    return scored if limit is None else scored[:limit]
+
+
+# Below this many indexed entries the archive's typical score isn't meaningful; only the floor applies.
+MIN_ENTRIES_FOR_BASELINE = 6
+
+
+def confident_matches(scored: list[tuple[int, float]], baseline: list[float] | None = None
+                      ) -> list[tuple[int, float]]:
+    """Keep only meaning matches that are clearly related, best first.
+
+    Embedding models give *everything* some similarity (nomic-embed-text scores unrelated
+    text around 0.5), so a match must:
+      - clear an absolute floor (NEXUS_SEMANTIC_MIN_SIMILARITY),
+      - stand out from the archive's typical score for this query by NEXUS_SEMANTIC_MARGIN
+        (when there are enough entries to know what "typical" is), and
+      - be within NEXUS_SEMANTIC_WINDOW of the best match.
+    `baseline` is every score for this query (defaults to `scored`).
+    """
+    if not scored:
+        return []
+    s = get_settings()
+    cutoff = max(s.semantic_min_similarity, scored[0][1] - s.semantic_window)
+    sims = sorted(baseline if baseline is not None else [sim for _, sim in scored])
+    if len(sims) >= MIN_ENTRIES_FOR_BASELINE:
+        cutoff = max(cutoff, sims[len(sims) // 2] + s.semantic_margin)
+    return [(eid, sim) for eid, sim in scored if sim >= cutoff]
 
 
 def similar_entries(db: Session, text: str, allowed_ids: set[int], limit: int = 5) -> list[int]:
@@ -254,8 +280,8 @@ def similar_entries(db: Session, text: str, allowed_ids: set[int], limit: int = 
         vec = provider.embed_document(text[:MAX_TEXT_CHARS])
     except EmbeddingError:
         return []
-    min_sim = get_settings().semantic_min_similarity
-    return [eid for eid, sim in nearest(db, vec, provider.model, allowed_ids, limit=limit) if sim >= min_sim]
+    scored = nearest(db, vec, provider.model, allowed_ids, limit=None)
+    return [eid for eid, _ in confident_matches(scored)[:limit]]
 
 
 def index_stats(db: Session, model: str) -> dict[str, int]:

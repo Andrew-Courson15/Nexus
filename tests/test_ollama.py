@@ -121,6 +121,17 @@ def test_relationships_are_judged_and_invented_ids_dropped():
     assert "CANDIDATE 1" in listing and "CANDIDATE 4" not in listing  # pre-filtered
 
 
+def test_only_the_strongest_few_relationships_are_suggested():
+    fake = FakeOllama(relationships=[
+        {"candidate_id": i, "relationship_type": "related_to", "confidence": c, "rationale": f"Shares element {i}."}
+        for i, c in [(1, 0.72), (2, 0.9), (4, 0.6), (5, 0.8), (6, 0.85)]
+    ])
+    new = ctx("Memory thief crosses dimensions.", id=3)
+    existing = [ctx(f"Memory and dimensions, entry {i}.", id=i) for i in (1, 2, 4, 5, 6)]
+    rels = fake.provider().find_relationships(new, existing)
+    assert [r.target_id for r in rels] == [2, 6, 5]  # top 3; the 0.6 one never makes it
+
+
 def test_relationships_fall_back_when_model_fails():
     fake = FakeOllama(reachable=False)
     rels = fake.provider().find_relationships(

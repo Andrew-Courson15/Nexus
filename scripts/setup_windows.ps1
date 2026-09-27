@@ -37,6 +37,7 @@ if ($LASTEXITCODE -ne 0) { Fail "Package installation failed. Copy the messages 
 
 # 3. Settings file
 if (-not (Test-Path ".env")) { Copy-Item ".env.example" ".env"; Say "Created .env from .env.example" }
+& $venvPy scripts\upgrade_env.py
 $modelLine = Select-String -Path ".env" -Pattern "^NEXUS_OLLAMA_MODEL=(.*)$" | Select-Object -First 1
 $model = if ($modelLine) { $modelLine.Matches[0].Groups[1].Value.Trim() } else { "" }
 if (-not $model) { $model = "gemma3:12b" }

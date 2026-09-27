@@ -26,6 +26,7 @@ say "Installing Python packages…"
 
 # 3. Settings file.
 if [ ! -f .env ]; then cp .env.example .env; say "Created .env from .env.example"; fi
+.venv/bin/python scripts/upgrade_env.py
 MODEL="$(grep -E '^NEXUS_OLLAMA_MODEL=' .env | cut -d= -f2- | tr -d '[:space:]')"
 MODEL="${MODEL:-gemma3:12b}"
 

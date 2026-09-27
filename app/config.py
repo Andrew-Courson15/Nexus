@@ -48,8 +48,11 @@ class Settings:
     # Search by meaning (embeddings via Ollama)
     embedding_provider: str = "ollama"  # "ollama" | "none"
     embedding_model: str = "nomic-embed-text"
-    semantic_min_similarity: float = 0.5
-    semantic_window: float = 0.15  # keep meaning-matches within this distance of the best one
+    # nomic-embed-text scores unrelated text around 0.45-0.55, so a meaning match must clear
+    # an absolute floor AND stand out from the rest of the archive (see embeddings.confident_matches).
+    semantic_min_similarity: float = 0.6
+    semantic_margin: float = 0.08   # how far above the archive's typical (median) score a match must be
+    semantic_window: float = 0.12   # keep meaning-matches within this distance of the best one
     # Visual Art Intelligence: analyse new images automatically (needs a vision model)
     art_auto_analyze: bool = True
 
@@ -101,7 +104,8 @@ def get_settings() -> Settings:
         whisper_language=os.getenv("NEXUS_WHISPER_LANGUAGE", "").strip(),
         embedding_provider=os.getenv("NEXUS_EMBEDDING_PROVIDER", "ollama").strip().lower(),
         embedding_model=os.getenv("NEXUS_EMBEDDING_MODEL", "nomic-embed-text").strip(),
-        semantic_min_similarity=float(os.getenv("NEXUS_SEMANTIC_MIN_SIMILARITY", "0.5")),
-        semantic_window=float(os.getenv("NEXUS_SEMANTIC_WINDOW", "0.15")),
+        semantic_min_similarity=float(os.getenv("NEXUS_SEMANTIC_MIN_SIMILARITY", "0.6")),
+        semantic_margin=float(os.getenv("NEXUS_SEMANTIC_MARGIN", "0.08")),
+        semantic_window=float(os.getenv("NEXUS_SEMANTIC_WINDOW", "0.12")),
         art_auto_analyze=os.getenv("NEXUS_ART_AUTO_ANALYZE", "true").strip().lower() not in ("0", "false", "no", "off"),
     )

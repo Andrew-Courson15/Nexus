@@ -303,7 +303,7 @@ class SemanticSearchService:
                statuses: list[str] | None = None, date_from: datetime | None = None,
                date_to: datetime | None = None) -> SearchOutcome:
         from app.config import get_settings
-        from app.services.embeddings import EmbeddingError, nearest
+        from app.services.embeddings import EmbeddingError, confident_matches, nearest
 
         text = self.text_search.search(query, limit=limit, entry_types=entry_types, statuses=statuses,
                                        date_from=date_from, date_to=date_to)
@@ -320,11 +320,10 @@ class SemanticSearchService:
 
         def meaning_matches(use_filters: bool) -> list[tuple[int, float]]:
             ids_stmt = SearchService.apply_filters(select(CreativeEntry.id), pq, use_filters, date_from, date_to)
-            near = nearest(self.db, qvec, self.provider.model, set(self.db.scalars(ids_stmt)), limit=100)
-            if not near:
-                return []
-            cutoff = max(s.semantic_min_similarity, near[0][1] - s.semantic_window)
-            return [(eid, sim) for eid, sim in near if sim >= cutoff][: self.MAX_MEANING_HITS]
+            near = nearest(self.db, qvec, self.provider.model, set(self.db.scalars(ids_stmt)), limit=None)
+            # "Typical" is judged against the whole archive, not just the filtered slice.
+            everyone = [sim for _, sim in nearest(self.db, qvec, self.provider.model, None, limit=None)]
+            return confident_matches(near, baseline=everyone)[: self.MAX_MEANING_HITS]
 
         meaning = meaning_matches(True)
         relaxed = False

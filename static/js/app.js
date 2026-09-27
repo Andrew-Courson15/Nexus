@@ -1094,7 +1094,8 @@ function renderArtAnalysis(a) {
     ${artSection("ai", "Comparison · what changed", listBlock(d.comparison?.what_changed) + kvBlock(d.comparison, ["what_changed"]),
       "differences, not a verdict")}
     ${artSection("ai", a.mode === "evolution" ? "How it evolved" : "Character consistency",
-      kvBlock(d.consistency, ["differences", "possibly_intentional", "constants"])
+      (d.consistency?.same_character ? `<p><strong>Same character?</strong> ${esc(d.consistency.same_character)}</p>` : "")
+      + kvBlock(d.consistency, ["same_character", "differences", "possibly_intentional", "constants"])
       + (d.consistency?.differences?.length ? `<p class="small"><strong>Differences</strong></p>${listBlock(d.consistency.differences)}` : "")
       + (d.consistency?.possibly_intentional?.length ? `<p class="small"><strong>Possibly intentional</strong></p>${listBlock(d.consistency.possibly_intentional)}` : "")
       + (d.consistency?.constants?.length ? `<p class="small"><strong>Stays constant</strong></p>${listBlock(d.consistency.constants)}` : ""),

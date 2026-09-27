@@ -9,9 +9,16 @@ from tests.fake_ollama import FakeOllama
 
 @pytest.fixture()
 def fake(monkeypatch):
+    from app.config import get_settings
+
+    # The fake model's scores are coarser than nomic-embed-text's: a real match scores ~0.58 here.
+    monkeypatch.setenv("NEXUS_SEMANTIC_MIN_SIMILARITY", "0.5")
+    get_settings.cache_clear()
     f = FakeOllama(models=["nomic-embed-text:latest", "test-model"])
     monkeypatch.setattr(embeddings, "get_embedding_provider", lambda: f.embedder())
-    return f
+    yield f
+    monkeypatch.undo()
+    get_settings.cache_clear()
 
 
 def cap(client, text, **kw):
@@ -202,3 +209,27 @@ def test_meaning_neighbours_skip_trashed_and_self(client, fake):
     with SessionLocal() as db:
         assert similar_entries(db, "the monster under the bridge", allowed_ids={b["id"]}) == [b["id"]]
         assert similar_entries(db, "the monster under the bridge", allowed_ids=set()) == []
+
+
+def test_unrelated_archive_gives_no_meaning_matches():
+    """'fishing' in an archive with nothing about fishing: real scores all sat around 0.45-0.55."""
+    from app.services.embeddings import confident_matches
+
+    noise = [(i, s) for i, s in enumerate([0.55, 0.54, 0.54, 0.53, 0.51, 0.51, 0.50, 0.49, 0.47, 0.46, 0.44])]
+    assert confident_matches(noise) == []
+
+
+def test_a_genuine_match_stands_out_from_the_noise(monkeypatch):
+    from app.config import get_settings
+    from app.services.embeddings import confident_matches
+
+    scored = [(1, 0.71), (2, 0.66), (3, 0.55), (4, 0.53), (5, 0.52), (6, 0.50), (7, 0.49), (8, 0.47)]
+    assert [i for i, _ in confident_matches(scored)] == [1, 2]
+    # even with a lower floor, results must stand out from the archive's typical score
+    monkeypatch.setenv("NEXUS_SEMANTIC_MIN_SIMILARITY", "0.4")
+    get_settings.cache_clear()
+    try:
+        assert [i for i, _ in confident_matches(scored)] == [1, 2]
+    finally:
+        monkeypatch.undo()
+        get_settings.cache_clear()
