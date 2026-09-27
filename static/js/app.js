@@ -2442,7 +2442,10 @@ async function viewEntry(el, id) {
     if (!nav || i < 0) return;
     nav.insertAdjacentHTML("afterbegin", i > 0 ? `<a href="#/entry/${ids[i - 1]}" rel="prev">← Page ${i}</a> · ` : "");
     nav.insertAdjacentHTML("beforeend", i < ids.length - 1 ? ` · <a href="#/entry/${ids[i + 1]}" rel="next">Page ${i + 2} →</a>` : "");
-  }).catch(() => {});
+  }).catch((err) => {  // the PDF was deleted (or is in the trash): keep just the page number
+    const nav = $("#page-nav", el);
+    if (nav && !err.offline) nav.textContent = `Page ${m.page_of.page} of ${m.page_of.pages} (the PDF is no longer in your archive)`;
+  });
   $("[data-act=edit-title]", el).onclick = () => {
     const v = prompt("Title (leave empty to use the AI's suggestion):", e.title);
     if (v !== null) put({ title: v }, "Title saved.");
