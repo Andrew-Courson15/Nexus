@@ -169,6 +169,7 @@ class EntrySummary(BaseModel):
     excerpt: str | None
     processing_status: str | None
     deleted_at: datetime | None = None
+    shared_from: dict[str, Any] | None = None  # imported from someone else's NEXUS: whose it is
 
 
 class EntryDetail(EntrySummary):
@@ -325,6 +326,7 @@ def _summary_fields(e: CreativeEntry) -> dict[str, Any]:
         excerpt=_excerpt(e),
         processing_status=e.processing_status,
         deleted_at=e.deleted_at,
+        shared_from=e.shared_from,
     )
 
 

@@ -177,7 +177,7 @@ def embedding_text(entry: CreativeEntry) -> str:
     parts = [
         entry.title or "",
         entry.original_text or "",
-        entry.user_notes or "",
+        entry.combined_notes,
         entry.transcript or "",
         entry.ai_summary or "",
         ", ".join(meta.get("concepts", []) + meta.get("themes", [])),

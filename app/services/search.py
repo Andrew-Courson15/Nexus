@@ -65,7 +65,7 @@ def index_entry(db: Session, entry: CreativeEntry) -> None:
         "id": entry.id,
         "title": entry.title or "",
         "original_text": entry.original_text or "",
-        "user_notes": entry.user_notes or "",
+        "user_notes": entry.combined_notes,
         "transcript": entry.transcript or "",
         "ai_summary": entry.ai_summary or "",
         "ai_interpretation": entry.ai_interpretation or "",

@@ -473,7 +473,7 @@ def _build_request(db: Session, analysis: ArtworkAnalysis) -> ArtworkRequest:
         if e.projects:
             label += " — project: " + ", ".join(p.name for p in e.projects if p.deleted_at is None)
         lines.append(label)
-        own = "\n".join(t for t in (e.original_text, e.user_notes) if t)
+        own = "\n".join(t for t in (e.original_text, e.combined_notes) if t)
         if own.strip():
             words.append(f"About image {n}:\n<<<\n{own.strip()[:2000]}\n>>>")
 

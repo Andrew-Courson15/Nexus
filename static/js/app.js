@@ -492,6 +492,7 @@ function cardHTML(e, extra = "") {
       <span class="pill type">${esc(label(e.entry_type))}</span>
       <span class="pill status-${esc(e.status)}">${esc(e.status)}</span>
       ${audio ? `<span class="pill">voice</span>` : ""}
+      ${e.shared_from ? `<span class="pill shared" title="Imported from ${esc(e.shared_from.by)}'s NEXUS">from ${esc(e.shared_from.by)}</span>` : ""}
       ${isBusy(e) ? `<span class="pill busy">${esc(busyLabel(e.processing_status))}</span>` : ""}
       <span class="spacer"></span><span>${fmtDate(e.created_at)}</span>
     </div>
@@ -849,7 +850,9 @@ async function viewProject(el, id) {
     <h1>${esc(p.name)}</h1>${p.description ? `<p class="lede">${esc(p.description)}</p>` : ""}</div></div>
     <h2>Capture into this project</h2><div id="cap"></div>
     <h2>${p.entry_count} entr${p.entry_count === 1 ? "y" : "ies"}</h2><div id="pentries">${gridHTML(p.entries, "No entries yet. Capture above, or add existing entries from their detail page.")}</div>
-    <p style="margin-top:32px"><button class="btn danger ghost" data-act="trash-project">Move project to trash</button></p>`;
+    <p class="row" style="margin-top:32px"><button class="btn" data-act="export-project">Export project (.nexus)</button>
+      <button class="btn danger ghost" data-act="trash-project">Move project to trash</button></p>`;
+  $("[data-act=export-project]", el).onclick = () => exportShare({ project_id: String(p.id) });
   mountCapture($("#cap", el), { projectId: p.id, onCaptured: () => render() });
   $("[data-act=trash-project]", el).onclick = async () => {
     if (!confirm(`Move “${p.name}” to the trash? Its ${p.entry_count} entr${p.entry_count === 1 ? "y stays" : "ies stay"} in your archive, and you can restore the project from the Trash.`)) return;
@@ -898,6 +901,54 @@ async function viewSearch(el, _id, query) {
       `${x.matched_by.some((m) => m !== "filters") ? `<div class="meta">${badges(x)}</div>` : ""}
        ${x.snippet ? `<p class="snippet">${snippet(x.snippet)}</p>` : ""}`)).join("")}</div>`
       : `<p class="empty">Nothing found for “${esc(q)}”.</p>`}`;
+}
+
+/* ------------------------------------------------------------ sharing */
+/** Download a .nexus file for someone else's NEXUS. Asks once for the name shown to them. */
+function exportShare(params) {
+  let by = store("nexus.myName");
+  if (!by) {
+    by = prompt("Your name, shown to whoever imports this (for example “Andrew”):", "");
+    if (by === null) return;
+    by = by.trim();
+    if (by) store("nexus.myName", by);
+  }
+  const a = document.createElement("a");
+  a.href = "/api/share/export?" + new URLSearchParams({ ...params, by: by || "" });
+  a.download = "";
+  document.body.append(a);
+  a.click();
+  a.remove();
+  toast("Preparing the .nexus file… it downloads in a moment.");
+}
+
+/** A button that imports a .nexus file someone sent you. */
+function mountImport(box) {
+  box.innerHTML = `<h3>Import from someone's NEXUS</h3>
+    <p class="small muted">Got a <code>.nexus</code> file from a friend? Their words and files come in exactly as they sent
+      them, marked with their name, and your NEXUS organizes them with its own AI. Importing the same file twice adds nothing.</p>
+    <button class="btn small" data-act="import">Choose a .nexus file…</button>
+    <input type="file" hidden accept=".nexus,.zip,application/zip,application/octet-stream">
+    <p class="small" id="import-result"></p>`;
+  const input = $("input", box), out = $("#import-result", box);
+  $("[data-act=import]", box).onclick = () => input.click();
+  input.onchange = async () => {
+    const file = input.files[0];
+    if (!file) return;
+    const fd = new FormData();
+    fd.append("file", file, file.name);
+    out.innerHTML = `<span class="spinner inline"></span>Importing ${esc(file.name)}…`;
+    try {
+      const r = await api("/api/share/import", { method: "POST", body: fd, timeout: 600000 });
+      const n = r.imported.length, had = r.already_had.length;
+      out.innerHTML = `Imported ${n} entr${n === 1 ? "y" : "ies"} from ${esc(r.by)}${had ? ` (${had} ${had === 1 ? "was" : "were"} already here)` : ""}.
+        ${r.project_id ? `<a href="#/projects/${r.project_id}">Open ${esc(r.project_name)}</a>` : `<a href="#/archive">Open the archive</a>`}`;
+      toast(n ? "Imported. Your NEXUS is organizing the new entries." : "Nothing new: you already had everything in that file.");
+    } catch (err) {
+      out.innerHTML = `<span style="color:var(--danger)">${esc(err.offline ? "NEXUS isn't reachable right now." : err.message)}</span>`;
+    }
+    input.value = "";
+  };
 }
 
 /** Settings panel: backups of the database and every original file. */
@@ -1054,8 +1105,10 @@ async function viewSettings(el) {
         <dt>Entries</dt><dd>${s.counts.entries}</dd><dt>Projects</dt><dd>${s.counts.projects}</dd>
         <dt>Tags</dt><dd>${s.counts.tags}</dd><dt>In trash</dt><dd><a href="#/trash">${s.counts.trash} · view trash</a></dd></dl></div>
       <div class="panel" id="backups"><h3>Backups</h3><p class="loading">Loading…</p></div>
+      <div class="panel" id="import"></div>
     </div>`;
   mountBackups($("#backups", el));
+  mountImport($("#import", el));
   $("[data-act=reindex]", el)?.addEventListener("click", async (ev) => {
     ev.target.disabled = true;
     try {
@@ -1168,8 +1221,10 @@ async function viewEntry(el, id) {
   const list = (arr) => `<ul>${arr.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>`;
   const transcriptInfo = m.transcription;
 
+  const who = e.shared_from?.by;
   const userBlock = e.original_text
-    ? prov("user", "User material", `<div class="body">${esc(e.original_text)}</div>`, "exactly as you captured it · never modified")
+    ? prov("user", who ? `${who}'s material` : "User material", `<div class="body">${esc(e.original_text)}</div>`,
+        who ? `exactly as ${who} wrote it · never modified` : "exactly as you captured it · never modified")
     : prov("unknown", "User material", `<div class="body">No words were written with this ${esc(label(e.source_type))} capture. The original file above is the user material.</div>`);
 
   const canTranscribe = e.source_type === "voice" && e.attachments.some((a) => a.kind === "audio") && !isBusy(e);
@@ -1178,7 +1233,9 @@ async function viewEntry(el, id) {
       ? prov(m.transcript_source === "user" ? "user" : "ai", "Transcript", `<div class="body" id="transcript-text">${esc(e.transcript)}</div>
           <div class="row" style="margin-top:8px"><button class="btn ghost small" data-act="edit-transcript">Correct transcript</button>
           ${canTranscribe && m.transcript_source !== "user" ? `<button class="btn ghost small" data-act="transcribe">Transcribe again</button>` : ""}</div>`,
-          m.transcript_source === "user" ? "corrected by you" : `machine-generated from your recording (${transcriptInfo?.provider || "unknown"})`)
+          m.transcript_source === "user" ? "corrected by you"
+            : m.transcript_source === "shared" ? `machine-generated on ${who || "their"}'s NEXUS`
+            : `machine-generated from your recording (${transcriptInfo?.provider || "unknown"})`)
       : prov("unknown", "Transcript · unknown", `<div class="body">${esc(transcriptInfo?.message || (isBusy(e) ? "Transcription is on its way…" : "No transcript exists yet."))}</div>
           ${canTranscribe ? `<div class="row" style="margin-top:8px"><button class="btn small" data-act="transcribe">Transcribe now</button></div>` : ""}`))
     : "";
@@ -1229,6 +1286,7 @@ async function viewEntry(el, id) {
       ? `<p class="small muted">The title and type above were chosen by the AI. <button class="btn small" data-act="confirm">Confirm them</button> to keep them fixed.</p>` : ""}
     ${media}
     ${userBlock}
+    ${e.shared_from?.notes ? prov("user", `${who}'s notes`, `<div class="body">${esc(e.shared_from.notes)}</div>`, `came with the share · never modified`) : ""}
     ${prov("user", "Your notes", `<div class="body" id="notes-view">${e.user_notes ? esc(e.user_notes) : `<span class="muted">No notes yet.</span>`}</div>
       <div class="row" style="margin-top:8px"><button class="btn ghost small" data-act="edit-notes">${e.user_notes ? "Edit notes" : "Add notes"}</button></div>`,
       "additions you've written later")}
@@ -1264,7 +1322,13 @@ async function viewEntry(el, id) {
 
     ${hasImage ? `<div class="panel" id="evopanel"></div>` : ""}
 
+    <div class="panel"><h3>Share</h3>
+      <p class="small muted">Send this to someone else's NEXUS as a <code>.nexus</code> file (AirDrop, email, USB).
+        Your words and original files go; the AI notes stay here.</p>
+      <button class="btn small" data-act="export-entry">Export this entry</button></div>
+
     <div class="panel"><h3>Source information</h3><dl class="kv">
+      ${who ? `<dt>Shared by</dt><dd>${esc(who)} · from their NEXUS${e.shared_from.exported_at ? `, sent ${fmtDate(e.shared_from.exported_at)}` : ""}</dd>` : ""}
       <dt>Source</dt><dd>${esc(label(e.source_type))}</dd>
       <dt>Created</dt><dd>${fmtDateTime(e.created_at)}</dd>
       <dt>Modified</dt><dd>${fmtDateTime(e.updated_at)}</dd>
@@ -1285,6 +1349,7 @@ async function viewEntry(el, id) {
     try { await api(`/api/entries/${id}`, { method: "PUT", json: body }); if (msg) toast(msg); render(); }
     catch (err) { toast(err.message, true); }
   };
+  $("[data-act=export-entry]", el).onclick = () => exportShare({ entry_ids: String(e.id) });
   $("#type", el).onchange = (ev) => put({ entry_type: ev.target.value }, "Type set by you.");
   $("#status", el).onchange = (ev) => put({ status: ev.target.value }, "Status updated.");
   $("[data-act=confirm]", el)?.addEventListener("click", () => put({ user_confirmed: true }, "Confirmed."));

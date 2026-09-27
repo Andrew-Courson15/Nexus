@@ -406,3 +406,4 @@ details.raw { margin-top: 4px; }
 a.cite { white-space: nowrap; font-size: .92em; padding: 0 5px; border-radius: 5px; text-decoration: none;
   background: var(--surface-2); border: 1px solid var(--border); }
 a.cite:hover { border-color: var(--text); }
+.pill.shared { border-style: dashed; color: var(--user); border-color: var(--user); }

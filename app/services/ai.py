@@ -66,7 +66,7 @@ class EntryContext:
             id=entry.id,
             title=entry.title or "",
             original_text=entry.original_text or "",
-            user_notes=entry.user_notes or "",
+            user_notes=getattr(entry, "combined_notes", None) or entry.user_notes or "",
             transcript=entry.transcript or "",
             entry_type=entry.entry_type,
             source_type=entry.source_type,

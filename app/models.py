@@ -200,6 +200,11 @@ class CreativeEntry(Base):
     client_id: Mapped[str | None] = mapped_column(String(64), nullable=True, unique=True)
     # Path of the raw file relative to the data directory (if any).
     source_file: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    # Imported from someone else's NEXUS: {"by", "install_id", "entry_id", "exported_at", "imported_at"}.
+    # Their material stays exactly as they wrote it; this records whose it is.
+    shared_from: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    # "<their install id>:<their entry id>": importing the same share twice never duplicates it.
+    share_key: Mapped[str | None] = mapped_column(String(120), nullable=True, unique=True)
 
     # Reserved for future semantic search (no vector DB in v1).
     embedding_id: Mapped[str | None] = mapped_column(String(200), nullable=True)
@@ -225,6 +230,17 @@ class CreativeEntry(Base):
     @property
     def is_deleted(self) -> bool:
         return self.deleted_at is not None
+
+    @property
+    def combined_notes(self) -> str:
+        """The user's notes plus, for a shared entry, the notes that came with it (attributed, kept apart)."""
+        shared = self.shared_from or {}
+        parts = []
+        if shared.get("notes"):
+            parts.append(f"Notes from {shared.get('by') or 'the person who shared this'}:\n{shared['notes']}")
+        if self.user_notes:
+            parts.append(self.user_notes)
+        return "\n\n".join(parts)
 
 
 class Attachment(Base):

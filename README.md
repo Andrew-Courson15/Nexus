@@ -297,6 +297,25 @@ and WMF/EMF. WMF/EMF previews only work on Windows.
 - PSD, Procreate and Krita files are shown and analysed as the flattened picture, not layer by layer.
 Set `NEXUS_ART_AUTO_ANALYZE=false` to analyze only when you press a button.
 
+## Sharing with a friend's NEXUS
+
+Two people can each keep their own private NEXUS and still send each other ideas and art.
+- **Send:** open an entry and press **Export this entry**, or open a project and press
+  **Export project (.nexus)**. You get one `.nexus` file. Send it any way you like (AirDrop,
+  email, a USB stick). Nothing goes through a server. The first time, NEXUS asks for your name,
+  which is shown to whoever imports it.
+- **Receive:** **Settings → Import from someone's NEXUS → Choose a .nexus file**.
+- **What travels:** their words, notes, transcripts, their own tags and title/type choices, and
+  every original file, byte for byte. Each file's fingerprint is checked on arrival.
+- **What stays behind:** AI summaries, AI tags and art analyses. Your NEXUS organizes the
+  imported entries again with its own local AI.
+- **Attribution:** imported entries are labeled **from Sebas**, their words show as
+  **Sebas's material** and their notes as **Sebas's notes**. **Your notes** stay yours.
+- **Projects:** a shared project joins your project of the same name, or a new one is created.
+  Links they made between the shared entries come along too.
+- **No duplicates:** importing the same file twice adds nothing. Exporting and re-importing on
+  the same NEXUS is refused.
+
 ## Backups
 
 Your ideas and art are irreplaceable, so NEXUS backs them up.
@@ -542,6 +561,8 @@ Transcription follows the same pattern in `services/transcription.py`: `Transcri
 | GET | `/api/uploads/{attachment_id}/preview` · `/thumb` | A viewable JPEG/PNG of any picture format · a small version for cards |
 | GET | `/api/offline/snapshot` | Everything the phone needs to browse the archive offline (gzip) |
 | GET/POST | `/api/backups` · GET `/api/backups/{name}` | List / start a backup · download one |
+| GET | `/api/share/export` | A `.nexus` file: `entry_ids=1,2` or `project_id=n`, and `by=<your name>` |
+| POST | `/api/share/import` | Multipart `file`: import a `.nexus` file. Returns `imported`, `already_had`, `project_id` |
 | GET | `/api/trash` | Entries in the trash |
 | POST | `/api/entries/{id}/revisions/{n}/restore` | Bring back version *n* (recorded as a new version) |
 | GET/POST | `/api/projects` | List / create |
@@ -571,7 +592,7 @@ Transcription follows the same pattern in `services/transcription.py`: `Transcri
 
 - Knowledge-graph entities beyond entries: people, places, themes and events.
 - A relationship graph visualisation, and manual linking in the UI (the API exists).
-- Tracking who created each entry, for when more than one person uses the same NEXUS.
-- Sharing entries between two separate NEXUS installs (export a project or sketches, import on the other).
+- Tracking who created each entry when several people share *one* NEXUS (separate installs
+  already mark shared entries with their author).
 - Alembic migrations for non-additive schema changes, and a PostgreSQL option.
 - Cloud providers (OpenAI, Anthropic), for use only if you ever opt in.
