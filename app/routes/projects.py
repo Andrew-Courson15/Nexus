@@ -9,6 +9,7 @@ from app.database import get_db
 from app.models import CreativeEntry, EntryTag, Project, ProjectEntry, utcnow
 from app.routes.entries import load_entry
 from app.schemas import (
+    ProjectAnalysisOut,
     ProjectCreate,
     ProjectDetail,
     ProjectEntryAdd,
@@ -17,6 +18,8 @@ from app.schemas import (
     entry_summary,
     project_out,
 )
+from app.models import ProjectAnalysis
+from app.services import project_analysis
 from app.services.history import record_revision
 from app.services.search import index_entry
 
@@ -127,3 +130,23 @@ def remove_entry_from_project(project_id: int, entry_id: int, db: Session = Depe
         record_revision(db, entry, f"Removed from project “{project.name}”")
         db.commit()
     return Response(status_code=204)
+
+
+@router.post("/{project_id}/analyses", response_model=ProjectAnalysisOut, status_code=202)
+def analyze_project(project_id: int, response: Response, db: Session = Depends(get_db)):
+    """Start an AI overview of the whole project (a new version; earlier ones are kept)."""
+    try:
+        pa = project_analysis.start(db, _get(db, project_id))
+    except project_analysis.ProjectAnalysisError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    if pa.status in ("done", "failed"):
+        response.status_code = 200
+    return pa
+
+
+@router.get("/{project_id}/analyses", response_model=list[ProjectAnalysisOut])
+def list_project_analyses(project_id: int, db: Session = Depends(get_db)):
+    """Every version, newest first."""
+    _get(db, project_id)
+    return db.scalars(select(ProjectAnalysis).where(ProjectAnalysis.project_id == project_id)
+                      .order_by(ProjectAnalysis.version.desc())).all()

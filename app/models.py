@@ -413,6 +413,26 @@ class ArtworkAnalysis(Base):
     completed_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
 
 
+class ProjectAnalysis(Base):
+    """DERIVED: an AI overview of a whole project (characters, threads, gaps ...), citing entries.
+
+    Append-only: running it again adds a new version, so earlier readings are kept.
+    """
+
+    __tablename__ = "project_analyses"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), index=True)
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    status: Mapped[str] = mapped_column(String(20), default="queued")  # queued | running | done | failed
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    model: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    entry_ids: Mapped[list] = mapped_column(JSON, default=list)  # the entries it was based on
+    result: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
+    completed_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+
+
 class ArtPreference(Base):
     """Creative memory: an artistic preference.
 

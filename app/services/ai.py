@@ -150,6 +150,10 @@ class AIProvider(ABC):
     #: True if this provider can look at artwork (Visual Art Intelligence).
     supports_art: bool = False
 
+    def analyze_project(self, system: str, prompt: str, schema: dict[str, Any]) -> dict[str, Any]:
+        """Return a structured whole-project overview (a dict following `schema`)."""
+        raise AIProviderError("Project analysis needs a local language model (NEXUS_AI_PROVIDER=ollama).")
+
     def analyze_artwork(self, request: ArtworkRequest) -> dict[str, Any]:
         """Return the raw structured analysis (a dict following request.schema)."""
         raise AIProviderError(

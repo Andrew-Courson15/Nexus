@@ -216,6 +216,13 @@ Browsers only allow microphone access on `localhost` or HTTPS. Open NEXUS at
 - **Creative Archive**: every entry as a card. Filter by type, status, project, tag and date.
   Sort by newest, oldest, recently modified or alphabetical.
 - **Projects**: create projects and capture straight into them. An entry can belong to many projects.
+  - **Analyze this project**: the local AI reads every entry in the project (your words, notes,
+    transcripts, and the art analyses of your sketches). It describes the **characters** and where
+    they appear, the **story threads**, the **world**, the **strongest ideas**, **contradictions**
+    between entries, **open questions**, **gaps**, and a few optional next steps.
+  - Every point links to the entries behind it.
+  - It's a reading of your material, not canon: your entries stay the source of truth.
+  - Each run is kept as a version, so you can compare how the project grew.
 - **Ideas**: the **Idea Incubator**, meaning everything whose status is `raw` or `exploring`. Nothing here is turned into a task.
 - **Search**: natural queries such as `memory`, `villains`, `ideas about alternate realities`,
   `unfinished comic ideas`, `sketches with monsters`. NEXUS shows how it understood your query.
@@ -566,6 +573,7 @@ Transcription follows the same pattern in `services/transcription.py`: `Transcri
 | GET | `/api/trash` | Entries in the trash |
 | POST | `/api/entries/{id}/revisions/{n}/restore` | Bring back version *n* (recorded as a new version) |
 | GET/POST | `/api/projects` | List / create |
+| POST/GET | `/api/projects/{id}/analyses` | Start a project analysis (202 while running) / every version, newest first |
 | GET/PUT | `/api/projects/{id}` | Detail with entries / update |
 | POST | `/api/projects/{id}/entries` | `{"entry_id": n}` |
 | DELETE | `/api/projects/{id}/entries/{entry_id}` | Remove from project |
@@ -584,10 +592,8 @@ Transcription follows the same pattern in `services/transcription.py`: `Transcri
 
 ## Not built yet
 
-- **Project-level creative analysis** ("analyze my entire comic"): story, characters, sheets, pages,
-  dialogue, worldbuilding, visual consistency, pacing and themes across a whole project. This will be a
-  separate capability from single-image analysis, built on the per-image analyses, evolution links and
-  library that exist now.
+- Deeper project analysis: page-by-page pacing and visual consistency across a whole comic, by
+  looking at the pages themselves (today's project analysis reads the entries and their art analyses).
 - Importing PDFs or ebooks into the art library (for now, paste the passages you care about).
 
 - Knowledge-graph entities beyond entries: people, places, themes and events.

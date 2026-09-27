@@ -603,6 +603,13 @@ class OllamaProvider(AIProvider):
         except OllamaError:
             return self.fallback.answer_question(question, context)
 
+    def analyze_project(self, system: str, prompt: str, schema: dict[str, Any]) -> dict[str, Any]:
+        try:
+            return self.client.chat_json(self.model, [{"role": "system", "content": system},
+                                                      {"role": "user", "content": prompt}], schema)
+        except OllamaError as exc:
+            raise AIProviderError(f"The local model couldn't analyze the project: {exc}") from exc
+
     supports_art = True
 
     def analyze_artwork(self, request: ArtworkRequest) -> dict[str, Any]:

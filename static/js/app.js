@@ -848,11 +848,13 @@ async function viewProject(el, id) {
   el.innerHTML = `<p><a href="#/projects" class="muted small">← Projects</a></p>
     <div class="view-head"><div><div class="meta"><span class="pill type">${esc(label(p.project_type))}</span><span class="pill">${esc(p.status)}</span></div>
     <h1>${esc(p.name)}</h1>${p.description ? `<p class="lede">${esc(p.description)}</p>` : ""}</div></div>
+    <section class="panel project-analysis" id="panalysis"><p class="loading">Loading…</p></section>
     <h2>Capture into this project</h2><div id="cap"></div>
     <h2>${p.entry_count} entr${p.entry_count === 1 ? "y" : "ies"}</h2><div id="pentries">${gridHTML(p.entries, "No entries yet. Capture above, or add existing entries from their detail page.")}</div>
     <p class="row" style="margin-top:32px"><button class="btn" data-act="export-project">Export project (.nexus)</button>
       <button class="btn danger ghost" data-act="trash-project">Move project to trash</button></p>`;
   $("[data-act=export-project]", el).onclick = () => exportShare({ project_id: String(p.id) });
+  mountProjectAnalysis($("#panalysis", el), p);
   mountCapture($("#cap", el), { projectId: p.id, onCaptured: () => render() });
   $("[data-act=trash-project]", el).onclick = async () => {
     if (!confirm(`Move “${p.name}” to the trash? Its ${p.entry_count} entr${p.entry_count === 1 ? "y stays" : "ies stay"} in your archive, and you can restore the project from the Trash.`)) return;
@@ -984,6 +986,66 @@ async function mountBackups(box) {
     mountBackups(box);
   });
   if (b.running) setTimeout(() => box.isConnected && mountBackups(box), 3000);
+}
+
+/* ------------------------------------------------------ project analysis */
+function renderProjectAnalysis(a, titles) {
+  const r = a.result || {};
+  const refs = (ids) => (ids || []).length ? ` <span class="refs">${ids.map((id) => {
+    const t = titles[id] || `#${id}`;
+    return `<a class="cite" href="#/entry/${id}" title="${esc(t)}">${esc(t.length > 30 ? t.slice(0, 28) + "…" : t)}</a>`;
+  }).join(" ")}</span>` : "";
+  const rows = (items, main, sub) => (items || []).length ? `<ul class="pa-list">${items.map((x) =>
+    `<li><strong>${esc(x[main])}</strong>${sub && x[sub] ? ` — ${esc(x[sub])}` : ""}${refs(x.entries)}</li>`).join("")}</ul>` : "";
+  const plain = (items) => (items || []).length ? `<ul class="pa-list">${items.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : "";
+  const section = (kind, title, body, why) => body ? prov(kind, title, body, why) : "";
+  return `
+    ${section("ai", "Overview", r.overview ? `<p>${esc(r.overview)}</p>` : "", "a reading of your material, not canon")}
+    ${section("ai", "Characters", rows(r.characters, "name", "description"), "who appears, and where")}
+    ${section("ai", "Story threads", rows(r.story_threads, "thread"))}
+    ${section("ai", "World", rows(r.world, "element"))}
+    ${section("ai", "Strongest ideas", rows(r.strongest_ideas, "idea", "why"), "already working, in the AI's reading")}
+    ${section("infer", "Contradictions", rows(r.contradictions, "issue"), "entries that don't agree")}
+    ${section("infer", "Open questions", plain(r.open_questions), "not decided yet")}
+    ${section("infer", "Gaps", plain(r.gaps), "often needed, not here yet")}
+    ${section("infer", "Possible next steps", plain(r.next_steps), "your choice, not mine")}
+    ${section("unknown", "Uncertain", plain(r.uncertainties))}
+    <p class="small muted">Version ${a.version} · ${esc(a.model || "")} · based on ${a.entry_ids.length} entr${a.entry_ids.length === 1 ? "y" : "ies"}
+      · ${fmtDateTime(a.completed_at || a.created_at)}</p>`;
+}
+
+async function mountProjectAnalysis(box, p, shownId) {
+  let versions;
+  try {
+    versions = await api(`/api/projects/${p.id}/analyses`, { noCopy: true });
+  } catch (err) {
+    box.innerHTML = `<h3>Project analysis</h3><p class="small muted">${err.offline ? "Available when NEXUS is on." : esc(err.message)}</p>`;
+    return;
+  }
+  if (!box.isConnected) return;
+  const titles = Object.fromEntries(p.entries.map((e) => [e.id, e.title]));
+  const latest = versions[0];
+  const running = latest && ["queued", "running"].includes(latest.status);
+  const done = versions.filter((v) => v.status === "done");
+  const shown = done.find((v) => v.id === shownId) || done[0];
+  box.innerHTML = `<div class="row"><h3 style="margin:0">Project analysis</h3><span class="spacer"></span>
+      ${done.length > 1 ? `<select id="pa-version" aria-label="Version">${done.map((v) =>
+        `<option value="${v.id}"${v.id === shown.id ? " selected" : ""}>Version ${v.version} · ${fmtDate(v.created_at)}</option>`).join("")}</select>` : ""}
+      ${running ? "" : `<button class="btn small ${latest ? "" : "primary"}" data-act="analyze-project">${latest ? "Analyze again" : "Analyze this project"}</button>`}</div>
+    ${!latest ? `<p class="small muted">The local AI reads every entry in this project (words, notes, transcripts, sketches' analyses) and
+      describes the characters, story threads and world, what's strongest, what contradicts itself and what's still open —
+      each point linked to the entries behind it. Earlier versions are kept.</p>` : ""}
+    ${running ? `<p class="small"><span class="spinner inline"></span>Reading ${p.entry_count} entr${p.entry_count === 1 ? "y" : "ies"}… this can take a minute or two.</p>` : ""}
+    ${latest?.status === "failed" ? `<p class="small" style="color:var(--danger)">The last analysis failed: ${esc(latest.error || "unknown error")}</p>` : ""}
+    ${shown ? renderProjectAnalysis(shown, titles) : ""}`;
+  $("#pa-version", box)?.addEventListener("change", (ev) => mountProjectAnalysis(box, p, +ev.target.value));
+  $("[data-act=analyze-project]", box)?.addEventListener("click", async (ev) => {
+    ev.target.disabled = true;
+    try { await api(`/api/projects/${p.id}/analyses`, { method: "POST" }); }
+    catch (err) { toast(err.message, true); }
+    mountProjectAnalysis(box, p);
+  });
+  if (running) setTimeout(() => box.isConnected && mountProjectAnalysis(box, p, shownId), 3000);
 }
 
 /* ------------------------------------------------------------- Ask NEXUS */
@@ -1514,7 +1576,7 @@ function renderArtAnalysis(a) {
     ${artSection("ai", "Visual storytelling", kvBlock(st, ["visible_information", "possible_interpretation"]))}
     ${artSection("ai", "Sequential art", kvBlock(a.sequential_art_analysis))}
     <div class="levels">
-      ${artSection("user", "Preserve", listBlock(a.strengths), "already working")}
+      ${artSection("ai", "Preserve", listBlock(a.strengths), "already working, in the AI's reading")}
       ${artSection("ai", "Develop", listBlock(a.development_opportunities), "could be strengthened")}
       ${artSection("infer", "Experiment", listBlock(a.experiments), "optional, never required")}
     </div>

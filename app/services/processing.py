@@ -44,13 +44,17 @@ class Job:
     force_transcribe: bool = False
     embed: bool = True
     art_analysis_id: int | None = None  # Visual Art Intelligence job
+    project_analysis_id: int | None = None  # whole-project overview job
 
     @property
     def embed_only(self) -> bool:
-        return not self.transcribe and not self.analyze and self.art_analysis_id is None
+        return (not self.transcribe and not self.analyze and self.art_analysis_id is None
+                and self.project_analysis_id is None)
 
     @property
     def key(self) -> tuple[int, str]:
+        if self.project_analysis_id is not None:
+            return (0, f"project:{self.project_analysis_id}")
         if self.art_analysis_id is not None:
             return (self.entry_id, f"art:{self.art_analysis_id}")
         return (self.entry_id, "embed" if self.embed_only else "full")
@@ -129,6 +133,11 @@ def _auto_art(db: Session, entry: CreativeEntry) -> None:
 
 def run_job(job: Job) -> str:
     """Run one job in its own session. Returns the final status."""
+    if job.project_analysis_id is not None:
+        from app.services import project_analysis
+
+        with SessionLocal() as db:
+            return project_analysis.run(db, job.project_analysis_id)
     if job.art_analysis_id is not None:
         from app.services.art import run_analysis
 
@@ -247,8 +256,19 @@ class ProcessingQueue:
         for analysis_id, entry_id in art:
             self.submit(Job(entry_id, transcribe=False, analyze=False, embed=False, art_analysis_id=analysis_id))
         with SessionLocal() as db:
+            from app.models import ProjectAnalysis
+
+            projects = list(db.scalars(select(ProjectAnalysis).where(ProjectAnalysis.status.in_(("queued", "running")))
+                                       .order_by(ProjectAnalysis.id)))
+            for pa in projects:
+                pa.status = "queued"
+            db.commit()
+            project_ids = [pa.id for pa in projects]
+        for pid in project_ids:
+            self.submit(Job(0, transcribe=False, analyze=False, embed=False, project_analysis_id=pid))
+        with SessionLocal() as db:
             queue_embedding_backfill(db)
-        return len(ids) + len(art)
+        return len(ids) + len(art) + len(project_ids)
 
     def _worker(self) -> None:
         while True:

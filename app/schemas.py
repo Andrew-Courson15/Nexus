@@ -240,6 +240,21 @@ class ProjectDetail(ProjectOut):
     entries: list[EntrySummary]
 
 
+class ProjectAnalysisOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    project_id: int
+    version: int
+    status: str
+    error: str | None
+    model: str | None
+    entry_ids: list[int]
+    result: dict[str, Any]
+    created_at: datetime
+    completed_at: datetime | None
+
+
 class SearchResult(BaseModel):
     entry: EntrySummary
     score: float
