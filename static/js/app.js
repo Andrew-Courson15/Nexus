@@ -1819,6 +1819,24 @@ function mountBrowseNav(el, id) {
   });
 }
 
+/** Full-screen view of a picture: click (or tap) it to see it at full size, Esc or × to close. */
+function openLightbox(img) {
+  const back = document.activeElement;
+  document.body.insertAdjacentHTML("beforeend", `<div class="lightbox" role="dialog" aria-modal="true" aria-label="Picture">
+    <button type="button" class="btn small lightbox-close" aria-label="Close">×</button>
+    <img src="${esc(img.currentSrc || img.src)}" alt="${esc(img.alt)}"></div>`);
+  const box = document.body.lastElementChild, big = $("img", box);
+  big.dataset.thumb = img.dataset.thumb || "";
+  const close = () => { box.remove(); document.removeEventListener("keydown", onKey); back?.focus?.(); };
+  const onKey = (ev) => { if (ev.key === "Escape") { ev.stopPropagation(); close(); } };
+  document.addEventListener("keydown", onKey);
+  $(".lightbox-close", box).onclick = close;
+  box.onclick = (ev) => { if (ev.target === box) close(); };
+  big.onclick = () => box.classList.toggle("zoomed");
+  window.addEventListener("hashchange", close, { once: true });
+  $(".lightbox-close", box).focus();
+}
+
 /* ---------------------------------------------------------- manual links */
 /** "Link to another idea": find an entry by title/words, pick how they're related, link. */
 function mountLinker(el, e, rels) {
@@ -2404,6 +2422,7 @@ async function viewEntry(el, id) {
   $("#status", el).onchange = (ev) => put({ status: ev.target.value }, "Status updated.");
   $("[data-act=confirm]", el)?.addEventListener("click", () => put({ user_confirmed: true }, "Confirmed."));
   mountBrowseNav(el, e.id);
+  $$(".media-preview img", el).forEach((img) => { img.style.cursor = "zoom-in"; img.onclick = () => openLightbox(img); });
   $("[data-act=split-pages]", el)?.addEventListener("click", async (ev) => {
     ev.target.disabled = true; ev.target.textContent = "Splitting…";
     try {
