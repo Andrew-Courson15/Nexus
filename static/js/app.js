@@ -178,7 +178,9 @@ function unreachable() {
  * refreshed while NEXUS is reachable. When the PC is off, entries, projects,
  * relationships, art analyses and word search still work from it, with small
  * thumbnails kept in the Cache API. On the PC itself (localhost) none of this runs. */
-const HAS_OFFLINE_COPY = !["localhost", "127.0.0.1", "[::1]"].includes(location.hostname) && "indexedDB" in window;
+// Inside the NEXUS iPhone app (ios/): pages come from nexus://localhost and the app itself keeps pictures.
+const IN_APP = !!window.NEXUS_APP;
+const HAS_OFFLINE_COPY = (IN_APP || !["localhost", "127.0.0.1", "[::1]"].includes(location.hostname)) && "indexedDB" in window;
 const SYNC_EVERY_MS = 5 * 60 * 1000;
 const THUMB_CACHE = "media-thumbs";
 const MAX_OFFLINE_THUMBS = 2000;  // newest first; about 100 KB each
@@ -254,14 +256,20 @@ async function syncOfflineCopy({ force = false } = {}) {
 }
 
 async function saveThumbnails(snap) {
-  if (!("caches" in window)) return;
-  const cache = await caches.open(THUMB_CACHE);
   const wanted = [];
   for (const e of snap.entries) {
     const a = picOf(e);
     if (a?.thumb_url) wanted.push(a.thumb_url);
     if (wanted.length >= MAX_OFFLINE_THUMBS) break;
   }
+  if (IN_APP) {  // the iPhone app saves every picture it's asked for: asking is enough
+    const queue = [...wanted];
+    const ask = async () => { while (queue.length) await fetch(queue.shift()).catch(() => {}); };
+    await Promise.all([ask(), ask(), ask(), ask()]);
+    return;
+  }
+  if (!("caches" in window)) return;
+  const cache = await caches.open(THUMB_CACHE);
   const keep = new Set(wanted.map((u) => new URL(u, location.href).href));
   for (const req of await cache.keys()) if (!keep.has(req.url)) await cache.delete(req);
   const queue = [...wanted];
@@ -1756,7 +1764,10 @@ async function mountDevice(box) {
   const snap = await offlineCopy.snapshot();
   let pictures = 0;
   const withPic = snap ? snap.entries.filter((e) => picOf(e)?.thumb_url).length : 0;
-  try { pictures = (await (await caches.open(THUMB_CACHE)).keys()).length; } catch { /* no Cache API */ }
+  try {
+    pictures = IN_APP ? (await (await fetch("/__native/status")).json()).thumbnails
+      : (await (await caches.open(THUMB_CACHE)).keys()).length;
+  } catch { /* no Cache API */ }
   box.innerHTML = head + (snap
     ? `<p class="health ok"><span class="dot"></span>Copy saved on this device</p><dl class="kv">
         <dt>Saved</dt><dd>${fmtDateTime(snap.generated_at)}</dd>
@@ -1765,8 +1776,13 @@ async function mountDevice(box) {
     : `<p class="health bad"><span class="dot"></span>${syncing ? "Saving a copy on this device…" : "No copy saved on this device yet"}</p>`)
     + (lastSyncError ? `<p class="small" style="color:var(--danger)">The last attempt to save it failed: ${esc(lastSyncError)}</p>` : "")
     + `<button class="btn small" data-act="sync-now">Update the saved copy now</button>
+    ${IN_APP ? `<button class="btn small ghost" data-act="change-server">Change NEXUS address</button>` : ""}
     <p class="small muted">While NEXUS is reachable, this device keeps a read-only copy of your archive (refreshed every few
       minutes), so you can browse it when the PC is off.</p>`;
+  $("[data-act=change-server]", box)?.addEventListener("click", () => {
+    if (confirm("Connect this app to a different NEXUS address? The copy saved on this phone stays until you connect again."))
+      window.webkit?.messageHandlers?.nexus?.postMessage({ action: "changeServer" });
+  });
   $("[data-act=sync-now]", box).onclick = async (ev) => {
     ev.target.disabled = true;
     ev.target.textContent = "Saving…";
