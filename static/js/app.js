@@ -2437,7 +2437,7 @@ async function viewSettings(el) {
   const ai = s.ai_provider;
   el.innerHTML = `<div class="view-head"><div><h1>Settings</h1>
     <p class="lede">Everyday choices are in <strong>Preferences</strong> below and apply straight away. Advanced settings live in the
-      <code>.env</code> file next to <code>run.py</code> (restart after changing it). API keys stay in the environment and are never stored in the database.</p></div>
+      <code>.env</code> file next to your <code>data</code> folder (restart NEXUS after changing it). API keys stay in the environment and are never stored in the database.</p></div>
       <a class="btn small" href="#/help">Help</a></div>
     <div class="grid">
       ${HAS_OFFLINE_COPY ? "" : `<div class="panel" id="phone"></div>`}
@@ -2562,7 +2562,8 @@ async function checkForUpdate(button, box) {
       } catch { /* still restarting */ }
       if (Date.now() - started > 6 * 60 * 1000) {
         box.innerHTML = `<p class="small" style="color:var(--danger)">The update is taking longer than expected. Details are in
-          <code>data/update.log</code> in the NEXUS folder. If NEXUS doesn't come back, run the update script from a terminal.</p>`;
+          <code>update.log</code> in NEXUS's data folder. If NEXUS doesn't come back by itself, ${info.installer_url
+            ? "open it again from the Start menu or Applications" : "run the update script from a terminal"}.</p>`;
         return;
       }
       setTimeout(poll, 3000);
