@@ -28,16 +28,15 @@ jobs:
       - run: pip install -r requirements.txt -r requirements-local.txt "ruff==0.15.8"  # newer ruff versions enable more rules by default
       - run: ruff check app tests tray.py run.py
       - run: python -m pytest -q
-      - name: The apps' Update now against the real Releases page (finds the installer, downloads it in full)
+      - name: The apps' update check against the real Releases page (finds the installer)
         env: { NEXUS_DATA_DIR: "${{ runner.temp }}/update-check", GITHUB_TOKEN: "${{ github.token }}" }
         run: |
           python - <<'PY'
           from app.services import updates
           info = updates.check_release("0.0.1", "win32")  # as the Windows app sees it
           print(info)
-          assert info["can_update"], info
-          setup = updates.download_installer(info)
-          print("Downloaded", setup.name, setup.stat().st_size, "bytes; changes:", info["changes"][:2])
+          assert info["can_update"] and info["installer_url"].endswith(".exe"), info
+          # (The download itself needs a public repository; while it's private, GitHub asks for a login.)
           PY
 
   windows:

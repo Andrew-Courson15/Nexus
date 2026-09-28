@@ -2530,7 +2530,8 @@ async function checkForUpdate(button, box) {
   catch (err) { box.innerHTML = `<p class="small" style="color:var(--danger)">${esc(err.message)}</p>`; return; }
   finally { button.disabled = false; button.textContent = "Check again"; }
   if (!info.behind) {
-    box.innerHTML = `<p class="health ${info.reason ? "bad" : "ok"}"><span class="dot"></span>${esc(info.reason || "NEXUS is up to date.")}</p>`;
+    box.innerHTML = `<p class="health ${info.reason ? "bad" : "ok"}"><span class="dot"></span>${esc(info.reason || "NEXUS is up to date.")}</p>
+      ${info.reason && info.download_url ? `<a class="btn small" href="${esc(info.download_url)}" target="_blank" rel="noopener">Open the Releases page</a>` : ""}`;
     return;
   }
   box.innerHTML = `<p class="health ok"><span class="dot"></span>NEXUS ${esc(info.latest_version || "")} is available

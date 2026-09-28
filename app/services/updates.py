@@ -69,6 +69,7 @@ def check() -> dict:
 
 
 RELEASES_API = "https://api.github.com/repos/Andrew-Courson15/Nexus/releases/latest"
+RELEASES_PAGE = "https://github.com/Andrew-Courson15/Nexus/releases/latest"
 
 
 def _newer(a: str, b: str) -> bool:
@@ -102,8 +103,10 @@ def check_release(current: str, platform: str | None = None) -> dict:
         if os.environ.get("GITHUB_TOKEN"):  # the build's own checks (shared machines hit GitHub's anonymous limit)
             headers["Authorization"] = f"Bearer {os.environ['GITHUB_TOKEN']}"
         r = httpx.get(RELEASES_API, timeout=10, headers=headers)
-        if r.status_code == 404:
-            return {**base, "behind": 0, "reason": None}
+        if r.status_code == 404:  # no release yet, or the NEXUS repository is private (needs a GitHub login)
+            return {**base, "behind": 0, "download_url": RELEASES_PAGE,
+                    "reason": "NEXUS couldn't see its Releases page. If the NEXUS repository on GitHub is private, "
+                              "check for new versions there while signed in, and install them over this one."}
         r.raise_for_status()
         data = r.json()
     except Exception:

@@ -60,8 +60,10 @@ Privacy in plain words: [PRIVACY.md](PRIVACY.md).
 - **iPhone:** the NEXUS app, or NEXUS added to the home screen from Safari: see [IOS.md](IOS.md).
 
 **Download: [the latest release](https://github.com/Andrew-Courson15/Nexus/releases/latest)**
-(`NEXUS-Setup-….exe` for Windows, `NEXUS-….dmg` for a Mac). Once installed, NEXUS updates itself:
-**Settings → Updates → Update now**. Test builds of every change are on the **Actions** tab
+(`NEXUS-Setup-….exe` for Windows, `NEXUS-….dmg` for a Mac). While this repository is private,
+downloading needs a GitHub login with access to it (add friends as collaborators), and the apps'
+**Settings → Updates** points you to the Releases page. If the repository is public, anyone can
+download, and the apps update themselves with **Update now**. Test builds of every change are on the **Actions** tab
 (Build apps → a green run → Artifacts, with a GitHub login). The apps aren't signed yet, so the first
 time Windows says it protected your PC (**More info → Run anyway**), and a Mac asks you to
 right-click NEXUS → **Open**.

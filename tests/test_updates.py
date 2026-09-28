@@ -91,8 +91,9 @@ def test_packaged_app_checks_the_releases_page(monkeypatch):
     assert info["changes"] == ["Timeline", "Characters"] and info["can_update"] is False
     monkeypatch.setattr(httpx, "get", lambda *a, **k: Reply(200, {"tag_name": "v0.14.1"}))
     assert updates.check_release("0.14.1")["behind"] == 0
-    monkeypatch.setattr(httpx, "get", lambda *a, **k: Reply(404))
-    assert updates.check_release("0.14.1")["behind"] == 0
+    monkeypatch.setattr(httpx, "get", lambda *a, **k: Reply(404))  # none yet, or a private repository
+    gone = updates.check_release("0.14.1")
+    assert gone["behind"] == 0 and "private" in gone["reason"] and gone["download_url"] == updates.RELEASES_PAGE
     assert updates._newer("0.14.10", "0.14.9") and not updates._newer("0.14.1", "0.14.1")
 
 
