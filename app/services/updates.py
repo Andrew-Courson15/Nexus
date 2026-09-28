@@ -96,7 +96,10 @@ def check_release(current: str) -> dict:
 
     base = {"can_update": False, "current_version": current, "packaged": True}
     try:
-        r = httpx.get(RELEASES_API, timeout=10, headers={"Accept": "application/vnd.github+json"})
+        headers = {"Accept": "application/vnd.github+json"}
+        if os.environ.get("GITHUB_TOKEN"):  # the build's own checks (shared machines hit GitHub's anonymous limit)
+            headers["Authorization"] = f"Bearer {os.environ['GITHUB_TOKEN']}"
+        r = httpx.get(RELEASES_API, timeout=10, headers=headers)
         if r.status_code == 404:
             return {**base, "behind": 0, "reason": None}
         r.raise_for_status()

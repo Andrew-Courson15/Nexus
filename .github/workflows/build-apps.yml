@@ -29,14 +29,13 @@ jobs:
       - run: ruff check app tests tray.py run.py
       - run: python -m pytest -q
       - name: The apps' Update now against the real Releases page (finds the installer, downloads it in full)
-        env: { NEXUS_DATA_DIR: "${{ runner.temp }}/update-check" }
+        env: { NEXUS_DATA_DIR: "${{ runner.temp }}/update-check", GITHUB_TOKEN: "${{ github.token }}" }
         run: |
           python - <<'PY'
           from app.services import updates
           updates.sys.platform = "win32"  # this process only: look for the Windows installer
           info = updates.check_release("0.0.1")
-          if not info.get("latest_version") or info["latest_version"] == "0.0.1":
-              print("No release published yet; skipping."); raise SystemExit(0)
+          print(info)
           assert info["can_update"], info
           setup = updates.download_installer(info)
           print("Downloaded", setup.name, setup.stat().st_size, "bytes; changes:", info["changes"][:2])
