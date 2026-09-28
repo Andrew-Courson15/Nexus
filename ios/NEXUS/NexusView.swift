@@ -35,7 +35,10 @@ struct NexusView: UIViewRepresentable {
         web.scrollView.refreshControl = refresh
         context.coordinator.web = web
         // Launch argument -nexus-open "#/archive" opens a given screen (used for App Store screenshots).
-        let start = UserDefaults.standard.string(forKey: "nexus-open").flatMap { URL(string: $0, relativeTo: NexusSchemeHandler.origin)?.absoluteURL }
+        // A Home Screen quick action chosen while NEXUS was closed opens its screen.
+        let screen = QuickAction.pending ?? UserDefaults.standard.string(forKey: "nexus-open")
+        QuickAction.pending = nil
+        let start = screen.flatMap { URL(string: $0, relativeTo: NexusSchemeHandler.origin)?.absoluteURL }
         web.load(URLRequest(url: start ?? NexusSchemeHandler.origin))
         return web
     }
@@ -57,6 +60,16 @@ struct NexusView: UIViewRepresentable {
         init(server: URL, onChangeServer: @escaping () -> Void) {
             handler = NexusSchemeHandler(server: server)
             self.onChangeServer = onChangeServer
+            super.init()
+            NotificationCenter.default.addObserver(self, selector: #selector(quickAction(_:)), name: .nexusQuickAction, object: nil)
+        }
+
+        // A Home Screen quick action while NEXUS is open: go to that screen (New idea: the capture box).
+        @objc func quickAction(_ note: Notification) {
+            guard let screen = note.object as? String, let web else { return }
+            QuickAction.pending = nil
+            let focus = screen == "#/" ? "setTimeout(() => document.querySelector('#cap textarea')?.focus(), 400);" : ""
+            web.evaluateJavaScript("location.hash = '\(screen)'; \(focus)", completionHandler: nil)
         }
 
         // Messages from the page: window.webkit.messageHandlers.nexus.postMessage({action: …})

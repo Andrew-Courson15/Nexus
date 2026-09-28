@@ -6,6 +6,7 @@ The version is in `app/__init__.py` and shown in **Settings → This device**.
 
 - **Install Ollama for me**: the setup check downloads and installs Ollama (the AI) with one click,
   with progress, on Windows and Mac. No more finding it on a website.
+- iPhone app: press and hold the NEXUS icon for **New idea** or **Search**.
 
 ## 0.15.1 (2026-09-28)
 

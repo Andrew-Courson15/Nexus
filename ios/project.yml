@@ -38,3 +38,10 @@ targets:
       properties:
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true  # a NEXUS on this Wi-Fi (Tailscale addresses use HTTPS)
+        UIApplicationShortcutItems:  # press and hold the icon (QuickActions.swift)
+          - UIApplicationShortcutItemType: local.nexus.new
+            UIApplicationShortcutItemTitle: New idea
+            UIApplicationShortcutItemIconType: UIApplicationShortcutIconTypeCompose
+          - UIApplicationShortcutItemType: local.nexus.search
+            UIApplicationShortcutItemTitle: Search
+            UIApplicationShortcutItemIconType: UIApplicationShortcutIconTypeSearch

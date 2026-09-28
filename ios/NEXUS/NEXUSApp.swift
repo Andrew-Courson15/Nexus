@@ -7,6 +7,7 @@ import SwiftUI
 /// when the computer is off it shows the copy saved on this phone.
 @main
 struct NEXUSApp: App {
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate  // Home Screen quick actions
     @AppStorage("serverURL") private var serverURL = ""
 
     var body: some Scene {
