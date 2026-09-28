@@ -1099,7 +1099,8 @@ async function mountWelcome(box) {
 /** Once after an update: what changed in this version (from the changelog). */
 async function mountWhatsNew(box) {
   let r;
-  try { r = await api("/api/whats-new", { noCopy: true }); } catch { return; }
+  const seen = store("nexus.seenVersion");
+  try { r = await api(`/api/whats-new${seen ? `?since=${encodeURIComponent(seen)}` : ""}`, { noCopy: true }); } catch { return; }
   if (!r.items.length) { store("nexus.seenVersion", APP_VERSION); return; }
   const md = (t) => esc(t).replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>").replace(/`(.+?)`/g, "<code>$1</code>")
     .replace(/(^|[^*])\*([^*]+)\*/g, "$1<em>$2</em>");

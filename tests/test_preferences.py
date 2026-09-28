@@ -151,8 +151,9 @@ def test_packaged_app_keeps_data_in_the_user_app_folder(monkeypatch, tmp_path):
 def test_whats_new_lists_this_versions_changes(client):
     from app import __version__
 
-    r = client.get("/api/whats-new").json()
+    r = client.get("/api/whats-new", params={"since": "0.13.0"}).json()
     assert r["version"] == __version__ and len(r["items"]) >= 5
+    assert len(client.get("/api/whats-new").json()["items"]) >= 1  # this version only
     assert any(i.startswith("**Timeline**") for i in r["items"])
     assert all("\n" not in i for i in r["items"])  # continuation lines are joined
 

@@ -294,22 +294,34 @@ def update_start(request: Request):
 
 
 @router.get("/whats-new")
-def whats_new():
-    """This version's notes from CHANGELOG.md, shown once on Home after an update."""
+def whats_new(since: str | None = None):
+    """Changelog notes for this version and every one after `since` (the version this device last
+    saw), shown once on Home after an update."""
     from app.config import BASE_DIR
 
     try:
         text_ = (BASE_DIR / "CHANGELOG.md").read_text(encoding="utf-8")
     except OSError:
         return {"version": __version__, "items": []}
-    section = re.search(rf"^## {re.escape(__version__)}\b.*?\n(.*?)(?=^## |\Z)", text_, re.S | re.M)
-    items, current = [], None
-    for line in (section.group(1) if section else "").splitlines():
-        if line.startswith("- "):
-            current = line[2:].strip()
-            items.append(current)
-        elif line.startswith("  ") and current is not None and line.strip():
-            items[-1] = f"{items[-1]} {line.strip()}"
+    items: list[str] = []
+    started = False
+    for block in re.split(r"^## ", text_, flags=re.M)[1:]:
+        version = block.split()[0]
+        if version == __version__:
+            started = True
+        if not started:
+            continue
+        if since and version == since:
+            break
+        current = None
+        for line in block.splitlines()[1:]:
+            if line.startswith("- "):
+                current = line[2:].strip()
+                items.append(current)
+            elif line.startswith("  ") and current is not None and line.strip():
+                items[-1] = f"{items[-1]} {line.strip()}"
+        if not since:
+            break
     return {"version": __version__, "items": items}
 
 
