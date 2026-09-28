@@ -55,8 +55,9 @@ Privacy in plain words: [PRIVACY.md](PRIVACY.md).
 ## Get NEXUS
 
 - **Windows:** download **NEXUS-Setup.exe** and double-click it. No admin rights needed; it can
-  also install Ollama (the AI) for you.
-- **Mac:** download the **.dmg**, open it and drag NEXUS to Applications.
+  also install Ollama (the AI) for you. NEXUS lives in the system tray by the clock.
+- **Mac:** download the **.dmg**, open it and drag NEXUS to Applications. NEXUS lives in the menu
+  bar at the top of the screen (no Dock icon); its menu opens NEXUS, backs up, and quits.
 - **iPhone:** the NEXUS app, or NEXUS added to the home screen from Safari: see [IOS.md](IOS.md).
 
 **Download: [the latest release](https://github.com/Andrew-Courson15/Nexus/releases/latest)**
