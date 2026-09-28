@@ -58,5 +58,6 @@ TEXT="$(cat "$CONTAINER"/Documents/selftest-*.txt 2>/dev/null | tail -c 3000)"
 echo "$TEXT" > "$OUT/page-text.txt"
 LAST="$(ls -t "$CONTAINER"/Documents/selftest-*.txt | head -1)"
 grep -q "El Faro" "$LAST" || { echo "FAILED: with the computer off the app didn't show the saved copy"; cat "$LAST"; exit 1; }
-grep -qi "copy saved on this phone" "$LAST" || echo "(note: offline bar text not found)"
+grep -qi "copy saved on this phone" "$LAST" || { echo "FAILED: no offline bar"; exit 1; }
+grep -qi "Add to Home Screen" "$LAST" && { echo "FAILED: the web-app install tip shows inside the app"; exit 1; }
 echo "With the computer off, the app opened and showed the saved copy."

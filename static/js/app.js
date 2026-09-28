@@ -1029,7 +1029,7 @@ function mountCapture(root, opts = {}) {
 /** On a phone's browser (not yet the home-screen app): how to add NEXUS to the home screen. Once. */
 function installTip() {
   const standalone = navigator.standalone || matchMedia("(display-mode: standalone)").matches;
-  if (!HAS_OFFLINE_COPY || standalone || !matchMedia("(max-width: 820px)").matches || store("nexus.installTipDone")) return "";
+  if (!HAS_OFFLINE_COPY || IN_APP || standalone || !matchMedia("(max-width: 820px)").matches || store("nexus.installTipDone")) return "";
   const ios = /iPhone|iPad|iPod/.test(navigator.userAgent);
   return `<section class="panel install-tip" id="install-tip"><p class="small"><strong>Put NEXUS on your home screen:</strong>
     ${ios ? "tap <strong>Share</strong> (the square with the arrow), then <strong>Add to Home Screen</strong>."

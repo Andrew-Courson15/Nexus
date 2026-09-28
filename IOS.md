@@ -85,7 +85,7 @@ What's needed, in order:
 
 ## Still to do (native features that would make it better)
 
-- Voice notes recorded natively (the web recorder may not work inside the app on every iOS version;
-  you can still upload recordings from Voice Memos).
+- Voice notes: the app's web view has the microphone and recorder NEXUS uses (checked in the
+  simulator); recording on a real iPhone still needs trying.
 - A share extension ("Share → NEXUS" from Photos or Notes).
 - Face ID for the passcode, and a widget for quick capture.
