@@ -243,19 +243,21 @@ def rediscover(today: date | None = None, tz_offset: int = Query(0, ge=-900, le=
     shift = timedelta(minutes=-tz_offset)  # the browser's getTimezoneOffset(): local = UTC - offset
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     today = today or (now + shift).date()
-    entries = db.scalars(select(CreativeEntry).where(CreativeEntry.deleted_at.is_(None)).options(*_LOAD)
-                         .order_by(CreativeEntry.created_at.desc())).all()
+    rows = db.execute(select(CreativeEntry.id, CreativeEntry.created_at, CreativeEntry.updated_at, CreativeEntry.status)
+                      .where(CreativeEntry.deleted_at.is_(None)).order_by(CreativeEntry.created_at.desc())).all()
 
     def local(dt):
         return (dt.replace(tzinfo=None) + shift).date()
 
-    on_this_day = [e for e in entries if (d := local(e.created_at)).day == today.day and d < today.replace(day=1)
-                   ][:12]
-    seen = {e.id for e in on_this_day}
-    stale = [e for e in entries if e.id not in seen and e.status in UNFINISHED_STATUSES
-             and e.updated_at.replace(tzinfo=None) < now - timedelta(days=30)]
-    stale.sort(key=lambda e: e.id)
+    on_this_day = [r.id for r in rows if (d := local(r.created_at)).day == today.day and d < today.replace(day=1)][:12]
+    seen = set(on_this_day)
+    stale = sorted(r.id for r in rows if r.id not in seen and r.status in UNFINISHED_STATUSES
+                   and r.updated_at.replace(tzinfo=None) < now - timedelta(days=30))
     resurfaced = random.Random(today.isoformat()).sample(stale, min(3, len(stale)))
+    full = {e.id: e for e in db.scalars(select(CreativeEntry).where(CreativeEntry.id.in_(on_this_day + resurfaced))
+                                        .options(*_LOAD[:3]))}
+    on_this_day = [full[i] for i in on_this_day]
+    resurfaced = [full[i] for i in resurfaced]
     return {"today": today.isoformat(),
             "on_this_day": [entry_summary(e).model_dump(mode="json") for e in on_this_day],
             "resurfaced": [entry_summary(e).model_dump(mode="json") for e in resurfaced]}

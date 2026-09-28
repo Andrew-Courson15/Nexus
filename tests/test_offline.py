@@ -75,10 +75,10 @@ def test_one_broken_record_never_blocks_the_whole_copy(client, monkeypatch):
     bad = client.post("/api/entries", json={"original_text": "odd"}).json()
     real = offline.entry_detail
 
-    def flaky(e):
+    def flaky(e, *args):
         if e.id == bad["id"]:
             raise ValueError("unexpected data")
-        return real(e)
+        return real(e, *args)
     monkeypatch.setattr(offline, "entry_detail", flaky)
     snap = client.get("/api/offline/snapshot").json()
     assert [x["id"] for x in snap["entries"]] == [good["id"]]

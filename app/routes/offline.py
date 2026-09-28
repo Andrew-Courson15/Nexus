@@ -14,11 +14,11 @@ from collections import defaultdict
 
 from fastapi import APIRouter, Depends, Request, Response
 from fastapi.encoders import jsonable_encoder
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import ArtworkAnalysis, CreativeEntry, ProjectEntry, Relationship, RelationshipStatus, utcnow
+from app.models import ArtworkAnalysis, CreativeEntry, CreativeRevision, ProjectEntry, Relationship, RelationshipStatus, utcnow
 from app.routes import art as art_routes
 from app.routes.entries import _LOAD
 from app.routes.projects import list_projects
@@ -40,7 +40,7 @@ def _each(items, convert, what: str) -> list:
 
 
 def build_snapshot(db: Session) -> dict:
-    entries = db.scalars(select(CreativeEntry).where(CreativeEntry.deleted_at.is_(None)).options(*_LOAD)
+    entries = db.scalars(select(CreativeEntry).where(CreativeEntry.deleted_at.is_(None)).options(*_LOAD[:3])
                          .order_by(CreativeEntry.created_at.desc(), CreativeEntry.id.desc())).all()
     alive = {e.id for e in entries}
 
@@ -57,8 +57,10 @@ def build_snapshot(db: Session) -> dict:
                         .order_by(ArtworkAnalysis.analysis_version.desc())):
         art[a.entry_id].extend(_each([a], lambda x: art_routes._out(db, x), "art analysis"))
 
+    versions = dict(db.execute(select(CreativeRevision.entry_id, func.count()).group_by(CreativeRevision.entry_id)).all())
+
     def lean(e):  # the provenance legend is the same for every entry; the app has its own copy
-        return entry_detail(e).model_dump(mode="json", exclude={"provenance"})
+        return entry_detail(e, versions.get(e.id, 0)).model_dump(mode="json", exclude={"provenance"})
 
     orders: dict[int, list[int]] = defaultdict(list)  # projects you've arranged: entry ids in your order
     for pe in db.scalars(select(ProjectEntry).where(ProjectEntry.position.is_not(None))

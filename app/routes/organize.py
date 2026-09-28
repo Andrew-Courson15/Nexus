@@ -231,7 +231,7 @@ def duplicates(count_only: bool = False, db: Session = Depends(get_db)):
     groups = []
     for sha in shas:
         entries = db.scalars(select(CreativeEntry).join(Attachment, Attachment.entry_id == CreativeEntry.id)
-                             .where(live, Attachment.sha256 == sha).options(*_LOAD).distinct()
+                             .where(live, Attachment.sha256 == sha).options(*_LOAD[:3]).distinct()
                              .order_by(CreativeEntry.created_at, CreativeEntry.id)).all()
         att = next(a for a in entries[0].attachments if a.sha256 == sha)
         groups.append({"sha256": sha, "filename": att.original_filename, "size_bytes": att.size_bytes,

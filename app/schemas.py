@@ -355,7 +355,7 @@ def entry_summary(e: CreativeEntry) -> EntrySummary:
     return EntrySummary(**_summary_fields(e))
 
 
-def entry_detail(e: CreativeEntry) -> EntryDetail:
+def entry_detail(e: CreativeEntry, revision_count: int | None = None) -> EntryDetail:
     return EntryDetail(
         **_summary_fields(e),
         original_text=e.original_text, user_notes=e.user_notes, transcript=e.transcript,
@@ -363,7 +363,7 @@ def entry_detail(e: CreativeEntry) -> EntryDetail:
         ai_metadata=e.ai_metadata or {}, ai_provider=e.ai_provider, analyzed_at=e.analyzed_at,
         confidence=e.confidence, user_confirmed=e.user_confirmed, source_file=e.source_file,
         embedding_id=e.embedding_id, embedding_model=e.embedding_model,
-        embedding_created_at=e.embedding_created_at, revision_count=len(e.revisions),
+        embedding_created_at=e.embedding_created_at, revision_count=len(e.revisions) if revision_count is None else revision_count,
     )
 
 

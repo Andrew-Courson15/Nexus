@@ -10,11 +10,11 @@ import re
 from typing import Literal
 
 from fastapi import APIRouter, Depends
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import CreativeEntry, EntryType, Relationship, RelationshipStatus
+from app.models import CreativeEntry, EntryTag, EntryType, ProjectEntry, Relationship, RelationshipStatus, Tag
 from app.routes.entries import _LOAD
 from app.schemas import entry_summary
 
@@ -55,20 +55,23 @@ def _ref(e: CreativeEntry) -> dict:
             "thumb_url": pic.thumb_url if pic else None, "excerpt": s.excerpt or s.ai_summary}
 
 
-def _text(e: CreativeEntry) -> str:
-    return " ".join(x for x in (e.title, e.original_text, e.transcript, e.user_notes) if x)
-
-
 @router.get("/characters")
 def list_characters(kind: Literal["character", "world"] = "character", project_id: int | None = None,
                     db: Session = Depends(get_db)) -> list[dict]:
-    entries = db.scalars(select(CreativeEntry).where(CreativeEntry.deleted_at.is_(None)).options(*_LOAD)
-                         .order_by(CreativeEntry.created_at.desc(), CreativeEntry.id.desc())).all()
-    by_id = {e.id: e for e in entries}
-    characters = [e for e in entries if is_kind(e, kind)
-                  and (project_id is None or any(p.id == project_id for p in e.projects))]
+    live = CreativeEntry.deleted_at.is_(None)
+    entry_type, tags = KINDS[kind]
+    tagged = select(EntryTag.entry_id).join(Tag, Tag.id == EntryTag.tag_id).where(Tag.name.in_(tags))
+    query = select(CreativeEntry).where(live, or_(CreativeEntry.entry_type == entry_type, CreativeEntry.id.in_(tagged)))
+    if project_id is not None:
+        query = query.where(CreativeEntry.id.in_(select(ProjectEntry.entry_id).where(ProjectEntry.project_id == project_id)))
+    characters = db.scalars(query.options(*_LOAD[:3]).order_by(CreativeEntry.created_at.desc(), CreativeEntry.id.desc())).all()
     if not characters:
         return []
+    # Everything else only as plain text (fast), newest first; full entries only for what's shown.
+    texts = db.execute(select(CreativeEntry.id, CreativeEntry.title, CreativeEntry.original_text, CreativeEntry.transcript,
+                              CreativeEntry.user_notes).where(live)
+                       .order_by(CreativeEntry.created_at.desc(), CreativeEntry.id.desc())).all()
+    alive = {row[0] for row in texts}
     wanted = {c.id for c in characters}
     links: dict[int, list] = {c.id: [] for c in characters}
     rows = db.execute(select(Relationship.source_entry_id, Relationship.target_entry_id, Relationship.relationship_type,
@@ -77,10 +80,10 @@ def list_characters(kind: Literal["character", "world"] = "character", project_i
                       .order_by(Relationship.confidence.desc().nullslast(), Relationship.id)).all()
     for src, tgt, rel_type, origin, status, _conf in rows:
         for me, other in ((src, tgt), (tgt, src)):
-            if me in wanted and other in by_id:
+            if me in wanted and other in alive:
                 links[me].append((other, rel_type, "outgoing" if me == src else "incoming", origin, status))
 
-    out = []
+    found = []
     for c in characters:
         linked, seen = [], {c.id}
         for other, rel_type, direction, origin, status in links[c.id]:
@@ -93,7 +96,15 @@ def list_characters(kind: Literal["character", "world"] = "character", project_i
         name = name_of(c)
         if name:
             pattern = re.compile(rf"(?<!\w){re.escape(name)}(?!\w)", re.IGNORECASE)
-            mentions = [e.id for e in entries if e.id not in seen and pattern.search(_text(e))]
+            mentions = [row[0] for row in texts
+                        if row[0] not in seen and pattern.search(" ".join(x for x in row[1:] if x))]
+        found.append((c, name, linked, mentions))
+
+    shown = {x["entry"] for _, _, linked, _ in found for x in linked[:MAX_PER_CHARACTER]}
+    shown |= {i for *_, mentions in found for i in mentions[:MAX_PER_CHARACTER]}
+    by_id = {e.id: e for e in db.scalars(select(CreativeEntry).where(CreativeEntry.id.in_(shown)).options(*_LOAD[:3]))}
+    out = []
+    for c, name, linked, mentions in found:
         out.append({
             "character": entry_summary(c).model_dump(mode="json"),
             "name_searched": name,

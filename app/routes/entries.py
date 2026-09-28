@@ -372,7 +372,7 @@ def similar(entry_id: int, db: Session = Depends(get_db)):
     live = set(db.scalars(select(CreativeEntry.id).where(CreativeEntry.deleted_at.is_(None), CreativeEntry.id != entry_id)))
     scored = embeddings.nearest(db, list(embeddings.unpack(row.vector)), row.model, live, limit=None)
     best = embeddings.confident_matches(scored)[:8]
-    found = {e.id: e for e in db.scalars(select(CreativeEntry).where(CreativeEntry.id.in_([i for i, _ in best])).options(*_LOAD))}
+    found = {e.id: e for e in db.scalars(select(CreativeEntry).where(CreativeEntry.id.in_([i for i, _ in best])).options(*_LOAD[:3]))}
     return {"available": True, "items": [{"entry": entry_summary(found[i]).model_dump(mode="json"), "similarity": round(sim, 3)}
                                          for i, sim in best if i in found]}
 
