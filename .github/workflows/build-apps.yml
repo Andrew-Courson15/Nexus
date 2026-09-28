@@ -96,6 +96,34 @@ jobs:
           Write-Host "Updated over a running NEXUS; it opened again with the same $after entries."
           Get-Process NEXUS -ErrorAction SilentlyContinue | Stop-Process -Force
           Start-Sleep -Seconds 2
+          # Moving in (what someone with a NEXUS folder does): the app finds the archive in C:\Users\<you>\nexus,
+          # brings it over with its phone address, and restarts with it.
+          $old = "$env:USERPROFILE\nexus"
+          New-Item -ItemType Directory -Force "$old\data" | Out-Null
+          foreach ($f in "nexus.db", "nexus.db-wal", "nexus.db-shm") {
+            if (Test-Path "$env:RUNNER_TEMP\nexus-smoke\data\$f") { Copy-Item "$env:RUNNER_TEMP\nexus-smoke\data\$f" "$old\data\$f" }
+          }
+          Set-Content "$old\.env" "NEXUS_ALLOWED_HOSTS=localhost,gaming-pc.tail1234.ts.net"
+          Start-Process $exe -ArgumentList "--no-browser" | Out-Null
+          for ($i = 0; $i -lt 90; $i++) { try { Invoke-RestMethod "http://127.0.0.1:8766/api/ping" -TimeoutSec 2 | Out-Null; break } catch { Start-Sleep -Seconds 1 } }
+          $found = @((Invoke-RestMethod "http://127.0.0.1:8766/api/backups/found").archives)
+          if (-not $found.Count) { throw "The app didn't find the archive in $old" }
+          $want = $found[0].entries
+          $body = @{ folder = $found[0].folder } | ConvertTo-Json
+          Invoke-RestMethod "http://127.0.0.1:8766/api/backups/found" -Method Post -ContentType "application/json" -Body $body | Out-Null
+          Invoke-RestMethod "http://127.0.0.1:8766/api/restart" -Method Post | Out-Null
+          for ($i = 0; $i -lt 30; $i++) { try { Invoke-RestMethod "http://127.0.0.1:8766/api/ping" -TimeoutSec 1 | Out-Null; Start-Sleep -Milliseconds 300 } catch { break } }
+          $back = $false
+          for ($i = 0; $i -lt 90; $i++) { try { Invoke-RestMethod "http://127.0.0.1:8766/api/ping" -TimeoutSec 2 | Out-Null; $back = $true; break } catch { Start-Sleep -Seconds 1 } }
+          if (-not $back) { throw "NEXUS didn't come back after bringing the archive" }
+          $last = (Invoke-RestMethod "http://127.0.0.1:8766/api/backups").last_restore
+          $total = (Invoke-RestMethod "http://127.0.0.1:8766/api/entries").total
+          if (-not $last.ok -or $total -ne $want) { throw "Moving in failed: $($last | ConvertTo-Json); $total entries, expected $want" }
+          $phone = Get-Content "$env:NEXUS_HOME\data\phone.json" -Raw
+          if ($phone -notmatch "gaming-pc.tail1234.ts.net") { throw "The phone address didn't come along: $phone" }
+          Write-Host "Brought $total entries and the phone address from $old into the app."
+          Get-Process NEXUS -ErrorAction SilentlyContinue | Stop-Process -Force
+          Start-Sleep -Seconds 2
           $un = "$env:LOCALAPPDATA\Programs\NEXUS\unins000.exe"
           Start-Process $un -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART" -Wait
           # The uninstaller hands over to a copy of itself, so wait for the files to go.
