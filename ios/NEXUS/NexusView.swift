@@ -18,6 +18,10 @@ struct NexusView: UIViewRepresentable {
         let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? ""
         let script = "window.NEXUS_APP = { platform: 'ios', version: '\(version)' };"
         config.userContentController.addUserScript(WKUserScript(source: script, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+        if ProcessInfo.processInfo.arguments.contains("-nexus-screenshots") {  // App Store screenshots: no welcome card
+            let quiet = "try { localStorage.setItem('nexus.welcomeDone', '1'); localStorage.setItem('nexus.seenVersion', '\(version)'); } catch (e) {}"
+            config.userContentController.addUserScript(WKUserScript(source: quiet, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+        }
         config.userContentController.add(WeakMessageHandler(context.coordinator), name: "nexus")
 
         let web = WKWebView(frame: .zero, configuration: config)
@@ -30,7 +34,9 @@ struct NexusView: UIViewRepresentable {
         refresh.addTarget(context.coordinator, action: #selector(Coordinator.pulled(_:)), for: .valueChanged)
         web.scrollView.refreshControl = refresh
         context.coordinator.web = web
-        web.load(URLRequest(url: NexusSchemeHandler.origin))
+        // Launch argument -nexus-open "#/archive" opens a given screen (used for App Store screenshots).
+        let start = UserDefaults.standard.string(forKey: "nexus-open").flatMap { URL(string: $0, relativeTo: NexusSchemeHandler.origin)?.absoluteURL }
+        web.load(URLRequest(url: start ?? NexusSchemeHandler.origin))
         return web
     }
 

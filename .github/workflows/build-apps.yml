@@ -163,10 +163,21 @@ jobs:
           cd ios
           xcodebuild -project NEXUS.xcodeproj -target NEXUS -sdk iphonesimulator -configuration Debug \
             SYMROOT="$PWD/build" CODE_SIGNING_ALLOWED=NO build | tail -60
+      - name: Apple's privacy manifest is in the app
+        run: plutil -lint ios/build/Debug-iphonesimulator/NEXUS.app/PrivacyInfo.xcprivacy
       - name: Run it in the simulator (computer on, then off)
         timeout-minutes: 15
         env: { OUT: "${{ runner.temp }}/ios-test" }
         run: bash ios/ci_simulator_test.sh
+      - name: App Store screenshots (largest iPhone, made-up demo archive)
+        timeout-minutes: 15
+        env: { OUT: "${{ runner.temp }}/app-store-screenshots" }
+        run: bash ios/ci_app_store_screenshots.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: NEXUS-iphone-app-store-screenshots
+          path: ${{ runner.temp }}/app-store-screenshots/*.png
+          retention-days: 30
       - uses: actions/upload-artifact@v4
         if: always()
         with:

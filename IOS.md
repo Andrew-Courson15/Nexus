@@ -72,6 +72,11 @@ What's needed, in order:
      No review for up to 100 people you invite directly ("internal testers"); external testers
      need a light review.
    - **App Store:** submit for review.
+   Already done for you: the icon, Apple's privacy manifest (`PrivacyInfo.xcprivacy`: no tracking,
+   no data collected), the encryption answer, and **screenshots**: every build makes App Store
+   screenshots on the largest iPhone simulator with a made-up demo archive (Actions → Build apps →
+   the run → Artifacts → `NEXUS-iphone-app-store-screenshots`). The app is iPhone-only (it also
+   runs on an iPad, in iPhone size), so no iPad screenshots are needed.
 5. **App Review things to expect**, and what to say:
    - *"The app needs a server."* Explain that NEXUS is a personal app for the user's own computer
      (like a remote for software they run), and give reviewers a demo NEXUS address and
