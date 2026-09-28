@@ -75,6 +75,16 @@ jobs:
           if (Test-Path $exe) { throw "Uninstall left NEXUS.exe behind" }
           if (-not (Test-Path "$env:NEXUS_HOME\data\nexus.db")) { throw "Uninstall removed the archive" }
           Write-Host "Installed, started, answered, uninstalled; the archive was kept."
+      - name: Install again with "also install Ollama" ticked (downloads and installs it)
+        shell: pwsh
+        run: |
+          $setup = "dist\NEXUS-Setup-${{ steps.v.outputs.version }}.exe"
+          $p = Start-Process $setup -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/TASKS=ollama" -PassThru -Wait
+          if ($p.ExitCode -ne 0) { throw "Installer exit code $($p.ExitCode)" }
+          $ollama = @("$env:LOCALAPPDATA\Programs\Ollama\ollama.exe", "$env:ProgramFiles\Ollama\ollama.exe") | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $ollama) { throw "Ollama wasn't installed" }
+          & $ollama --version
+          Write-Host "NEXUS and Ollama installed together."
       - name: Zip the app folder
         shell: pwsh
         run: Compress-Archive -Path dist\NEXUS -DestinationPath "dist\NEXUS-${{ steps.v.outputs.version }}-windows.zip"

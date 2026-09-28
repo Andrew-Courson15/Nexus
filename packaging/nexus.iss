@@ -42,7 +42,7 @@ Name: "{userdesktop}\NEXUS"; Filename: "{app}\NEXUS.exe"; Tasks: desktopicon
 Name: "{userstartup}\NEXUS"; Filename: "{app}\NEXUS.exe"; Parameters: "--no-browser"; Tasks: startup
 
 [Run]
-Filename: "{tmp}\OllamaSetup.exe"; StatusMsg: "Installing Ollama (the AI)..."; Flags: waituntilterminated skipifdoesntexist; Tasks: ollama
+Filename: "{tmp}\OllamaSetup.exe"; Parameters: "/SILENT /SUPPRESSMSGBOXES /NORESTART"; StatusMsg: "Installing Ollama (the AI)..."; Flags: waituntilterminated skipifdoesntexist; Tasks: ollama
 Filename: "{app}\NEXUS.exe"; Description: "Open NEXUS now"; Flags: nowait postinstall skipifsilent
 
 [UninstallRun]

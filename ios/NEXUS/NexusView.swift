@@ -26,6 +26,10 @@ struct NexusView: UIViewRepresentable {
         web.allowsBackForwardNavigationGestures = true
         web.scrollView.contentInsetAdjustmentBehavior = .automatic
         if #available(iOS 16.4, *) { web.isInspectable = true }  // Safari → Develop, for troubleshooting
+        let refresh = UIRefreshControl()  // pull down: refresh the saved copy and this page
+        refresh.addTarget(context.coordinator, action: #selector(Coordinator.pulled(_:)), for: .valueChanged)
+        web.scrollView.refreshControl = refresh
+        context.coordinator.web = web
         web.load(URLRequest(url: NexusSchemeHandler.origin))
         return web
     }
@@ -35,6 +39,13 @@ struct NexusView: UIViewRepresentable {
     final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler, WKDownloadDelegate {
         let handler: NexusSchemeHandler
         let onChangeServer: () -> Void
+        weak var web: WKWebView?
+
+        @objc func pulled(_ control: UIRefreshControl) {
+            let script = "try { syncOfflineCopy({ force: true }); render(); } catch (e) { location.reload(); }"
+            web?.evaluateJavaScript(script, completionHandler: nil)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { control.endRefreshing() }
+        }
         private var downloads: [ObjectIdentifier: URL] = [:]
 
         init(server: URL, onChangeServer: @escaping () -> Void) {
