@@ -23,6 +23,11 @@ on your computer; the phone keeps a read-only copy for when the computer is off.
 - **Settings → This device → Change NEXUS address** connects it to a different computer.
 - Pull down to refresh. Press and hold the NEXUS icon on the Home Screen for **New idea** or
   **Search**.
+- **Share → NEXUS** from Photos, Notes, Safari, Files and other apps: tap the Share button (the
+  square with an arrow), then **NEXUS** (the first time: **More** and switch NEXUS on). Add a note
+  if you like and tap **Send**. Photos, PDFs and audio go in exactly as they are; links and text
+  become the idea. The first time it asks for your NEXUS address (and the passcode, if you set
+  one); after that it remembers them.
 
 Every push builds the app and runs it in the iPhone simulator against a real NEXUS: with the
 computer on (a typed capture and a file go through), then off (it still opens and shows the
@@ -32,16 +37,17 @@ saved copy). Screenshots: GitHub → Actions → Build apps → the run → Arti
 ## Putting it on your own iPhone (free, needs a Mac)
 
 1. On the Mac, install **Xcode** from the App Store (large; open it once to finish installing).
-2. In Terminal:
+2. In Terminal (change `com.yourname.nexus` to something only yours):
    ```bash
    brew install xcodegen
-   cd ~/nexus && git pull && cd ios && xcodegen
+   cd ~/nexus && git pull && cd ios
+   sed -i '' 's/NEXUS_BUNDLE_ID: local.nexus.app/NEXUS_BUNDLE_ID: com.yourname.nexus/' project.yml
+   xcodegen
    open NEXUS.xcodeproj
    ```
-3. In Xcode, click **NEXUS** (top of the left list) → **Signing & Capabilities**:
-   - **Team:** choose your Apple ID (Xcode → Settings → Accounts → + if it isn't there).
-   - **Bundle Identifier:** change `local.nexus.app` to something only yours, like
-     `com.yourname.nexus`.
+3. In Xcode, click **NEXUS** (top of the left list). For **each** of the two targets, **NEXUS** and
+   **NEXUSShare** (the "Share → NEXUS" extension): **Signing & Capabilities → Team**, choose your
+   Apple ID (Xcode → Settings → Accounts → + if it isn't there).
 4. Plug the iPhone into the Mac, unlock it, and pick it at the top of the Xcode window.
 5. Press ▶ (Run). The first time:
    - the iPhone asks you to turn on **Developer Mode** (Settings → Privacy & Security →
@@ -94,6 +100,6 @@ What's needed, in order:
 
 - Voice notes: the app's web view has the microphone and recorder NEXUS uses (checked in the
   simulator); recording on a real iPhone still needs trying.
-- A share extension ("Share → NEXUS" from Photos or Notes). It needs an App Group shared with the
-  app, which is simplest with a paid Apple Developer account, so it waits for that.
+- Share → NEXUS could reuse the app's address and send later when the computer is off; both
+  need an App Group shared with the app (a paid Apple Developer account).
 - Face ID for the passcode, and a widget for quick capture.

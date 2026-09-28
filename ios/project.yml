@@ -13,6 +13,7 @@ settings:
     CURRENT_PROJECT_VERSION: "1"
     SWIFT_VERSION: "5.0"
     DEVELOPMENT_TEAM: ""  # your Apple team (Xcode → Signing & Capabilities)
+    NEXUS_BUNDLE_ID: local.nexus.app  # change to your own, e.g. com.yourname.nexus (the share extension follows)
 targets:
   NEXUS:
     type: application
@@ -20,9 +21,11 @@ targets:
     scheme: {}
     sources:
       - path: NEXUS
+    dependencies:
+      - target: NEXUSShare  # "Share → NEXUS", embedded in the app
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: local.nexus.app  # change to your own, e.g. com.yourname.nexus
+        PRODUCT_BUNDLE_IDENTIFIER: $(NEXUS_BUNDLE_ID)
         TARGETED_DEVICE_FAMILY: "1"  # iPhone (it also runs on an iPad, in iPhone size)
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
@@ -45,3 +48,29 @@ targets:
           - UIApplicationShortcutItemType: local.nexus.search
             UIApplicationShortcutItemTitle: Search
             UIApplicationShortcutItemIconType: UIApplicationShortcutIconTypeSearch
+
+  # "Share → NEXUS" from Photos, Notes, Safari, Files … (NEXUSShare/ShareViewController.swift)
+  NEXUSShare:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: NEXUSShare
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(NEXUS_BUNDLE_ID).share
+        TARGETED_DEVICE_FAMILY: "1"
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: NEXUS
+    info:
+      path: NEXUSShare/Info.plist
+      properties:
+        CFBundleDisplayName: NEXUS
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.share-services
+          NSExtensionPrincipalClass: ShareViewController
+          NSExtensionAttributes:
+            NSExtensionActivationRule:
+              NSExtensionActivationSupportsImageWithMaxCount: 20
+              NSExtensionActivationSupportsFileWithMaxCount: 20
+              NSExtensionActivationSupportsWebURLWithMaxCount: 1
+              NSExtensionActivationSupportsText: true

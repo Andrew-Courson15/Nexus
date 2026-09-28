@@ -4,6 +4,9 @@ The version is in `app/__init__.py` and shown in **Settings → This device**.
 
 ## 0.15.3 (unreleased)
 
+- **Share → NEXUS on iPhone**: from Photos, Notes, Safari or Files, tap Share → **NEXUS**, add a note
+  if you like, and it's in NEXUS (photos, PDFs and audio exactly as they are; links and text as the
+  idea). Part of the NEXUS iPhone app; see IOS.md.
 - Mac app: lives in the menu bar only (no Dock icon that does nothing), and its menu has
   **Open at login**, like **Start with Windows** on Windows.
 - **NEXUS starts Ollama for you**: if it's installed but not running (say, after a restart), NEXUS
