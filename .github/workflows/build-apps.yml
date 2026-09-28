@@ -56,9 +56,10 @@ jobs:
         run: |
           $v = (Select-String -Path app/__init__.py -Pattern '__version__ = "([^"]+)"').Matches[0].Groups[1].Value
           "version=$v" >> $env:GITHUB_OUTPUT
-      - name: Smoke test the built app
+      - name: Smoke test the built app (and a voice note)
         shell: pwsh
-        env: { NEXUS_HOME: "${{ runner.temp }}\\nexus-smoke", NEXUS_PORT: "8765", NEXUS_AI_PROVIDER: local, NEXUS_EMBEDDING_PROVIDER: none }
+        env: { NEXUS_HOME: "${{ runner.temp }}\\nexus-smoke", NEXUS_PORT: "8765", NEXUS_AI_PROVIDER: local, NEXUS_EMBEDDING_PROVIDER: none,
+               NEXUS_WHISPER_MODEL: tiny, NEXUS_VOICE_CHECK: "1" }
         run: ./packaging/smoke_windows.ps1 -Exe "dist\NEXUS\NEXUS.exe"
       - name: Make the installer (Inno Setup)
         shell: pwsh
@@ -150,7 +151,8 @@ jobs:
         id: v
         run: echo "version=$(sed -n 's/^__version__ = "\(.*\)"/\1/p' app/__init__.py)" >> "$GITHUB_OUTPUT"
       - name: Smoke test the built app
-        env: { NEXUS_HOME: "${{ runner.temp }}/nexus-smoke", NEXUS_PORT: "8765", NEXUS_AI_PROVIDER: local, NEXUS_EMBEDDING_PROVIDER: none }
+        env: { NEXUS_HOME: "${{ runner.temp }}/nexus-smoke", NEXUS_PORT: "8765", NEXUS_AI_PROVIDER: local, NEXUS_EMBEDDING_PROVIDER: none,
+               NEXUS_WHISPER_MODEL: tiny, NEXUS_VOICE_CHECK: "1" }
         run: bash packaging/smoke_mac.sh dist/NEXUS.app/Contents/MacOS/NEXUS
       - name: Open NEXUS.app the way a double-click does
         run: |

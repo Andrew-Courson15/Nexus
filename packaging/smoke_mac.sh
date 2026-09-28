@@ -32,6 +32,9 @@ curl -fsS "$BASE/api/uploads/does-not-exist" -o /dev/null -w '%{http_code}\n' | 
 [ -f "$NEXUS_HOME/data/nexus.db" ] || fail "no database in NEXUS_HOME"
 echo "Captured: $ENTRY"
 echo "Search, page and service worker work."
+if [ -n "${NEXUS_VOICE_CHECK:-}" ]; then  # voice notes: the speech engine and its libraries made it into the app
+  python3 packaging/voice_check.py "$BASE" || fail "voice notes don't work in the built app"
+fi
 
 # Back up, change something, choose the backup to restore, restart from the page: the backup is back.
 curl -fsS -X POST "$BASE/api/backups" >/dev/null || fail "backup"
@@ -41,6 +44,7 @@ for i in $(seq 1 60); do
   sleep 1
 done
 ZIP="$(echo "$B" | python3 -c 'import json,sys,os; b=json.load(sys.stdin); print(os.path.join(b["folder"], b["backups"][0]["name"]))')" || fail "no backup made"
+IN_BACKUP="$(curl -fsS "$BASE/api/entries" | python3 -c 'import json,sys; print(json.load(sys.stdin)["total"])')"
 curl -fsS -X POST "$BASE/api/entries" -H 'Content-Type: application/json' -d '{"original_text": "Made after the backup", "analyze": false}' >/dev/null
 curl -fsS -X POST "$BASE/api/backups/restore" -F "file=@$ZIP" | grep -q restore_pending || fail "restore wasn't accepted"
 curl -fsS "$BASE/api/backups" | grep -q '"can_restart":true' || fail "the app can't restart itself"
@@ -48,5 +52,5 @@ curl -fsS -X POST "$BASE/api/restart" >/dev/null || fail "restart"
 for i in $(seq 1 60); do curl -fsS -m 1 "$BASE/api/ping" >/dev/null 2>&1 || break; sleep 0.3; done
 for i in $(seq 1 90); do curl -fsS -m 2 "$BASE/api/ping" >/dev/null 2>&1 && break; sleep 1; [ "$i" = 90 ] && fail "didn't come back after restarting"; done
 curl -fsS "$BASE/api/backups" | grep -q '"ok":true' || fail "the backup wasn't restored"
-curl -fsS "$BASE/api/entries" | grep -q '"total":1[,}]' || fail "expected only the entry from the backup"
+curl -fsS "$BASE/api/entries" | grep -q "\"total\":$IN_BACKUP[,}]" || fail "expected only the $IN_BACKUP entries from the backup"
 echo "Restored a backup through Settings and restarted from the page."
