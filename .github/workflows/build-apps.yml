@@ -111,6 +111,13 @@ jobs:
       - name: Smoke test the built app
         env: { NEXUS_HOME: "${{ runner.temp }}/nexus-smoke", NEXUS_PORT: "8765", NEXUS_AI_PROVIDER: local, NEXUS_EMBEDDING_PROVIDER: none }
         run: bash packaging/smoke_mac.sh dist/NEXUS.app/Contents/MacOS/NEXUS
+      - name: Open NEXUS.app the way a double-click does
+        run: |
+          open -n dist/NEXUS.app --args --no-browser
+          for i in $(seq 1 90); do curl -fsS -m 2 http://127.0.0.1:8000/api/ping && break; sleep 1; done
+          curl -fsS http://127.0.0.1:8000/api/ping || { echo "NEXUS.app didn't answer"; tail -50 "$HOME/Library/Application Support/NEXUS/data/nexus.log" 2>/dev/null; exit 1; }
+          ls "$HOME/Library/Application Support/NEXUS/data/nexus.db"
+          pkill -f "NEXUS.app/Contents/MacOS/NEXUS" || true
       - name: Make the .dmg and .zip
         run: |
           V="${{ steps.v.outputs.version }}"

@@ -277,7 +277,7 @@ Every push builds NEXUS on real Windows and Mac machines and checks that it star
 (and, on Windows, that the installer installs and uninstalls cleanly). To get them: GitHub →
 **Actions** → **Build apps** → the newest green run → **Artifacts**:
 - `NEXUS-windows-<version>`: **NEXUS-Setup-<version>.exe** (installer: double-click, no admin
-  needed) and a zip of the app folder.
+  needed; it can also download and install Ollama for you) and a zip of the app folder.
 - `NEXUS-mac-<version>`: **NEXUS-<version>.dmg** (drag NEXUS to Applications). It isn't signed yet,
   so the first time right-click NEXUS → **Open** (or System Settings → Privacy & Security →
   **Open Anyway**).
