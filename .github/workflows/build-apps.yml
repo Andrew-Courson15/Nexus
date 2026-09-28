@@ -1,0 +1,125 @@
+# Builds the downloadable NEXUS apps on real Windows and Mac machines, checks that each one starts
+# and answers, and keeps the results as downloads (Actions → this run → Artifacts).
+#   Windows: NEXUS-Setup-<version>.exe (installer) and NEXUS-<version>-windows.zip
+#   Mac:     NEXUS-<version>.dmg and NEXUS-<version>-mac.zip
+# Also runs the test suite on Linux.
+name: Build apps
+
+on:
+  push:
+    branches: ["**"]
+    paths: ["app/**", "static/**", "packaging/**", "tray.py", "run.py", "requirements*.txt", "CHANGELOG.md",
+            ".github/workflows/build-apps.yml", "tests/**"]
+  workflow_dispatch:
+
+concurrency:
+  group: build-apps-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12", cache: pip }
+      - run: pip install -r requirements.txt ruff
+      - run: ruff check app tests tray.py run.py
+      - run: python -m pytest -q
+
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12", cache: pip }
+      - name: Install NEXUS and the build tool
+        run: pip install -r requirements.txt -r requirements-local.txt pyinstaller pystray
+      - name: Build the app (PyInstaller)
+        run: pyinstaller packaging/nexus.spec --noconfirm --clean
+      - name: Version
+        id: v
+        shell: pwsh
+        run: |
+          $v = (Select-String -Path app/__init__.py -Pattern '__version__ = "([^"]+)"').Matches[0].Groups[1].Value
+          "version=$v" >> $env:GITHUB_OUTPUT
+      - name: Smoke test the built app
+        shell: pwsh
+        env: { NEXUS_HOME: "${{ runner.temp }}\\nexus-smoke", NEXUS_PORT: "8765", NEXUS_AI_PROVIDER: local, NEXUS_EMBEDDING_PROVIDER: none }
+        run: ./packaging/smoke_windows.ps1 -Exe "dist\NEXUS\NEXUS.exe"
+      - name: Make the installer (Inno Setup)
+        shell: pwsh
+        run: |
+          $iscc = @("${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe", "$env:ProgramFiles\Inno Setup 6\ISCC.exe") | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $iscc) { choco install innosetup -y --no-progress | Out-Null; $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" }
+          & $iscc "/DAppVersion=${{ steps.v.outputs.version }}" packaging\nexus.iss
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+      - name: Install silently, start the installed app, uninstall (your ideas are kept)
+        shell: pwsh
+        env: { NEXUS_HOME: "${{ runner.temp }}\\nexus-installed", NEXUS_PORT: "8766", NEXUS_AI_PROVIDER: local, NEXUS_EMBEDDING_PROVIDER: none }
+        run: |
+          $setup = "dist\NEXUS-Setup-${{ steps.v.outputs.version }}.exe"
+          $p = Start-Process $setup -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/TASKS=" -PassThru -Wait
+          if ($p.ExitCode -ne 0) { throw "Installer exit code $($p.ExitCode)" }
+          $exe = "$env:LOCALAPPDATA\Programs\NEXUS\NEXUS.exe"
+          if (-not (Test-Path $exe)) { throw "Not installed at $exe" }
+          if (-not (Test-Path "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\NEXUS.lnk")) { throw "No Start menu entry" }
+          ./packaging/smoke_windows.ps1 -Exe $exe
+          $un = "$env:LOCALAPPDATA\Programs\NEXUS\unins000.exe"
+          Start-Process $un -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART" -Wait
+          # The uninstaller hands over to a copy of itself, so wait for the files to go.
+          for ($i = 0; $i -lt 60 -and (Test-Path $exe); $i++) { Start-Sleep -Seconds 1 }
+          if (Test-Path $exe) { throw "Uninstall left NEXUS.exe behind" }
+          if (-not (Test-Path "$env:NEXUS_HOME\data\nexus.db")) { throw "Uninstall removed the archive" }
+          Write-Host "Installed, started, answered, uninstalled; the archive was kept."
+      - name: Zip the app folder
+        shell: pwsh
+        run: Compress-Archive -Path dist\NEXUS -DestinationPath "dist\NEXUS-${{ steps.v.outputs.version }}-windows.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: NEXUS-windows-${{ steps.v.outputs.version }}
+          path: |
+            dist/NEXUS-Setup-*.exe
+            dist/NEXUS-*-windows.zip
+          retention-days: 30
+
+  mac:
+    runs-on: macos-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12", cache: pip }
+      - name: Install NEXUS and the build tool
+        run: pip install -r requirements.txt -r requirements-local.txt pyinstaller pystray
+      - name: App icon
+        run: |
+          ICONSET="$RUNNER_TEMP/NEXUS.iconset"; mkdir -p "$ICONSET"
+          for size in 16 32 128 256 512; do
+            sips -z $size $size static/icons/mac-icon-1024.png --out "$ICONSET/icon_${size}x${size}.png" >/dev/null
+            sips -z $((size*2)) $((size*2)) static/icons/mac-icon-1024.png --out "$ICONSET/icon_${size}x${size}@2x.png" >/dev/null
+          done
+          iconutil -c icns "$ICONSET" -o packaging/NEXUS.icns
+      - name: Build the app (PyInstaller)
+        run: pyinstaller packaging/nexus.spec --noconfirm --clean
+      - name: Version
+        id: v
+        run: echo "version=$(sed -n 's/^__version__ = "\(.*\)"/\1/p' app/__init__.py)" >> "$GITHUB_OUTPUT"
+      - name: Smoke test the built app
+        env: { NEXUS_HOME: "${{ runner.temp }}/nexus-smoke", NEXUS_PORT: "8765", NEXUS_AI_PROVIDER: local, NEXUS_EMBEDDING_PROVIDER: none }
+        run: bash packaging/smoke_mac.sh dist/NEXUS.app/Contents/MacOS/NEXUS
+      - name: Make the .dmg and .zip
+        run: |
+          V="${{ steps.v.outputs.version }}"
+          STAGE="$RUNNER_TEMP/dmg"; mkdir -p "$STAGE"; cp -R dist/NEXUS.app "$STAGE/"; ln -s /Applications "$STAGE/Applications"
+          hdiutil create -volname "NEXUS $V" -srcfolder "$STAGE" -ov -format UDZO "dist/NEXUS-$V.dmg"
+          ditto -c -k --keepParent dist/NEXUS.app "dist/NEXUS-$V-mac.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: NEXUS-mac-${{ steps.v.outputs.version }}
+          path: |
+            dist/NEXUS-*.dmg
+            dist/NEXUS-*-mac.zip
+          retention-days: 30
