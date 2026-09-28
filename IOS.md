@@ -21,6 +21,8 @@ on your computer; the phone keeps a read-only copy for when the computer is off.
   your pictures show with the computer off. Full-size pictures come from the computer.
 - Captures made while the computer is off wait on the phone and are sent when it's back.
 - **Settings → This device → Change NEXUS address** connects it to a different computer.
+- Pull down to refresh. Press and hold the NEXUS icon on the Home Screen for **New idea** or
+  **Search**.
 
 Every push builds the app and runs it in the iPhone simulator against a real NEXUS: with the
 computer on (a typed capture and a file go through), then off (it still opens and shows the
@@ -92,5 +94,6 @@ What's needed, in order:
 
 - Voice notes: the app's web view has the microphone and recorder NEXUS uses (checked in the
   simulator); recording on a real iPhone still needs trying.
-- A share extension ("Share → NEXUS" from Photos or Notes).
+- A share extension ("Share → NEXUS" from Photos or Notes). It needs an App Group shared with the
+  app, which is simplest with a paid Apple Developer account, so it waits for that.
 - Face ID for the passcode, and a widget for quick capture.
