@@ -4,6 +4,18 @@ NEXUS works well as a personal tool today. This page lists what a public release
 need, so the work can be planned. Items marked **(your decision)** are choices only the owner
 can make; the rest is engineering.
 
+## Publishing a new version
+
+1. Set the version in `app/__init__.py` (and `MARKETING_VERSION` in `ios/project.yml`), and give it
+   a dated section at the top of `CHANGELOG.md`: its bullet points become the release notes.
+2. Push a commit whose message contains `[release]` (or push a tag `v<version>`). GitHub Actions
+   builds and tests the Windows installer, the Mac `.dmg` and the iPhone app, and only if all of
+   that passes, publishes them on the Releases page (and creates the tag).
+3. The installed apps offer the new version under Settings → Updates.
+
+To build and test without publishing: `[build]` in the commit message, or Actions → Build apps →
+Run workflow. Builds need GitHub Actions minutes (see "Build minutes" below).
+
 ## Already in place
 
 - **Privacy by design:**
@@ -40,7 +52,7 @@ can make; the rest is engineering.
 - **Real installers.** Started in 0.14: `scripts/build_app_windows.ps1` and `scripts/build_app_mac.sh`
   build a standalone app with PyInstaller (`packaging/nexus.spec`) that runs without Python or Git.
   Unzip and double-click; data goes to the per-user app folder (`%LOCALAPPDATA%\NEXUS`,
-  `~/Library/Application Support/NEXUS`). Built and checked on every push on real Windows and Mac machines
+  `~/Library/Application Support/NEXUS`). Built and checked on request on real Windows and Mac machines
   (GitHub Actions: the app starts, captures and searches; on Windows the installer installs,
   runs and uninstalls, keeping the archive). About 150 MB, or about 490 MB with voice-note transcription included.
   The first-run check links to Ollama and downloads the AI model in one click. On Windows the build

@@ -54,30 +54,49 @@ Privacy in plain words: [PRIVACY.md](PRIVACY.md).
 
 ## Get NEXUS
 
-- **Windows:** download **NEXUS-Setup.exe** and double-click it. No admin rights needed; it can
-  also install Ollama (the AI) for you. NEXUS lives in the system tray by the clock.
-- **Mac:** download the **.dmg**, open it and drag NEXUS to Applications. NEXUS lives in the menu
-  bar at the top of the screen (no Dock icon); its menu opens NEXUS, backs up, and quits.
-- **iPhone:** the NEXUS app, or NEXUS added to the home screen from Safari: see [IOS.md](IOS.md).
+Downloads are on **[the latest release](https://github.com/Andrew-Courson15/Nexus/releases/latest)**.
+While this repository is private, you need to be signed in to GitHub with access to it (add
+friends as collaborators); if it's public, anyone can download.
 
-**Download: [the latest release](https://github.com/Andrew-Courson15/Nexus/releases/latest)**
-(`NEXUS-Setup-….exe` for Windows, `NEXUS-….dmg` for a Mac). While this repository is private,
-downloading needs a GitHub login with access to it (add friends as collaborators), and the apps'
-**Settings → Updates** points you to the Releases page. If the repository is public, anyone can
-download, and the apps update themselves with **Update now**. Test builds of every change are on the **Actions** tab
-(Build apps → a green run → Artifacts, with a GitHub login). The apps aren't signed yet, so the first
-time Windows says it protected your PC (**More info → Run anyway**), and a Mac asks you to
-right-click NEXUS → **Open**.
+### Windows
 
-Then NEXUS opens in your browser with a short setup check (AI, voice notes, search), each with a
-button to fix what's missing. Your ideas live in your user folder, never next to the app.
+1. Download **`NEXUS-Setup-<version>.exe`** and double-click it. No admin rights are needed.
+2. Windows may say it protected your PC (the app isn't signed yet): **More info → Run anyway**.
+3. Tick what you want: a desktop icon, **Start NEXUS when I sign in** (recommended, so your phone
+   can always reach it), and **Also download and install Ollama** (the AI, about 1 GB).
+4. NEXUS opens in your browser. It lives in the system tray by the clock: click it to open NEXUS,
+   right-click for Back up now, Check for updates, Start with Windows, and Quit.
 
-**Already using NEXUS from a folder** (like `C:\Users\you\nexus` or `~/nexus`)? Close it first
-(the app tells you if it's still open). The app finds your archive there when it opens and offers
-**Bring my archive here**, then **Restart NEXUS now**. Your ideas, pictures and voice notes are
-copied; the folder isn't changed. (From anywhere else, use a backup zip: **Settings → Backups →
-Restore from a backup file**. Nothing is deleted either way: whatever was in the app is moved to a
-`data-before-restore-…` folder.)
+### Mac
+
+1. Download **`NEXUS-<version>.dmg`**, open it, and drag **NEXUS** onto **Applications**.
+2. Open NEXUS from Applications. The first time, the Mac refuses (the app isn't signed yet):
+   open **System Settings → Privacy & Security**, scroll down, click **Open Anyway** and confirm.
+   (On older macOS: right-click NEXUS → **Open**.)
+3. NEXUS opens in your browser. It lives in the menu bar at the top of the screen: its menu opens
+   NEXUS, backs up, sets **Open at login**, and quits.
+4. The setup check offers **Install Ollama for me** (the AI) and downloads the AI models.
+
+### iPhone
+
+- **Now, no Mac needed:** open your NEXUS address in Safari and **Share → Add to Home Screen**
+  (NEXUS shows the address and a QR code in **Settings → Your phone**).
+- **The NEXUS iPhone app** (opens even when the computer is off): build it once with Xcode on a
+  Mac, free, see [IOS.md](IOS.md). TestFlight and the App Store need an Apple Developer account.
+
+### After installing
+
+- The first screen checks the AI, voice notes and search, each with a button to fix what's missing,
+  and offers to start NEXUS when you sign in. Your ideas live in your user folder, never next to
+  the app, and uninstalling keeps them.
+- **Already using NEXUS from a folder** (like `C:\Users\you\nexus` or `~/nexus`)? Close it first
+  (the app tells you if it's still open). The app finds your archive there and offers **Bring my
+  archive here**, then **Restart NEXUS now**. Your ideas, pictures, voice notes, history, passcode
+  and phone address come along; the folder isn't changed. From anywhere else, use a backup zip:
+  **Settings → Backups → Restore from a backup file**. Nothing is deleted either way: whatever was
+  in the app is moved to a `data-before-restore-…` folder.
+- **Updates:** Settings → Updates. With a public repository, **Update now** installs the new version
+  and reopens NEXUS; while it's private, it links to the Releases page to download it.
 
 ## Install from this folder instead (for developing NEXUS)
 
