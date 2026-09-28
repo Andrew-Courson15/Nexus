@@ -1,7 +1,7 @@
 """Start NEXUS with an icon in the system tray (the icons at the bottom right on Windows).
 
 Left-click the icon (or right-click > Open NEXUS) to open it in the browser. Right-click for:
-Back up now, Check for updates, Start with Windows (on/off), Open data folder, and Quit NEXUS.
+Back up now, Check for updates, Start with Windows (on a Mac: Open at login), Open data folder, and Quit NEXUS.
 The desktop icon starts NEXUS this way.
 
 If the tray can't be shown (for example the `pystray` package isn't installed, or there's no
@@ -86,17 +86,20 @@ def _open_when_ready(url: str) -> None:
             time.sleep(0.5)
 
 
-# -- "Start with Windows": see app/services/autostart.py (also in Settings → This computer) ------
+# -- "Start with Windows" / "Open at login" (Mac): see app/services/autostart.py (also in Settings) --
+STARTUP_LABEL = "Open at login" if sys.platform == "darwin" else "Start with Windows"
+
+
 def starts_with_windows() -> bool:
     from app.services import autostart
 
-    return sys.platform == "win32" and autostart.enabled()
+    return sys.platform in ("win32", "darwin") and autostart.enabled()
 
 
 def set_start_with_windows(on: bool) -> None:
     from app.services import autostart
 
-    if sys.platform == "win32":
+    if sys.platform in ("win32", "darwin"):
         autostart.set_enabled(on)
 
 
@@ -248,8 +251,8 @@ def _run() -> None:
         pystray.MenuItem("Open NEXUS", open_nexus, default=True),
         pystray.MenuItem("Back up now", back_up),
         pystray.MenuItem("Check for updates", check_updates),
-        pystray.MenuItem("Start with Windows", toggle_startup, checked=lambda item: starts_with_windows(),
-                         visible=sys.platform == "win32"),
+        pystray.MenuItem(STARTUP_LABEL, toggle_startup, checked=lambda item: starts_with_windows(),
+                         visible=sys.platform in ("win32", "darwin")),
         pystray.MenuItem("Open data folder", open_folder),
         pystray.Menu.SEPARATOR,
         pystray.MenuItem("Quit NEXUS", quit_nexus),

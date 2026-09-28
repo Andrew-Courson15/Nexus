@@ -52,5 +52,6 @@ if sys.platform == "darwin":
         icon=os.path.join(ROOT, "packaging", "NEXUS.icns") if os.path.exists(os.path.join(ROOT, "packaging", "NEXUS.icns")) else None,
         bundle_identifier="local.nexus.app",
         info_plist={"CFBundleShortVersionString": __import__("re").search(
-            r'__version__ = "([^"]+)"', open(os.path.join(ROOT, "app", "__init__.py")).read()).group(1)},
+            r'__version__ = "([^"]+)"', open(os.path.join(ROOT, "app", "__init__.py")).read()).group(1),
+            "LSUIElement": True},  # lives in the menu bar (no Dock icon that does nothing when clicked)
     )

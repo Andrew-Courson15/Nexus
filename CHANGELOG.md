@@ -2,6 +2,12 @@
 
 The version is in `app/__init__.py` and shown in **Settings → This device**.
 
+## 0.15.3 (unreleased)
+
+- Mac app: lives in the menu bar only (no Dock icon that does nothing), and its menu has
+  **Open at login**, like **Start with Windows** on Windows.
+- Help explains restoring and moving an archive, and how the downloadable app updates.
+
 ## 0.15.2 (2026-09-28)
 
 - **Install Ollama for me**: the setup check downloads and installs Ollama (the AI) with one click,
