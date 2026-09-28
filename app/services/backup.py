@@ -3,6 +3,7 @@
 A backup holds everything that can't be rebuilt:
     nexus.db        a consistent copy of the database (SQLite's online backup, safe while NEXUS runs)
     uploads/ audio/ images/   every original file exactly as it was uploaded
+    settings/       preferences, the phone's address, the passcode (see SETTINGS_FILES)
     backup.json     what's inside, and when it was made
 Previews, thumbnails and the search index are left out: NEXUS rebuilds them.
 
@@ -34,6 +35,9 @@ log = logging.getLogger("nexus.backup")
 
 NAME_RE = re.compile(r"^nexus-backup-\d{8}-\d{6}(-[a-z]+)?\.zip$")
 ORIGINAL_DIRS = ("uploads", "audio", "images")
+# Settings kept next to the archive (in backups under settings/): preferences, the phone's private
+# address, the passcode, and this NEXUS's identity for sharing.
+SETTINGS_FILES = ("preferences.json", "phone.json", "lock.json", "install_id")
 CHECK_EVERY_S = 6 * 3600
 
 
@@ -85,8 +89,10 @@ def create_backup(automatic: bool = False) -> Path:
     return dest
 
 
-def _write_zip(dest: Path, db_path: Path, data_dir: Path, automatic: bool = False) -> None:
-    """A backup of the archive whose database is db_path and whose files are in data_dir."""
+def _write_zip(dest: Path, db_path: Path, data_dir: Path, automatic: bool = False,
+               settings: dict[str, bytes] | None = None) -> None:
+    """A backup of the archive whose database is db_path and whose files are in data_dir.
+    `settings` replaces or adds settings files (see bring_archive)."""
     partial = dest.with_suffix(".zip.partial")
     counts = {"files": 0, "bytes": 0}
     with tempfile.TemporaryDirectory() as tmp:
@@ -112,6 +118,9 @@ def _write_zip(dest: Path, db_path: Path, data_dir: Path, automatic: bool = Fals
                             zf.write(f, f"{sub}/{f.relative_to(base).as_posix()}", compress_type=zipfile.ZIP_STORED)
                             counts["files"] += 1
                             counts["bytes"] += f.stat().st_size
+                kept = {n: (data_dir / n).read_bytes() for n in SETTINGS_FILES if (data_dir / n).is_file()}
+                for name, content in {**kept, **(settings or {})}.items():
+                    zf.writestr(f"settings/{name}", content)
                 zf.writestr("backup.json", json.dumps({
                     "app": "NEXUS", "format": 1, "created_at": datetime.now(timezone.utc).isoformat(),
                     "automatic": automatic, "original_files": counts["files"], "original_bytes": counts["bytes"],
@@ -213,6 +222,8 @@ def check_backup(zip_path: Path) -> dict:
                 if n.startswith(("/", "\\")) or ".." in Path(n).parts or re.match(r"^[A-Za-z]:", n):
                     raise BackupError("The backup contains unsafe paths; refusing to restore it.")
                 top = n.split("/", 1)[0]
+                if n.startswith("settings/") and n.removeprefix("settings/") in SETTINGS_FILES:
+                    continue
                 if n not in ("nexus.db", "backup.json") and top not in ORIGINAL_DIRS:
                     raise BackupError(f"The backup contains something unexpected ({n}); refusing to restore it.")
             with zf.open("nexus.db") as f:
@@ -242,9 +253,11 @@ def restore(zip_path: Path) -> Path:
     aside = s.data_dir.parent / f"{s.data_dir.name}-before-restore-{datetime.now():%Y%m%d-%H%M%S}"
     aside.mkdir(parents=True)
     moved: list[tuple[Path, Path]] = []
+    with zipfile.ZipFile(zip_path) as zf:  # settings in the backup replace these; older backups have none
+        settings = [s.data_dir / n.removeprefix("settings/") for n in zf.namelist() if n.startswith("settings/")]
     try:
         for item in [db, db.with_name(db.name + "-wal"), db.with_name(db.name + "-shm"),
-                     *(s.data_dir / d for d in (*ORIGINAL_DIRS, "previews"))]:
+                     *(s.data_dir / d for d in (*ORIGINAL_DIRS, "previews")), *settings]:
             if item.exists():
                 shutil.move(str(item), str(aside / item.name))
                 moved.append((item, aside / item.name))
@@ -252,13 +265,13 @@ def restore(zip_path: Path) -> Path:
             for n in zf.namelist():
                 if n == "backup.json" or n.endswith("/"):
                     continue
-                target = db if n == "nexus.db" else s.data_dir / n
+                target = db if n == "nexus.db" else s.data_dir / n.removeprefix("settings/")
                 target.parent.mkdir(parents=True, exist_ok=True)
                 with zf.open(n) as src, open(target, "wb") as out:
                     shutil.copyfileobj(src, out)
     except BaseException:
         log.exception("Restore failed; putting the previous data back")
-        for extracted in [db, *(s.data_dir / d for d in ORIGINAL_DIRS)]:
+        for extracted in [db, *(s.data_dir / d for d in ORIGINAL_DIRS), *settings]:
             if extracted.is_dir():
                 shutil.rmtree(extracted, ignore_errors=True)
             elif extracted.exists():
@@ -389,6 +402,29 @@ def found_archives() -> list[dict]:
     return out
 
 
+def _settings_from_env(folder: Path, data: Path) -> dict[str, bytes]:
+    """Older NEXUS folders kept the phone's address and your name in .env: carry them over too."""
+    from dotenv import dotenv_values
+
+    try:
+        env = dotenv_values(folder / ".env")
+    except OSError:
+        return {}
+    out: dict[str, bytes] = {}
+    hosts = [h.strip() for h in (env.get("NEXUS_ALLOWED_HOSTS") or "").split(",") if h.strip().endswith(".ts.net")]
+    if hosts and not (data / "phone.json").is_file():
+        out["phone.json"] = json.dumps({"host": hosts[0]}).encode()
+    name = (env.get("NEXUS_OWNER_NAME") or "").strip()
+    if name:
+        try:
+            prefs = json.loads((data / "preferences.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            prefs = {}
+        if isinstance(prefs, dict) and not prefs.get("owner_name"):
+            out["preferences.json"] = json.dumps({**prefs, "owner_name": name[:80]}).encode()
+    return out
+
+
 def bring_archive(folder: str) -> dict:
     """Stage one of found_archives() to be restored at the next start. The other copy isn't touched."""
     match = next((a for a in found_archives() if a["folder"] == folder), None)
@@ -397,7 +433,7 @@ def bring_archive(folder: str) -> dict:
     data = Path(folder) / "data"
     pending = _pending_path()
     pending.parent.mkdir(parents=True, exist_ok=True)
-    _write_zip(pending, data / "nexus.db", data)
+    _write_zip(pending, data / "nexus.db", data, settings=_settings_from_env(Path(folder), data))
     info = check_backup(pending)
     info.update(filename=f"your archive from {folder}", entries=match["entries"])
     pending.with_suffix(".json").write_text(json.dumps(info))

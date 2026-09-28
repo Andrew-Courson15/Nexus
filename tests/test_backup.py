@@ -254,3 +254,30 @@ def test_restart_from_the_page_uses_the_apps_hook(client, monkeypatch):
             break
         time.sleep(0.05)
     assert calls == [1]
+
+
+def test_settings_come_along_and_a_folders_env_fills_the_gaps(tmp_path, monkeypatch):
+    try:
+        data = _own_data(tmp_path, monkeypatch)
+        (data / "lock.json").write_text('{"hash": "old"}')
+        (data / "preferences.json").write_text('{"ollama_model": "llama3.2"}')
+        zipped = backup.create_backup()
+        with zipfile.ZipFile(zipped) as zf:
+            assert {"settings/lock.json", "settings/preferences.json"} <= set(zf.namelist())
+        (data / "lock.json").write_text('{"hash": "new"}')
+        (data / "phone.json").write_text('{"host": "other.tail1.ts.net"}')  # not in the backup: left alone
+        aside = backup.restore(zipped)
+        assert (data / "lock.json").read_text() == '{"hash": "old"}' and (aside / "lock.json").read_text() == '{"hash": "new"}'
+        assert (data / "phone.json").exists()
+
+        folder = tmp_path / "nexus"
+        (folder / "data").mkdir(parents=True)
+        shutil.copy(data / "nexus.db", folder / "data" / "nexus.db")
+        (folder / "data" / "preferences.json").write_text('{"ollama_model": "llama3.2"}')
+        (folder / ".env").write_text("NEXUS_ALLOWED_HOSTS=localhost,gaming-pc.tail1234.ts.net\nNEXUS_OWNER_NAME=Andrew\n")
+        got = backup._settings_from_env(folder, folder / "data")
+        assert json.loads(got["phone.json"]) == {"host": "gaming-pc.tail1234.ts.net"}
+        assert json.loads(got["preferences.json"]) == {"ollama_model": "llama3.2", "owner_name": "Andrew"}
+    finally:
+        monkeypatch.undo()
+        get_settings.cache_clear()

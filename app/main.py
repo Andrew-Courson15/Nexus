@@ -26,6 +26,7 @@ APP_DIR = Path(__file__).resolve().parent
 async def lifespan(_app: FastAPI):
     if apply_pending_restore():  # a backup chosen in Settings → Backups, restored before the database opens
         engine.dispose()
+        get_settings.cache_clear()  # its preferences and phone address
     init_db()
     processing_queue.start()
     processing_queue.recover()  # finish work interrupted by the last shutdown

@@ -1842,7 +1842,7 @@ async function mountBackups(box) {
     ${b.last_error ? `<p class="small" style="color:var(--danger)">Last backup failed: ${esc(b.last_error)}</p>` : ""}
     ${b.backups.length ? `<ul class="small backup-list">${b.backups.map((x) => `<li><a href="/api/backups/${encodeURIComponent(x.name)}" download>${
       esc(fmtDateTime(x.created_at))}</a> · ${fmtSize(x.size_bytes)}${x.automatic ? " · automatic" : ""}</li>`).join("")}</ul>` : ""}
-    <p class="small muted">Each backup is one zip with your database and every original file.
+    <p class="small muted">Each backup is one zip with your database, every original file and your settings.
       ${b.every_days > 0 ? `A new one is made every ${b.every_days} day${b.every_days === 1 ? "" : "s"}; ` : "Automatic backups are off; "}
       the newest ${b.keep} are kept. Folder: <code>${esc(b.folder)}</code></p>
     <p class="small" style="margin-top:12px"><a class="btn small ghost" href="/api/export/markdown" download>Export as readable files</a></p>
