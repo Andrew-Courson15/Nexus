@@ -55,8 +55,11 @@ can make; the rest is engineering.
   - Tools: PyInstaller or Briefcase.
   - **Code signing:** an Apple Developer ID (about $99/year) and a Windows signing
     certificate. Without them, both systems warn users away.
-- **Updates without Git.** 0.14 has an in-app "Check for updates / Update now" (Settings →
-  Updates), still using git underneath. A public release would swap git for a signed download.
+- **Updates without Git.** Done for the Windows app (0.15.1): Update now downloads the new
+  installer from the Releases page (GitHub addresses only, size and file type checked), installs
+  it silently over the running copy and opens NEXUS again; CI tests that path. The Mac app offers
+  the download for now. Still to do: signed downloads, and self-update on the Mac. A folder copy
+  of NEXUS still updates with git.
 - **Simpler phone setup.** Done in 0.14: Settings → Your phone guides through Tailscale and turns
   on access with one button, then shows a QR code. Tailscale is still a separate app and account;
   a later option is a paid relay service.

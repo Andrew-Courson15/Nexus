@@ -68,6 +68,23 @@ jobs:
           if (-not (Test-Path $exe)) { throw "Not installed at $exe" }
           if (-not (Test-Path "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\NEXUS.lnk")) { throw "No Start menu entry" }
           ./packaging/smoke_windows.ps1 -Exe $exe
+          # An update from inside NEXUS: the installer runs over a running NEXUS the way the app starts it
+          # (app/services/updates.py installer_command), closes it, and opens it again.
+          $running = Start-Process $exe -ArgumentList "--no-browser" -PassThru
+          for ($i = 0; $i -lt 90; $i++) { try { Invoke-RestMethod "http://127.0.0.1:8766/api/ping" -TimeoutSec 2 | Out-Null; break } catch { Start-Sleep -Seconds 1 } }
+          $before = (Invoke-RestMethod "http://127.0.0.1:8766/api/entries").total
+          $u = Start-Process $setup -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/CLOSEAPPLICATIONS", "/RELAUNCH=1", "/LOG=$env:RUNNER_TEMP\update.log" -PassThru
+          $null = $u.Handle
+          if (-not $u.WaitForExit(600000)) { throw "The update installer didn't finish" }
+          if ($u.ExitCode -ne 0) { Get-Content "$env:RUNNER_TEMP\update.log" -Tail 40; throw "Update installer exit code $($u.ExitCode)" }
+          $back = $false
+          for ($i = 0; $i -lt 90; $i++) { try { Invoke-RestMethod "http://127.0.0.1:8766/api/ping" -TimeoutSec 2 | Out-Null; $back = $true; break } catch { Start-Sleep -Seconds 1 } }
+          if (-not $back) { Get-Content "$env:RUNNER_TEMP\update.log" -Tail 60; throw "NEXUS didn't open again after the update" }
+          $after = (Invoke-RestMethod "http://127.0.0.1:8766/api/entries").total
+          if ($after -ne $before) { throw "The update changed the archive ($before entries before, $after after)" }
+          Write-Host "Updated over a running NEXUS; it opened again with the same $after entries."
+          Get-Process NEXUS -ErrorAction SilentlyContinue | Stop-Process -Force
+          Start-Sleep -Seconds 2
           $un = "$env:LOCALAPPDATA\Programs\NEXUS\unins000.exe"
           Start-Process $un -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART" -Wait
           # The uninstaller hands over to a copy of itself, so wait for the files to go.

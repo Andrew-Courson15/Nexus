@@ -94,3 +94,75 @@ def test_packaged_app_checks_the_releases_page(monkeypatch):
     monkeypatch.setattr(httpx, "get", lambda *a, **k: Reply(404))
     assert updates.check_release("0.14.1")["behind"] == 0
     assert updates._newer("0.14.10", "0.14.9") and not updates._newer("0.14.1", "0.14.1")
+
+
+def test_the_windows_app_updates_itself_from_the_release(monkeypatch, tmp_path):
+    import httpx
+
+    from app.services import lifecycle
+
+    release = {"tag_name": "v9.9.0", "html_url": "https://example/rel", "body": "- Faster", "assets": [
+        {"name": "NEXUS-9.9.0.dmg", "browser_download_url": "https://github.com/x/NEXUS-9.9.0.dmg"},
+        {"name": "NEXUS-Setup-9.9.0.exe", "size": 6,
+         "browser_download_url": "https://github.com/Andrew-Courson15/Nexus/releases/download/v9.9.0/NEXUS-Setup-9.9.0.exe"}]}
+
+    class Reply:
+        status_code = 200
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return release
+
+    monkeypatch.setattr(httpx, "get", lambda *a, **k: Reply())
+    monkeypatch.setattr(updates.sys, "platform", "darwin")
+    assert not updates.check_release("0.15.1")["can_update"]  # the Mac app still offers the download page
+    monkeypatch.setattr(updates.sys, "platform", "win32")
+    info = updates.check_release("0.15.1")
+    assert info["can_update"] and info["installer_url"].endswith("NEXUS-Setup-9.9.0.exe")
+
+    class Stream:
+        def __init__(self, body, host="release-assets.githubusercontent.com"):
+            self.body, self.url = body, httpx.URL(f"https://{host}/file")
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def raise_for_status(self):
+            pass
+
+        def iter_bytes(self, _n):
+            yield self.body
+
+    monkeypatch.setattr(httpx, "stream", lambda *a, **k: Stream(b"MZ1234"))
+    setup = updates.download_installer(info)
+    assert setup.read_bytes() == b"MZ1234" and setup.name == "NEXUS-Setup-9.9.0.exe"
+    cmd = updates.installer_command(setup)
+    assert cmd[0] == str(setup) and "/VERYSILENT" in cmd and "/RELAUNCH=1" in cmd
+
+    monkeypatch.setattr(httpx, "stream", lambda *a, **k: Stream(b"<html>"))  # not an installer (and wrong size)
+    with pytest.raises(updates.UpdateError):
+        updates.download_installer(info)
+    monkeypatch.setattr(httpx, "stream", lambda *a, **k: Stream(b"MZ1234", host="evil.example"))
+    with pytest.raises(updates.UpdateError):
+        updates.download_installer(info)
+    with pytest.raises(updates.UpdateError):
+        updates.download_installer({**info, "installer_url": "https://evil.example/NEXUS-Setup.exe"})
+
+    # Starting: download, then hand over to the installer once NEXUS has stopped.
+    monkeypatch.setattr(updates, "FROZEN", True)
+    monkeypatch.setattr(updates, "check", lambda: info)
+    monkeypatch.setattr(httpx, "stream", lambda *a, **k: Stream(b"MZ1234"))
+    monkeypatch.setattr(lifecycle, "restart_hook", None)
+    with pytest.raises(updates.UpdateError):
+        updates.start()
+    restarted = []
+    monkeypatch.setattr(lifecycle, "restart_hook", lambda: restarted.append(1))
+    monkeypatch.setattr(lifecycle, "restart_soon", lambda: restarted.append(1) or True)
+    updates.start()
+    assert restarted and lifecycle.run_after_exit[0].endswith("NEXUS-Setup-9.9.0.exe")
+    lifecycle.run_after_exit = None

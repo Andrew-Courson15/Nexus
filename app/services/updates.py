@@ -95,8 +95,60 @@ def check_release(current: str) -> dict:
     if not latest or not _newer(latest, current):
         return {**base, "behind": 0, "latest_version": latest or current, "reason": None}
     notes = [line.strip("-* ").strip() for line in str(data.get("body") or "").splitlines() if line.strip()][:8]
+    installer = next((a for a in data.get("assets") or [] if isinstance(a, dict)
+                      and a.get("name") == f"NEXUS-Setup-{latest}.exe" and a.get("browser_download_url")), None)
+    if sys.platform == "win32" and installer:  # the Windows app updates itself: download, install, reopen
+        return {**base, "can_update": True, "behind": 1, "latest_version": latest, "changes": notes,
+                "download_url": data.get("html_url"), "installer_url": installer["browser_download_url"],
+                "installer_size": installer.get("size"), "reason": None}
     return {**base, "behind": 1, "latest_version": latest, "changes": notes, "download_url": data.get("html_url"),
             "reason": "Download the new version and install it over this one; your ideas and settings stay where they are."}
+
+
+INSTALLER_HOSTS = ("github.com", "objects.githubusercontent.com", "release-assets.githubusercontent.com")
+
+
+def download_installer(info: dict) -> Path:
+    """Download the new Windows installer (from the NEXUS Releases page only) into the data folder."""
+    import httpx
+
+    url = info["installer_url"]
+    if httpx.URL(url).scheme != "https" or httpx.URL(url).host not in INSTALLER_HOSTS:
+        raise UpdateError("The update isn't on the NEXUS Releases page; not downloading it.")
+    folder = get_settings().data_dir / "updates"
+    folder.mkdir(parents=True, exist_ok=True)
+    for old in folder.glob("NEXUS-Setup-*.exe"):
+        old.unlink(missing_ok=True)
+    dest = folder / f"NEXUS-Setup-{info['latest_version']}.exe"
+    partial = dest.with_suffix(".part")
+    try:
+        with httpx.stream("GET", url, follow_redirects=True, timeout=httpx.Timeout(30, read=120)) as r:
+            r.raise_for_status()
+            if r.url.host not in INSTALLER_HOSTS:
+                raise UpdateError("The download went somewhere unexpected; stopped.")
+            with open(partial, "wb") as out:
+                for chunk in r.iter_bytes(1024 * 1024):
+                    out.write(chunk)
+        size = partial.stat().st_size
+        if info.get("installer_size") and size != info["installer_size"]:
+            raise UpdateError("The download was incomplete. Try again.")
+        with open(partial, "rb") as f:
+            if f.read(2) != b"MZ":
+                raise UpdateError("The download isn't a Windows installer.")
+    except httpx.HTTPError as exc:
+        partial.unlink(missing_ok=True)
+        raise UpdateError(f"Couldn't download the update ({exc}).") from exc
+    except BaseException:
+        partial.unlink(missing_ok=True)
+        raise
+    partial.replace(dest)
+    return dest
+
+
+def installer_command(setup: Path) -> list[str]:
+    """Install over this copy without questions, then open NEXUS again (see packaging/nexus.iss)."""
+    return [str(setup), "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/CLOSEAPPLICATIONS", "/RELAUNCH=1",
+            f"/LOG={get_settings().data_dir / 'update.log'}"]
 
 
 def log_path() -> Path:
@@ -108,6 +160,13 @@ def start() -> None:
     info = check()
     if not info["can_update"]:
         raise UpdateError(info.get("reason") or "NEXUS is already up to date.")
+    if FROZEN:
+        from app.services import lifecycle
+
+        if not lifecycle.can_restart():
+            raise UpdateError("This NEXUS can't update itself. Download the new version from the Releases page.")
+        lifecycle.exit_and_run(installer_command(download_installer(info)))
+        return
     log = open(log_path(), "a", encoding="utf-8")  # noqa: SIM115 - handed to the child process
     if sys.platform == "win32":
         ps = str(Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32" / "WindowsPowerShell" / "v1.0" / "powershell.exe")

@@ -128,9 +128,15 @@ def _start_again() -> None:
 
 
 def main() -> None:
+    from app.services import lifecycle
+
     _run()
     if _restart.is_set():
-        _start_again()
+        if lifecycle.run_after_exit:  # an update: the installer replaces this copy, then opens NEXUS again
+            subprocess.Popen(lifecycle.run_after_exit, close_fds=True,
+                             creationflags=getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0))
+        else:
+            _start_again()
 
 
 def _run() -> None:

@@ -2488,16 +2488,23 @@ async function checkForUpdate(button, box) {
   box.innerHTML = `<p class="health ok"><span class="dot"></span>NEXUS ${esc(info.latest_version || "")} is available
       (${info.behind} change${info.behind === 1 ? "" : "s"}).</p>
     ${info.changes.length ? `<ul class="small">${info.changes.map((c) => `<li>${esc(c)}</li>`).join("")}</ul>` : ""}
-    ${info.download_url ? `<a class="btn primary small" href="${esc(info.download_url)}" target="_blank" rel="noopener">DOWNLOAD NEXUS ${esc(info.latest_version || "")}</a>
+    ${info.can_update ? `<button type="button" class="btn primary small" data-act="update-now">UPDATE NOW</button>
+      <p class="small muted">NEXUS stops for a minute or two while it updates, then this page reloads by itself.
+        Your ideas and settings aren't touched.</p>`
+    : info.download_url ? `<a class="btn primary small" href="${esc(info.download_url)}" target="_blank" rel="noopener">DOWNLOAD NEXUS ${esc(info.latest_version || "")}</a>
       <p class="small muted">${esc(info.reason || "")}</p>`
-    : info.can_update ? `<button type="button" class="btn primary small" data-act="update-now">UPDATE NOW</button>
-      <p class="small muted">NEXUS stops for a minute or two while it updates, then this page reloads by itself.</p>`
       : `<p class="small" style="color:var(--danger)">${esc(info.reason || "")}</p>`}`;
   $("[data-act=update-now]", box)?.addEventListener("click", async (ev) => {
     ev.target.disabled = true;
-    try { await api("/api/update", { method: "POST", timeout: 60000 }); }
-    catch (err) { toast(err.message, true); ev.target.disabled = false; return; }
-    box.innerHTML = `<p class="small"><span class="spinner inline"></span>Updating… NEXUS is stopping, downloading, setting up and starting again.</p>`;
+    if (info.installer_url) {
+      ev.target.textContent = "Downloading…";
+      ev.target.insertAdjacentHTML("afterend", `<p class="small"><span class="spinner inline"></span>Downloading NEXUS
+        ${esc(info.latest_version || "")}${info.installer_size ? ` (${fmtSize(info.installer_size)})` : ""}…</p>`);
+    }
+    try { await api("/api/update", { method: "POST", timeout: info.installer_url ? 30 * 60000 : 60000 }); }
+    catch (err) { toast(err.message, true); ev.target.disabled = false; ev.target.textContent = "UPDATE NOW"; return; }
+    box.innerHTML = `<p class="small"><span class="spinner inline"></span>Updating… NEXUS is ${info.installer_url
+      ? "installing the new version and starting again" : "stopping, downloading, setting up and starting again"}.</p>`;
     const from = APP_VERSION, started = Date.now();
     const poll = async () => {
       try {

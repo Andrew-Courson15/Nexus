@@ -10,6 +10,8 @@ import time
 from collections.abc import Callable
 
 restart_hook: Callable[[], None] | None = None
+# A command to run once NEXUS has stopped (the Windows installer, for an update). Read by the tray.
+run_after_exit: list[str] | None = None
 
 
 def can_restart() -> bool:
@@ -28,3 +30,12 @@ def restart_soon(delay: float = 0.5) -> bool:
 
     threading.Thread(target=later, name="nexus-restart", daemon=True).start()
     return True
+
+
+def exit_and_run(command: list[str]) -> bool:
+    """Stop NEXUS, then run `command` (which starts NEXUS again when it's done). False if unsupported."""
+    global run_after_exit
+    if restart_hook is None:
+        return False
+    run_after_exit = command
+    return restart_soon()

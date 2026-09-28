@@ -14,6 +14,9 @@ The version is in `app/__init__.py` and shown in **Settings → This device**.
   old one started at sign-in, the app does from then on.
 - Backups now also hold your settings (preferences, the phone's private address, the passcode), so
   a restore, or a move into the app, keeps your phone connected and signed in.
+- **The Windows app updates itself**: Settings → Updates → **Update now** downloads the new installer
+  from the Releases page, installs it over this copy and opens NEXUS again. (On a Mac it still
+  offers the download.)
 - **Restart NEXUS now** (downloadable app), right from the page, for example after choosing a backup.
 - iPhone app: pull down to refresh.
 - Windows installer: "also install Ollama" now installs it quietly.

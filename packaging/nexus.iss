@@ -44,6 +44,8 @@ Name: "{userstartup}\NEXUS"; Filename: "{app}\NEXUS.exe"; Parameters: "--no-brow
 [Run]
 Filename: "{tmp}\OllamaSetup.exe"; Parameters: "/SILENT /SUPPRESSMSGBOXES /NORESTART"; StatusMsg: "Installing Ollama (the AI)..."; Flags: waituntilterminated skipifdoesntexist; Tasks: ollama
 Filename: "{app}\NEXUS.exe"; Description: "Open NEXUS now"; Flags: nowait postinstall skipifsilent
+; An update started from inside NEXUS (Settings → Updates) installs silently with /RELAUNCH=1: open NEXUS again.
+Filename: "{app}\NEXUS.exe"; Parameters: "--no-browser"; Flags: nowait; Check: Relaunch
 
 [UninstallRun]
 ; Stop NEXUS before its files are removed (your ideas in %LOCALAPPDATA%\NEXUS are kept).
@@ -56,6 +58,11 @@ Type: files; Name: "{userstartup}\NEXUS.lnk"
 [Code]
 var
   DownloadPage: TDownloadWizardPage;
+
+function Relaunch: Boolean;
+begin
+  Result := ExpandConstant('{param:RELAUNCH|0}') = '1';
+end;
 
 function OllamaInstalled: Boolean;
 begin
