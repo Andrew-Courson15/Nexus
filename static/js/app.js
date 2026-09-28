@@ -1131,6 +1131,26 @@ async function mountOllamaInstall(slot, onDone) {
   show(st);
 }
 
+/** First run: offer to start NEXUS at sign-in, so the phone can reach it without opening anything. */
+async function mountWelcomeAutostart(slot) {
+  if (!slot || !ON_THIS_COMPUTER) return;
+  let st;
+  try { st = await api("/api/autostart", { noCopy: true }); } catch { return; }
+  if (!st.supported || st.enabled || !slot.isConnected) return;
+  const mac = /Mac/.test(navigator.platform);
+  slot.innerHTML = `<div class="notice small" style="margin:12px 0"><strong>Start NEXUS when you sign in?</strong>
+    Then your phone can reach it whenever the computer is on, without opening anything. You can change this in Settings.
+    <div class="row" style="margin-top:8px"><button type="button" class="btn small primary" data-act="autostart-on">${
+      mac ? "Open NEXUS at login" : "Start NEXUS with Windows"}</button></div></div>`;
+  $("[data-act=autostart-on]", slot).addEventListener("click", async (ev) => {
+    ev.target.disabled = true;
+    try {
+      await api("/api/autostart", { method: "PUT", json: { enabled: true } });
+      slot.innerHTML = `<p class="small notice" style="margin:12px 0">✓ NEXUS will start when you sign in.</p>`;
+    } catch (err) { toast(err.message, true); ev.target.disabled = false; }
+  });
+}
+
 /** First run: what NEXUS is, and whether this computer is ready (AI, voice, search). */
 async function mountWelcome(box) {
   if (box.dataset.shown) return;
@@ -1145,9 +1165,11 @@ async function mountWelcome(box) {
         `<span class="legend-dot ${k}"></span>${{ user: "your words", ai: "AI interpretation", infer: "AI inference", unknown: "unknown" }[k]}`).join(" ")}</li>
     </ul>
     <div id="found-archives"></div>
+    <div id="welcome-autostart"></div>
     <h3>Is this computer ready?</h3><div id="welcome-check"><p class="loading">Checking…</p></div>
   </section>`;
   mountFoundArchives($("#found-archives", box));
+  mountWelcomeAutostart($("#welcome-autostart", box));
   $("[data-act=welcome-done]", box).onclick = () => { store("nexus.welcomeDone", "1"); box.innerHTML = ""; };
   try {
     const st = await getSettings(true);
