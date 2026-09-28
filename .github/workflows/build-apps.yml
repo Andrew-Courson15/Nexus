@@ -28,6 +28,19 @@ jobs:
       - run: pip install -r requirements.txt -r requirements-local.txt "ruff==0.15.8"  # newer ruff versions enable more rules by default
       - run: ruff check app tests tray.py run.py
       - run: python -m pytest -q
+      - name: The apps' Update now against the real Releases page (finds the installer, downloads it in full)
+        env: { NEXUS_DATA_DIR: "${{ runner.temp }}/update-check" }
+        run: |
+          python - <<'PY'
+          from app.services import updates
+          updates.sys.platform = "win32"  # this process only: look for the Windows installer
+          info = updates.check_release("0.0.1")
+          if not info.get("latest_version") or info["latest_version"] == "0.0.1":
+              print("No release published yet; skipping."); raise SystemExit(0)
+          assert info["can_update"], info
+          setup = updates.download_installer(info)
+          print("Downloaded", setup.name, setup.stat().st_size, "bytes; changes:", info["changes"][:2])
+          PY
 
   windows:
     runs-on: windows-latest
