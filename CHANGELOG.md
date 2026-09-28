@@ -2,13 +2,18 @@
 
 The version is in `app/__init__.py` and shown in **Settings → This device**.
 
-## 0.15.2 (unreleased)
+## 0.15.2 (2026-09-28)
 
 - **Install Ollama for me**: the setup check downloads and installs Ollama (the AI) with one click,
   with progress, on Windows and Mac. No more finding it on a website.
 - First run: one **Download** button fetches every AI model still missing (the AI, the picture
   reader and search's model), with progress right there; setup tips point to Settings, not the README.
 - iPhone app: press and hold the NEXUS icon for **New idea** or **Search**.
+- **Fixed:** after **Restart NEXUS now** with a backup waiting to be restored, a Mac could fail to
+  start ("disk I/O error"); the new NEXUS now waits for the old one to close completely.
+- **Fixed:** updating the Windows app from inside NEXUS rolled back when NEXUS was still running.
+- Every build now also checks, in the real Windows and Mac apps, that voice notes, iPhone photos
+  and PDFs work, and that moving an archive from a NEXUS folder into the app keeps everything.
 
 ## 0.15.1 (2026-09-28)
 
