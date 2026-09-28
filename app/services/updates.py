@@ -90,8 +90,10 @@ def _release_notes(body: str) -> list[str]:
     return [re.sub(r"\*\*|`", "", i)[:300] for i in items][:8]
 
 
-def check_release(current: str) -> dict:
-    """The downloadable app: is there a newer release to download? (Asks the NEXUS Releases page.)"""
+def check_release(current: str, platform: str | None = None) -> dict:
+    """The downloadable app: is there a newer release to download? (Asks the NEXUS Releases page.)
+    `platform` defaults to this computer's ("win32", "darwin")."""
+    platform = platform or sys.platform
     import httpx
 
     base = {"can_update": False, "current_version": current, "packaged": True}
@@ -110,10 +112,10 @@ def check_release(current: str) -> dict:
     if not latest or not _newer(latest, current):
         return {**base, "behind": 0, "latest_version": latest or current, "reason": None}
     notes = _release_notes(str(data.get("body") or ""))
-    wanted = {"win32": f"NEXUS-Setup-{latest}.exe", "darwin": f"NEXUS-{latest}.dmg"}.get(sys.platform)
+    wanted = {"win32": f"NEXUS-Setup-{latest}.exe", "darwin": f"NEXUS-{latest}.dmg"}.get(platform)
     installer = next((a for a in data.get("assets") or [] if isinstance(a, dict)
                       and a.get("name") == wanted and a.get("browser_download_url")), None)
-    if installer and (sys.platform == "win32" or mac_bundle()):  # the app updates itself: download, install, reopen
+    if installer and (platform == "win32" or mac_bundle()):  # the app updates itself: download, install, reopen
         return {**base, "can_update": True, "behind": 1, "latest_version": latest, "changes": notes,
                 "download_url": data.get("html_url"), "installer_url": installer["browser_download_url"],
                 "installer_size": installer.get("size"), "reason": None}

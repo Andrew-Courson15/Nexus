@@ -116,15 +116,13 @@ def test_the_windows_app_updates_itself_from_the_release(monkeypatch, tmp_path):
             return release
 
     monkeypatch.setattr(httpx, "get", lambda *a, **k: Reply())
-    monkeypatch.setattr(updates.sys, "platform", "darwin")
-    assert not updates.check_release("0.15.1")["can_update"]  # a Mac copy it can't replace: the download page
+    assert not updates.check_release("0.15.1", "darwin")["can_update"]  # a Mac copy it can't replace: the download page
     monkeypatch.setattr(updates, "mac_bundle", lambda: tmp_path / "Applications" / "NEXUS.app")
-    mac = updates.check_release("0.15.1")
+    mac = updates.check_release("0.15.1", "darwin")
     assert mac["can_update"] and mac["installer_url"].endswith("NEXUS-9.9.0.dmg")
     cmd = updates.mac_install_command(tmp_path / "NEXUS-9.9.0.dmg", tmp_path / "Applications" / "NEXUS.app")
     assert cmd[0] == "/bin/bash" and cmd[-3:-1] == [str(tmp_path / "NEXUS-9.9.0.dmg"), str(tmp_path / "Applications" / "NEXUS.app")]
-    monkeypatch.setattr(updates.sys, "platform", "win32")
-    info = updates.check_release("0.15.1")
+    info = updates.check_release("0.15.1", "win32")
     assert info["can_update"] and info["installer_url"].endswith("NEXUS-Setup-9.9.0.exe")
 
     class Stream:

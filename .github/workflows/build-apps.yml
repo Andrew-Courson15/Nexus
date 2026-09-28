@@ -33,8 +33,7 @@ jobs:
         run: |
           python - <<'PY'
           from app.services import updates
-          updates.sys.platform = "win32"  # this process only: look for the Windows installer
-          info = updates.check_release("0.0.1")
+          info = updates.check_release("0.0.1", "win32")  # as the Windows app sees it
           print(info)
           assert info["can_update"], info
           setup = updates.download_installer(info)
