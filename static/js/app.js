@@ -2616,9 +2616,13 @@ const HELP = [
     phone and are sent when the computer is back. <strong>Settings → This device</strong> shows how recent the copy is.</p>`],
   ["Backups and your files", `<p>NEXUS makes a backup every week (<strong>Settings → Backups</strong>), a zip with everything. Keep backups on another
     drive or a cloud folder if you can. <strong>Export as readable files</strong> gives you all your words as plain Markdown plus every original file.
-    Nothing ever leaves your computer unless you export or share it.</p>`],
+    Nothing ever leaves your computer unless you export or share it.</p>
+    <p><strong>Restore from a backup file</strong> (Settings → Backups) puts an archive back, or moves it to another computer or into the
+    downloadable app; the downloadable app also finds a NEXUS folder's archive by itself and offers to bring it over. Whatever was there
+    before is moved aside into a <code>data-before-restore</code> folder, never deleted.</p>`],
   ["Updating", `<p>On the computer NEXUS runs on: <strong>Settings → Updates → Check for updates</strong>, then <strong>Update now</strong>.
-    Your ideas and settings are never touched by an update. Phones load the new version by themselves.</p>`],
+    Your ideas and settings are never touched by an update. Phones load the new version by themselves.
+    The downloadable app installs the new version and opens again by itself; if its Releases page is private, it links there instead.</p>`],
   ["Sharing with a friend", `<p>Export an entry or a project as a <code>.nexus</code> file and send it. Your friend imports it in
     <strong>Settings → Import</strong>; it shows who it's from, and importing twice adds nothing.</p>`],
   ["Keyboard shortcuts", `<p><kbd>/</kbd> search · <kbd>n</kbd> new capture · <kbd>a</kbd> ask · <kbd>m</kbd> map · <kbd>t</kbd> today ·
