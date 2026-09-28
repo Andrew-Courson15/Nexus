@@ -78,6 +78,18 @@ def _newer(a: str, b: str) -> bool:
     return parts(a) > parts(b)
 
 
+def _release_notes(body: str) -> list[str]:
+    """The release's bullet points (from CHANGELOG.md), one line each, without Markdown; the download
+    instructions after "---" are left out."""
+    items: list[str] = []
+    for line in body.split("\n---", 1)[0].splitlines():
+        if line.lstrip().startswith(("- ", "* ")):
+            items.append(line.strip()[2:])
+        elif line.strip() and items:  # a wrapped bullet continues
+            items[-1] += " " + line.strip()
+    return [re.sub(r"\*\*|`", "", i)[:300] for i in items][:8]
+
+
 def check_release(current: str) -> dict:
     """The downloadable app: is there a newer release to download? (Asks the NEXUS Releases page.)"""
     import httpx
@@ -94,7 +106,7 @@ def check_release(current: str) -> dict:
     latest = str(data.get("tag_name") or "").lstrip("v")
     if not latest or not _newer(latest, current):
         return {**base, "behind": 0, "latest_version": latest or current, "reason": None}
-    notes = [line.strip("-* ").strip() for line in str(data.get("body") or "").splitlines() if line.strip()][:8]
+    notes = _release_notes(str(data.get("body") or ""))
     wanted = {"win32": f"NEXUS-Setup-{latest}.exe", "darwin": f"NEXUS-{latest}.dmg"}.get(sys.platform)
     installer = next((a for a in data.get("assets") or [] if isinstance(a, dict)
                       and a.get("name") == wanted and a.get("browser_download_url")), None)

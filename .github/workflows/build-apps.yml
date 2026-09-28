@@ -221,28 +221,49 @@ jobs:
             ${{ runner.temp }}/ios-test/*.txt
           retention-days: 30
 
-  # Pushing a version tag (git tag v0.14.1 && git push origin v0.14.1) publishes the installers on a
-  # GitHub Release page: one stable place to download NEXUS.
+  # Publishes the installers on a GitHub Release page (one stable place to download NEXUS, and what the
+  # apps' "Update now" installs): push a version tag (git tag v0.15.1 && git push origin v0.15.1), or push
+  # a commit whose message contains [release]. The release is named after app/__init__.py's version.
   release:
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') || contains(github.event.head_commit.message, '[release]')
     needs: [tests, windows, mac, ios]
     runs-on: ubuntu-latest
     permissions: { contents: write }
     steps:
+      - uses: actions/checkout@v4
+      - name: Version
+        id: v
+        run: echo "version=$(sed -n 's/^__version__ = "\(.*\)"/\1/p' app/__init__.py)" >> "$GITHUB_OUTPUT"
+      - name: What's new in this version (from CHANGELOG.md)
+        run: |
+          python3 - "${{ steps.v.outputs.version }}" > "$RUNNER_TEMP/notes.md" <<'PY'
+          import re, sys
+          text = open("CHANGELOG.md", encoding="utf-8").read()
+          m = re.search(r"^## " + re.escape(sys.argv[1]) + r"\b.*?\n(.*?)(?=^## |\Z)", text, re.S | re.M)
+          print(m.group(1).strip() if m else "")
+          PY
+          cat >> "$RUNNER_TEMP/notes.md" <<'EOF'
+
+          ---
+          **Windows:** download `NEXUS-Setup-….exe` and double-click it (no admin needed). Windows may say it
+          protected your PC (the app isn't signed yet): More info → Run anyway.
+          **Mac:** download the `.dmg`, open it and drag NEXUS to Applications. The first time, right-click NEXUS →
+          Open (or System Settings → Privacy & Security → Open Anyway).
+          **Already using NEXUS from a folder?** Close it, open the app, and choose **Bring my archive here**.
+          **AI:** the Windows installer can install Ollama; on a Mac get it from https://ollama.com.
+          **iPhone:** see IOS.md.
+          EOF
       - uses: actions/download-artifact@v4
         with: { path: dist, pattern: "NEXUS-*", merge-multiple: true }
       - uses: softprops/action-gh-release@v2
         with:
-          name: NEXUS ${{ github.ref_name }}
+          tag_name: v${{ steps.v.outputs.version }}
+          target_commitish: ${{ github.sha }}
+          name: NEXUS ${{ steps.v.outputs.version }}
+          body_path: ${{ runner.temp }}/notes.md
+          make_latest: "true"
           files: |
             dist/NEXUS-Setup-*.exe
             dist/NEXUS-*.dmg
             dist/NEXUS-*-windows.zip
             dist/NEXUS-*-mac.zip
-          body: |
-            **Windows:** download `NEXUS-Setup-….exe` and double-click it (no admin needed). Windows may say it
-            protected your PC (the app isn't signed yet): More info → Run anyway.
-            **Mac:** download the `.dmg`, open it and drag NEXUS to Applications. The first time, right-click NEXUS →
-            Open (or System Settings → Privacy & Security → Open Anyway).
-            **AI:** install Ollama from https://ollama.com; NEXUS's setup check downloads the model.
-            **iPhone:** see IOS.md.
