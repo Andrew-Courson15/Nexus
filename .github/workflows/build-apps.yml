@@ -108,6 +108,8 @@ jobs:
             if (Test-Path "$env:RUNNER_TEMP\nexus-smoke\data\$f") { Copy-Item "$env:RUNNER_TEMP\nexus-smoke\data\$f" "$old\data\$f" }
           }
           Set-Content "$old\.env" "NEXUS_ALLOWED_HOSTS=localhost,gaming-pc.tail1234.ts.net"
+          $keepHome = $env:NEXUS_HOME
+          $env:NEXUS_HOME = "$env:RUNNER_TEMP\nexus-movein"  # a fresh, empty app (it only offers to bring an archive then)
           Start-Process $exe -ArgumentList "--no-browser" | Out-Null
           for ($i = 0; $i -lt 90; $i++) { try { Invoke-RestMethod "http://127.0.0.1:8766/api/ping" -TimeoutSec 2 | Out-Null; break } catch { Start-Sleep -Seconds 1 } }
           $found = @((Invoke-RestMethod "http://127.0.0.1:8766/api/backups/found").archives)
@@ -128,6 +130,7 @@ jobs:
           Write-Host "Brought $total entries and the phone address from $old into the app."
           Get-Process NEXUS -ErrorAction SilentlyContinue | Stop-Process -Force
           Start-Sleep -Seconds 2
+          $env:NEXUS_HOME = $keepHome
           $un = "$env:LOCALAPPDATA\Programs\NEXUS\unins000.exe"
           Start-Process $un -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART" -Wait
           # The uninstaller hands over to a copy of itself, so wait for the files to go.

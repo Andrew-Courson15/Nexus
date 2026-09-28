@@ -234,6 +234,12 @@ def test_the_app_finds_an_archive_in_a_nexus_folder_and_brings_it(client, tmp_pa
         assert (old / "nexus.db").exists() and (old / "images" / "sketch.png").exists()  # the folder isn't touched
         assert client.get("/api/backups").json()["can_restart"] is False
         assert client.post("/api/restart").status_code == 400
+        backup.cancel_restore()
+        # Once this archive has ideas, the folder isn't offered again (it would replace them).
+        client.post("/api/entries", json={"original_text": "Captured in the app", "analyze": False})
+        assert client.get("/api/backups/found").json() == {"archives": []}
+        assert client.post("/api/backups/found", json={"folder": found[0]["folder"]}).status_code == 400
+        assert backup.pending_restore() is None
     finally:
         backup.cancel_restore()
 

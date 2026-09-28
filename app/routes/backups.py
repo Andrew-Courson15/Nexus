@@ -1,11 +1,15 @@
 """Backups: list, start, download, and restore from a file. See app/services/backup.py."""
 from __future__ import annotations
 
-from fastapi import APIRouter, File, HTTPException, Request, Response, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Request, Response, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session
 
 from app.config import get_settings
+from app.database import get_db
+from app.models import CreativeEntry
 from app.services import backup, lifecycle
 
 router = APIRouter(prefix="/api/backups", tags=["backups"])
@@ -48,9 +52,13 @@ def stage_restore(request: Request, file: UploadFile = File(...)):
 
 
 @router.get("/found")
-def found_archives(request: Request):
-    """NEXUS folders on this computer with an archive (the downloadable app offers to bring one over)."""
+def found_archives(request: Request, db: Session = Depends(get_db)):
+    """NEXUS folders on this computer with an archive (the downloadable app offers to bring one over).
+    Only while this archive is still empty: afterwards the old folder is still there, and bringing it
+    again would replace everything captured here since (use a backup file for that instead)."""
     _only_here(request)
+    if db.scalar(select(func.count()).select_from(CreativeEntry)):
+        return {"archives": []}
     return {"archives": backup.found_archives()}
 
 
@@ -59,9 +67,11 @@ class _Bring(BaseModel):
 
 
 @router.post("/found")
-def bring_archive(body: _Bring, request: Request):
+def bring_archive(body: _Bring, request: Request, db: Session = Depends(get_db)):
     """Copy the archive from a NEXUS folder, to be restored the next time NEXUS starts."""
     _only_here(request)
+    if db.scalar(select(func.count()).select_from(CreativeEntry)):
+        raise HTTPException(400, "This NEXUS already has ideas in it. To replace them, use Restore from a backup file.")
     try:
         info = backup.bring_archive(body.folder)
     except backup.BackupError as exc:
