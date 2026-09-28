@@ -1099,6 +1099,16 @@ async function mountOllamaInstall(slot, onDone) {
       }, 1500);
       return;
     }
+    if (st.installed && st.state === "idle" && st.can_start && !ollamaStartWaits) {  // installed, just not running
+      slot.innerHTML = `<button type="button" class="btn small primary" data-act="start-ollama">Start Ollama</button>
+        <span class="small muted">Ollama is installed but not running. NEXUS also starts it by itself when NEXUS starts.</span>`;
+      $("[data-act=start-ollama]", slot).addEventListener("click", async (ev) => {
+        ev.target.disabled = true;
+        try { await api("/api/ollama/start", { method: "POST" }); ollamaStartWaits = 1; show({ ...st, state: "done" }); }
+        catch (err) { toast(err.message, true); ev.target.disabled = false; }
+      });
+      return;
+    }
     if (st.state === "done" || (st.installed && st.state === "idle")) {
       if (++ollamaStartWaits > 8) {
         slot.innerHTML = `<span class="small">Ollama is installed but isn't running yet. Open <strong>Ollama</strong> from the

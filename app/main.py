@@ -15,6 +15,7 @@ from app.config import BASE_DIR, get_settings
 from app.database import engine, init_db
 from app.routes import (art, backups, characters, entries, graph, lock, offline, organize, projects, search, share,
                         system, uploads)
+from app.services import ollama_setup
 from app.services.backup import apply_pending_restore
 from app.services.backup import runner as backup_runner
 from app.services.processing import processing_queue
@@ -28,6 +29,7 @@ async def lifespan(_app: FastAPI):
         engine.dispose()
         get_settings.cache_clear()  # its preferences and phone address
     init_db()
+    ollama_setup.start_if_needed()  # installed but not running (e.g. after a restart): open it
     processing_queue.start()
     processing_queue.recover()  # finish work interrupted by the last shutdown
     backup_runner.start_schedule()  # automatic backups (NEXUS_BACKUP_EVERY_DAYS)

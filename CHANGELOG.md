@@ -6,6 +6,8 @@ The version is in `app/__init__.py` and shown in **Settings → This device**.
 
 - Mac app: lives in the menu bar only (no Dock icon that does nothing), and its menu has
   **Open at login**, like **Start with Windows** on Windows.
+- **NEXUS starts Ollama for you**: if it's installed but not running (say, after a restart), NEXUS
+  opens it in the background when NEXUS starts, and the setup check has a **Start Ollama** button.
 - Help explains restoring and moving an archive, and how the downloadable app updates.
 
 ## 0.15.2 (2026-09-28)

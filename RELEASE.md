@@ -92,3 +92,11 @@ can make; the rest is engineering.
   themselves). 0.14 can already split a comic PDF into page entries, which is the first step.
 - Importing ebooks into the art library.
 - Optional cloud AI (OpenAI or Anthropic), only if the user turns it on, with a clear warning.
+
+## Build minutes
+
+The Windows, Mac and iPhone builds run on GitHub's machines and use the account's Actions minutes
+(a private repository has a monthly allowance; Mac and Windows minutes count several times over;
+public repositories are free). To save them, those builds run only when asked for: put `[build]`
+in a commit message, publish with `[release]`, or use Actions → Build apps → Run workflow. The
+Linux tests run on every push.

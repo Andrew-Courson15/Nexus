@@ -6,6 +6,7 @@ Applications), then Ollama is started. Progress: status().
 """
 from __future__ import annotations
 
+import logging
 import os
 import shutil
 import subprocess
@@ -21,6 +22,9 @@ DOWNLOADS = {
 }
 # ollama.com hands the download over to GitHub's release storage.
 HOSTS = ("ollama.com", "github.com", "objects.githubusercontent.com", "release-assets.githubusercontent.com")
+
+
+log = logging.getLogger("nexus.ollama_setup")
 
 
 class OllamaSetupError(RuntimeError):
@@ -48,7 +52,7 @@ def installed() -> bool:
 
 def status() -> dict:
     with _lock:
-        return {**_state, "supported": supported(), "installed": installed()}
+        return {**_state, "supported": supported(), "installed": installed(), "can_start": app_path() is not None}
 
 
 def start() -> dict:
@@ -132,6 +136,56 @@ def _install(file: Path) -> None:
     if done.returncode != 0 or not (target / "Ollama.app").is_dir():
         raise OllamaSetupError(f"Couldn't unpack Ollama ({(done.stderr or '').strip()[:200]}).")
     subprocess.run(["/usr/bin/open", str(target / "Ollama.app")], timeout=60)
+
+
+def app_path() -> Path | None:
+    """The Ollama app to open (it runs the AI in the background), if it's installed."""
+    if sys.platform == "win32":
+        candidates = [Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "Ollama" / "ollama app.exe",
+                      Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "Ollama" / "ollama app.exe"]
+    elif sys.platform == "darwin":
+        candidates = [Path("/Applications/Ollama.app"), Path.home() / "Applications" / "Ollama.app"]
+    else:
+        return None
+    return next((p for p in candidates if p.exists()), None)
+
+
+def reachable(timeout: float = 1.5) -> bool:
+    import httpx
+
+    try:
+        return httpx.get(get_settings().ollama_url + "/api/version", timeout=timeout).status_code == 200
+    except httpx.HTTPError:
+        return False
+
+
+def launch() -> bool:
+    """Open the Ollama app in the background. False when it isn't installed here."""
+    path = app_path()
+    if not path:
+        return False
+    if sys.platform == "win32":
+        subprocess.Popen([str(path)], close_fds=True,
+                         creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP)
+    else:
+        subprocess.Popen(["/usr/bin/open", "-g", str(path)], close_fds=True)
+    return True
+
+
+def start_if_needed() -> None:
+    """At NEXUS startup: if NEXUS uses Ollama and it's installed but not running, open it (in the background)."""
+    s = get_settings()
+    if not s.ai_provider.startswith("ollama") or not s.ollama_url.startswith(("http://127.0.0.1", "http://localhost")):
+        return
+
+    def run():
+        try:
+            if not reachable() and launch():
+                log.info("Opened Ollama (it wasn't running)")
+        except Exception:  # a convenience; the setup check shows how to start it by hand
+            log.exception("Couldn't open Ollama")
+
+    threading.Thread(target=run, name="nexus-ollama-start", daemon=True).start()
 
 
 def reset() -> None:  # tests

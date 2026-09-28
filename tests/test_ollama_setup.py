@@ -74,3 +74,36 @@ def test_a_failed_install_is_shown(monkeypatch):
     monkeypatch.setattr(ollama_setup, "_download", lambda url: (_ for _ in ()).throw(ollama_setup.OllamaSetupError("offline")))
     ollama_setup._run()
     assert ollama_setup.status()["state"] == "error" and ollama_setup.status()["error"] == "offline"
+
+
+def test_start_ollama_when_it_is_installed_but_not_running(client, monkeypatch):
+    opened = []
+    monkeypatch.setattr(ollama_setup, "app_path", lambda: None)
+    assert client.post("/api/ollama/start").status_code == 400  # not installed
+    assert client.get("/api/ollama/install").json()["can_start"] is False
+    monkeypatch.setattr(ollama_setup, "app_path", lambda: "/Applications/Ollama.app")
+    monkeypatch.setattr(ollama_setup.subprocess, "Popen", lambda cmd, **kw: opened.append(cmd))
+    assert client.post("/api/ollama/start").json() == {"started": True} and opened
+    assert client.post("/api/ollama/start", headers={"x-forwarded-for": "100.64.0.7"}).status_code == 403
+
+
+def test_nexus_opens_ollama_at_startup_only_when_needed(monkeypatch):
+    from app.config import get_settings
+
+    launched = []
+    monkeypatch.setattr(ollama_setup, "launch", lambda: launched.append(1) or True)
+    monkeypatch.setattr(ollama_setup, "reachable", lambda: False)
+    monkeypatch.setattr(ollama_setup.threading, "Thread", lambda target, **kw: type("T", (), {"start": lambda self: target()})())
+    ollama_setup.start_if_needed()  # the tests use the offline organizer, not Ollama
+    assert launched == []
+    monkeypatch.setenv("NEXUS_AI_PROVIDER", "ollama")
+    get_settings.cache_clear()
+    try:
+        ollama_setup.start_if_needed()
+        assert launched == [1]
+        monkeypatch.setattr(ollama_setup, "reachable", lambda: True)  # already running: leave it
+        ollama_setup.start_if_needed()
+        assert launched == [1]
+    finally:
+        monkeypatch.undo()
+        get_settings.cache_clear()

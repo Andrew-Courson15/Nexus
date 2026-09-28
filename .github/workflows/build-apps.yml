@@ -3,6 +3,9 @@
 #   Windows: NEXUS-Setup-<version>.exe (installer) and NEXUS-<version>-windows.zip
 #   Mac:     NEXUS-<version>.dmg and NEXUS-<version>-mac.zip
 # Also runs the test suite on Linux.
+# The Windows, Mac and iPhone builds use the most build minutes, so they run only when asked for: a
+# commit message with [build] (or [release]), a version tag, or Actions → Build apps → Run workflow.
+# The Linux tests run on every push.
 name: Build apps
 
 on:
@@ -40,6 +43,7 @@ jobs:
           PY
 
   windows:
+    if: github.event_name != 'push' || startsWith(github.ref, 'refs/tags/') || contains(github.event.head_commit.message, '[build]') || contains(github.event.head_commit.message, '[release]')
     runs-on: windows-latest
     timeout-minutes: 60
     steps:
@@ -157,6 +161,7 @@ jobs:
           retention-days: 30
 
   mac:
+    if: github.event_name != 'push' || startsWith(github.ref, 'refs/tags/') || contains(github.event.head_commit.message, '[build]') || contains(github.event.head_commit.message, '[release]')
     runs-on: macos-latest
     timeout-minutes: 60
     steps:
@@ -252,6 +257,7 @@ jobs:
           retention-days: 30
 
   ios:
+    if: github.event_name != 'push' || startsWith(github.ref, 'refs/tags/') || contains(github.event.head_commit.message, '[build]') || contains(github.event.head_commit.message, '[release]')
     runs-on: macos-latest
     timeout-minutes: 60
     steps:

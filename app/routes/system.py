@@ -216,6 +216,17 @@ def ollama_install(request: Request):
         raise HTTPException(400, str(exc)) from exc
 
 
+@router.post("/ollama/start")
+def ollama_start(request: Request):
+    """Open the Ollama app (installed but not running). On the computer NEXUS runs on only."""
+    from app.services import ollama_setup
+
+    _only_here(request, "Ollama is started on the computer NEXUS runs on.")
+    if not ollama_setup.launch():
+        raise HTTPException(400, "Ollama isn't installed on this computer.")
+    return {"started": True}
+
+
 LOG_LINES = 80
 
 
