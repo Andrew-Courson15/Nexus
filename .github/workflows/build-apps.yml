@@ -189,6 +189,29 @@ jobs:
           curl -fsS http://127.0.0.1:8000/api/ping || { echo "NEXUS.app didn't answer"; tail -50 "$HOME/Library/Application Support/NEXUS/data/nexus.log" 2>/dev/null; exit 1; }
           ls "$HOME/Library/Application Support/NEXUS/data/nexus.db"
           pkill -f "NEXUS.app/Contents/MacOS/NEXUS" || true
+      - name: Move in from a NEXUS folder (~/nexus) the way you would, then restart from the page
+        run: |
+          B=http://127.0.0.1:8000
+          mkdir -p ~/nexus/data
+          for f in nexus.db nexus.db-wal nexus.db-shm; do
+            [ -f "$RUNNER_TEMP/nexus-smoke/data/$f" ] && cp "$RUNNER_TEMP/nexus-smoke/data/$f" ~/nexus/data/
+          done
+          echo "NEXUS_ALLOWED_HOSTS=localhost,macbook.tail1234.ts.net" > ~/nexus/.env
+          sleep 2
+          open -n dist/NEXUS.app --args --no-browser
+          for i in $(seq 1 90); do curl -fsS -m 2 $B/api/ping >/dev/null 2>&1 && break; sleep 1; done
+          FOUND="$(curl -fsS $B/api/backups/found)"; echo "$FOUND"
+          FOLDER="$(echo "$FOUND" | python3 -c 'import json,sys; print(json.load(sys.stdin)["archives"][0]["folder"])')"
+          WANT="$(echo "$FOUND" | python3 -c 'import json,sys; print(json.load(sys.stdin)["archives"][0]["entries"])')"
+          curl -fsS -X POST $B/api/backups/found -H 'Content-Type: application/json' -d "{\"folder\": \"$FOLDER\"}" >/dev/null
+          curl -fsS -X POST $B/api/restart >/dev/null
+          for i in $(seq 1 60); do curl -fsS -m 1 $B/api/ping >/dev/null 2>&1 || break; sleep 0.3; done
+          for i in $(seq 1 90); do curl -fsS -m 2 $B/api/ping >/dev/null 2>&1 && break; sleep 1; done
+          curl -fsS $B/api/backups | grep -q '"ok":true' || { echo "not restored"; tail -60 "$HOME/Library/Application Support/NEXUS/data/nexus.log"; exit 1; }
+          curl -fsS $B/api/entries | grep -q "\"total\":$WANT[,}]" || { echo "expected $WANT entries"; exit 1; }
+          grep -q macbook.tail1234.ts.net "$HOME/Library/Application Support/NEXUS/data/phone.json" || { echo "phone address missing"; exit 1; }
+          echo "Brought $WANT entries and the phone address from ~/nexus into NEXUS.app."
+          pkill -f "NEXUS.app/Contents/MacOS/NEXUS" || true
       - name: Make the .dmg and .zip
         run: |
           V="${{ steps.v.outputs.version }}"
