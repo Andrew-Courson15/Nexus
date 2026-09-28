@@ -2448,7 +2448,9 @@ async function viewSettings(el) {
       <div class="panel" id="device"></div>
       <div class="panel" id="lock"></div>
       <div class="panel" id="import"></div>
-      <div class="panel"><h3>AI provider</h3>${health(ai.health)}<dl class="kv">
+      <div class="panel"><h3>AI provider</h3>${health(ai.health)}
+        ${ON_THIS_COMPUTER && ai.name?.startsWith("ollama") && !ai.health?.ok && !Array.isArray(ai.health?.installed)
+          ? `<p data-ollama-install></p>` : ""}<dl class="kv">
         <dt>Active</dt><dd>${esc(ai.name)}</dd>
         <dt>Sends data off this machine</dt><dd>${ai.external == null ? "—" : ai.external ? "Yes" : "No"}</dd>
         ${ai.health?.installed ? `<dt>Installed models</dt><dd>${esc(ai.health.installed.join(", ") || "none")}</dd>` : ""}
@@ -2482,6 +2484,7 @@ async function viewSettings(el) {
   el.querySelector(".view-head").insertAdjacentHTML("afterend", `<h2 class="sr-only">Settings</h2><section class="panel prefs" id="prefs"><p class="loading">Loading…</p></section>`);
   mountPreferences($("#prefs", el));
   mountBackups($("#backups", el));
+  mountOllamaInstall($("[data-ollama-install]", el), () => location.hash === "#/settings" && render());
   mountImport($("#import", el));
   mountDevice($("#device", el));
   mountLock($("#lock", el));
