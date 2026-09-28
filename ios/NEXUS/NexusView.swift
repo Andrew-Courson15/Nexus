@@ -164,7 +164,7 @@ struct NexusView: UIViewRepresentable {
             const fd = new FormData();
             fd.append('file', new Blob(['iOS self-test file'], { type: 'text/plain' }), 'ios-selftest.txt');
             fd.append('analyze', 'false');
-            report.upload = (await fetch('/api/uploads', { method: 'POST', body: fd })).status;
+            report.upload = (await apiNetwork('/api/uploads', { method: 'POST', body: fd })).id ? 201 : 0;  // as the app sends files
             await fetch('/api/entries', { method: 'POST', headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ original_text: 'iOS self-test report ' + JSON.stringify(report), analyze: false }) });
           } catch (e) { /* the computer is off in the second half of the test */ }

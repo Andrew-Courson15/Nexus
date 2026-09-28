@@ -102,6 +102,11 @@ async function apiNetwork(path, opts = {}) {
   // gets a time limit (longer for file uploads on a slow connection).
   const ctrl = new AbortController();
   const limit = opts.timeout ?? (init.body instanceof FormData ? 120000 : 10000);
+  if (IN_APP && init.body instanceof FormData) {  // the iPhone app can't pass file bodies on as they are
+    const { body, type } = await multipartBody(init.body);
+    init.body = body;
+    init.headers["Content-Type"] = type;
+  }
   const timer = setTimeout(() => ctrl.abort(), limit);
   init.signal = ctrl.signal;
   delete init.timeout;
@@ -131,6 +136,27 @@ async function apiNetwork(path, opts = {}) {
     throw new Error(msg);
   }
   return data;
+}
+
+/** A FormData (with files) as one multipart body, for the iPhone app's connection to the computer. */
+async function multipartBody(fd) {
+  const boundary = "----nexus" + newClientId();
+  const enc = new TextEncoder(), parts = [];
+  const safe = (v) => String(v).replace(/"/g, "%22").replace(/[\r\n]/g, " ");
+  for (const [name, value] of fd.entries()) {
+    let head = `--${boundary}\r\nContent-Disposition: form-data; name="${safe(name)}"`;
+    if (value instanceof Blob) {
+      head += `; filename="${safe(value.name || "file")}"\r\nContent-Type: ${value.type || "application/octet-stream"}\r\n\r\n`;
+      parts.push(enc.encode(head), new Uint8Array(await value.arrayBuffer()), enc.encode("\r\n"));
+    } else {
+      parts.push(enc.encode(`${head}\r\n\r\n${value}\r\n`));
+    }
+  }
+  parts.push(enc.encode(`--${boundary}--\r\n`));
+  const body = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
+  let at = 0;
+  for (const p of parts) { body.set(p, at); at += p.length; }
+  return { body, type: `multipart/form-data; boundary=${boundary}` };
 }
 
 let lastUnreachable = 0;
