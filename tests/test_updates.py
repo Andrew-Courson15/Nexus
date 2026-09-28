@@ -117,7 +117,12 @@ def test_the_windows_app_updates_itself_from_the_release(monkeypatch, tmp_path):
 
     monkeypatch.setattr(httpx, "get", lambda *a, **k: Reply())
     monkeypatch.setattr(updates.sys, "platform", "darwin")
-    assert not updates.check_release("0.15.1")["can_update"]  # the Mac app still offers the download page
+    assert not updates.check_release("0.15.1")["can_update"]  # a Mac copy it can't replace: the download page
+    monkeypatch.setattr(updates, "mac_bundle", lambda: tmp_path / "Applications" / "NEXUS.app")
+    mac = updates.check_release("0.15.1")
+    assert mac["can_update"] and mac["installer_url"].endswith("NEXUS-9.9.0.dmg")
+    cmd = updates.mac_install_command(tmp_path / "NEXUS-9.9.0.dmg", tmp_path / "Applications" / "NEXUS.app")
+    assert cmd[0] == "/bin/bash" and cmd[-3:-1] == [str(tmp_path / "NEXUS-9.9.0.dmg"), str(tmp_path / "Applications" / "NEXUS.app")]
     monkeypatch.setattr(updates.sys, "platform", "win32")
     info = updates.check_release("0.15.1")
     assert info["can_update"] and info["installer_url"].endswith("NEXUS-Setup-9.9.0.exe")
@@ -144,6 +149,12 @@ def test_the_windows_app_updates_itself_from_the_release(monkeypatch, tmp_path):
     cmd = updates.installer_command(setup)
     assert cmd[0] == str(setup) and "/VERYSILENT" in cmd and "/RELAUNCH=1" in cmd
 
+    dmg = {**mac, "installer_size": None}
+    monkeypatch.setattr(httpx, "stream", lambda *a, **k: Stream(b"x" * 1000 + b"koly" + b"\0" * 508))
+    assert updates.download_installer(dmg).name == "NEXUS-9.9.0.dmg"
+    monkeypatch.setattr(httpx, "stream", lambda *a, **k: Stream(b"MZ" + b"\0" * 1000))
+    with pytest.raises(updates.UpdateError):
+        updates.download_installer(dmg)
     monkeypatch.setattr(httpx, "stream", lambda *a, **k: Stream(b"<html>"))  # not an installer (and wrong size)
     with pytest.raises(updates.UpdateError):
         updates.download_installer(info)

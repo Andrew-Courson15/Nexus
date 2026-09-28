@@ -155,6 +155,22 @@ jobs:
           STAGE="$RUNNER_TEMP/dmg"; mkdir -p "$STAGE"; cp -R dist/NEXUS.app "$STAGE/"; ln -s /Applications "$STAGE/Applications"
           hdiutil create -volname "NEXUS $V" -srcfolder "$STAGE" -ov -format UDZO "dist/NEXUS-$V.dmg"
           ditto -c -k --keepParent dist/NEXUS.app "dist/NEXUS-$V-mac.zip"
+      - name: Update from the .dmg the way the app does (swap NEXUS.app, open it again)
+        env: { NEXUS_HOME: "${{ runner.temp }}/nexus-update" }
+        run: |
+          APPS="$RUNNER_TEMP/Apps"; mkdir -p "$APPS" "$NEXUS_HOME/data"; ditto dist/NEXUS.app "$APPS/NEXUS.app"
+          touch "$APPS/NEXUS.app/Contents/old-copy-marker"
+          python -c "
+          import subprocess, sys; from pathlib import Path
+          from app.services import updates
+          subprocess.run(updates.mac_install_command(Path('dist/NEXUS-${{ steps.v.outputs.version }}.dmg'), Path('$APPS/NEXUS.app')), check=True)"
+          cat "$NEXUS_HOME/data/update.log" || true
+          [ ! -e "$APPS/NEXUS.app/Contents/old-copy-marker" ] || { echo "The app wasn't replaced"; exit 1; }
+          [ ! -e "$APPS/NEXUS.app.old" ] && [ ! -e "$APPS/NEXUS.app.new" ] || { echo "Leftovers"; ls "$APPS"; exit 1; }
+          # opened by macOS (like a double-click), so it uses the usual address and data folder
+          for i in $(seq 1 90); do curl -fsS -m 2 http://127.0.0.1:8000/api/ping && break; sleep 1; done
+          curl -fsS http://127.0.0.1:8000/api/ping || { echo "The updated NEXUS didn't open"; exit 1; }
+          pkill -f "Apps/NEXUS.app/Contents/MacOS/NEXUS --no-browser" || true
       - uses: actions/upload-artifact@v4
         with:
           name: NEXUS-mac-${{ steps.v.outputs.version }}

@@ -57,8 +57,8 @@ can make; the rest is engineering.
     certificate. Without them, both systems warn users away.
 - **Updates without Git.** Done for the Windows app (0.15.1): Update now downloads the new
   installer from the Releases page (GitHub addresses only, size and file type checked), installs
-  it silently over the running copy and opens NEXUS again; CI tests that path. The Mac app offers
-  the download for now. Still to do: signed downloads, and self-update on the Mac. A folder copy
+  it silently over the running copy and opens NEXUS again; the Mac app swaps in the NEXUS.app from
+  the new `.dmg`. CI tests both. Still to do: signed downloads. A folder copy
   of NEXUS still updates with git.
 - **Simpler phone setup.** Done in 0.14: Settings → Your phone guides through Tailscale and turns
   on access with one button, then shows a QR code. Tailscale is still a separate app and account;

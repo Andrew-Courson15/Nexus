@@ -95,9 +95,10 @@ def check_release(current: str) -> dict:
     if not latest or not _newer(latest, current):
         return {**base, "behind": 0, "latest_version": latest or current, "reason": None}
     notes = [line.strip("-* ").strip() for line in str(data.get("body") or "").splitlines() if line.strip()][:8]
+    wanted = {"win32": f"NEXUS-Setup-{latest}.exe", "darwin": f"NEXUS-{latest}.dmg"}.get(sys.platform)
     installer = next((a for a in data.get("assets") or [] if isinstance(a, dict)
-                      and a.get("name") == f"NEXUS-Setup-{latest}.exe" and a.get("browser_download_url")), None)
-    if sys.platform == "win32" and installer:  # the Windows app updates itself: download, install, reopen
+                      and a.get("name") == wanted and a.get("browser_download_url")), None)
+    if installer and (sys.platform == "win32" or mac_bundle()):  # the app updates itself: download, install, reopen
         return {**base, "can_update": True, "behind": 1, "latest_version": latest, "changes": notes,
                 "download_url": data.get("html_url"), "installer_url": installer["browser_download_url"],
                 "installer_size": installer.get("size"), "reason": None}
@@ -108,8 +109,18 @@ def check_release(current: str) -> dict:
 INSTALLER_HOSTS = ("github.com", "objects.githubusercontent.com", "release-assets.githubusercontent.com")
 
 
+def mac_bundle() -> Path | None:
+    """The NEXUS.app this copy runs from, if it can be replaced (not run from the .dmg itself)."""
+    if not FROZEN or sys.platform != "darwin":
+        return None
+    bundle = Path(sys.executable).resolve().parents[2]
+    if bundle.suffix != ".app" or str(bundle).startswith(("/Volumes/", "/private/var/folders/")):
+        return None  # still on the disk image, or run from a quarantined copy macOS moved aside
+    return bundle if os.access(bundle.parent, os.W_OK) else None
+
+
 def download_installer(info: dict) -> Path:
-    """Download the new Windows installer (from the NEXUS Releases page only) into the data folder."""
+    """Download the new installer (.exe or .dmg, from the NEXUS Releases page only) into the data folder."""
     import httpx
 
     url = info["installer_url"]
@@ -117,9 +128,10 @@ def download_installer(info: dict) -> Path:
         raise UpdateError("The update isn't on the NEXUS Releases page; not downloading it.")
     folder = get_settings().data_dir / "updates"
     folder.mkdir(parents=True, exist_ok=True)
-    for old in folder.glob("NEXUS-Setup-*.exe"):
+    for old in [*folder.glob("NEXUS-Setup-*.exe"), *folder.glob("NEXUS-*.dmg")]:
         old.unlink(missing_ok=True)
-    dest = folder / f"NEXUS-Setup-{info['latest_version']}.exe"
+    dmg = info["installer_url"].endswith(".dmg")
+    dest = folder / (f"NEXUS-{info['latest_version']}.dmg" if dmg else f"NEXUS-Setup-{info['latest_version']}.exe")
     partial = dest.with_suffix(".part")
     try:
         with httpx.stream("GET", url, follow_redirects=True, timeout=httpx.Timeout(30, read=120)) as r:
@@ -133,7 +145,11 @@ def download_installer(info: dict) -> Path:
         if info.get("installer_size") and size != info["installer_size"]:
             raise UpdateError("The download was incomplete. Try again.")
         with open(partial, "rb") as f:
-            if f.read(2) != b"MZ":
+            if dmg:
+                f.seek(max(0, size - 512))
+                if f.read(4) != b"koly":  # the trailer every .dmg ends with
+                    raise UpdateError("The download isn't a Mac disk image.")
+            elif f.read(2) != b"MZ":
                 raise UpdateError("The download isn't a Windows installer.")
     except httpx.HTTPError as exc:
         partial.unlink(missing_ok=True)
@@ -145,8 +161,34 @@ def download_installer(info: dict) -> Path:
     return dest
 
 
+# Mac: after NEXUS has stopped, copy the new NEXUS.app out of the disk image, swap it in (the old one
+# is kept until the new one is in place), and open it.
+MAC_INSTALL = r"""
+set -eu
+dmg="$1"; app="$2"; mnt="$(mktemp -d)"
+echo "Updating $app from $dmg"
+hdiutil attach -nobrowse -readonly -mountpoint "$mnt" "$dmg"
+rm -rf "$app.new"
+ditto "$mnt/NEXUS.app" "$app.new"
+hdiutil detach "$mnt" || hdiutil detach -force "$mnt" || true
+rm -rf "$app.old"
+mv "$app" "$app.old"
+mv "$app.new" "$app"
+rm -rf "$app.old"
+open -n "$app" --args --no-browser
+echo "Updated."
+"""
+
+
+def mac_install_command(dmg: Path, bundle: Path) -> list[str]:
+    log = get_settings().data_dir / "update.log"
+    return ["/bin/bash", "-c", 'exec >>"$3" 2>&1' + MAC_INSTALL, "nexus-update", str(dmg), str(bundle), str(log)]
+
+
 def installer_command(setup: Path) -> list[str]:
     """Install over this copy without questions, then open NEXUS again (see packaging/nexus.iss)."""
+    if setup.suffix == ".dmg":
+        return mac_install_command(setup, mac_bundle())
     return [str(setup), "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/CLOSEAPPLICATIONS", "/RELAUNCH=1",
             f"/LOG={get_settings().data_dir / 'update.log'}"]
 

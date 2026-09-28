@@ -133,7 +133,7 @@ def main() -> None:
     _run()
     if _restart.is_set():
         if lifecycle.run_after_exit:  # an update: the installer replaces this copy, then opens NEXUS again
-            subprocess.Popen(lifecycle.run_after_exit, close_fds=True,
+            subprocess.Popen(lifecycle.run_after_exit, close_fds=True, start_new_session=sys.platform != "win32",
                              creationflags=getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0))
         else:
             _start_again()
