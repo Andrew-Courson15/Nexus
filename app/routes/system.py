@@ -197,6 +197,25 @@ def model_pulls():
     return preferences.pulls()
 
 
+@router.get("/ollama/install")
+def ollama_install_status():
+    from app.services import ollama_setup
+
+    return ollama_setup.status()
+
+
+@router.post("/ollama/install", status_code=202)
+def ollama_install(request: Request):
+    """Download and install Ollama in the background (on the computer NEXUS runs on only)."""
+    from app.services import ollama_setup
+
+    _only_here(request, "Ollama is installed on the computer NEXUS runs on.")
+    try:
+        return ollama_setup.start()
+    except ollama_setup.OllamaSetupError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
 LOG_LINES = 80
 
 

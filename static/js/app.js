@@ -1078,6 +1078,49 @@ async function viewHome(el) {
   await loadRecent();
 }
 
+/** "Install Ollama for me": download and install it from inside NEXUS, with progress (Windows and Mac). */
+let ollamaStartWaits = 0;
+async function mountOllamaInstall(slot, onDone) {
+  if (!slot) return;
+  const manual = `<a class="btn small" href="https://ollama.com/download" target="_blank" rel="noopener">Get Ollama (free)</a>
+    <span class="small muted">It runs the AI on this computer. Install it, open it once, then reload this page.</span>`;
+  let st;
+  try { st = await api("/api/ollama/install", { noCopy: true }); } catch { slot.innerHTML = manual; return; }
+  if (!st.supported) { slot.innerHTML = manual; return; }
+  const show = (st) => {
+    if (st.state === "downloading" || st.state === "installing") {
+      const pct = st.total_bytes ? Math.round((100 * st.done_bytes) / st.total_bytes) : null;
+      slot.innerHTML = `<span class="small"><span class="spinner inline"></span>${st.state === "downloading"
+        ? `Downloading Ollama… ${pct === null ? fmtSize(st.done_bytes) : `${pct}% of ${fmtSize(st.total_bytes)}`}`
+        : "Installing Ollama…"}</span>`;
+      setTimeout(async () => {
+        if (!slot.isConnected) return;
+        try { show(await api("/api/ollama/install", { noCopy: true })); } catch { setTimeout(() => show(st), 3000); }
+      }, 1500);
+      return;
+    }
+    if (st.state === "done" || (st.installed && st.state === "idle")) {
+      if (++ollamaStartWaits > 8) {
+        slot.innerHTML = `<span class="small">Ollama is installed but isn't running yet. Open <strong>Ollama</strong> from the
+          ${/Mac/.test(navigator.platform) ? "Applications folder" : "Start menu"}, then reload this page.</span>`;
+        return;
+      }
+      slot.innerHTML = `<span class="small"><span class="spinner inline"></span>Ollama is installed. Starting it…</span>`;
+      setTimeout(() => slot.isConnected && onDone?.(), 8000);
+      return;
+    }
+    slot.innerHTML = `<button type="button" class="btn small primary" data-act="install-ollama">Install Ollama for me</button>
+      <span class="small muted">${st.state === "error" ? `<span style="color:var(--danger)">${esc(st.error)}</span> `
+        : ""}Free, from ollama.com (about 1 GB). It runs the AI on this computer.
+        Or <a href="https://ollama.com/download" target="_blank" rel="noopener">install it yourself</a>.</span>`;
+    $("[data-act=install-ollama]", slot).addEventListener("click", async (ev) => {
+      ev.target.disabled = true;
+      try { show(await api("/api/ollama/install", { method: "POST" })); } catch (err) { toast(err.message, true); ev.target.disabled = false; }
+    });
+  };
+  show(st);
+}
+
 /** First run: what NEXUS is, and whether this computer is ready (AI, voice, search). */
 async function mountWelcome(box) {
   if (box.dataset.shown) return;
@@ -1110,6 +1153,7 @@ async function mountWelcome(box) {
     const aiHelp = ai.ok || !ollama ? ""
       : Array.isArray(ai.installed) ? (missing.length ? `<button type="button" class="btn small" data-pull="${esc(missing[0])}">Download the AI model (${esc(missing[0])})</button>
           <span class="small muted">A few GB, once. Progress shows in Settings → Preferences.</span>` : "")
+      : ON_THIS_COMPUTER ? `<span data-ollama-install></span>`
       : `<a class="btn small" href="https://ollama.com/download" target="_blank" rel="noopener">Get Ollama (free)</a>
           <span class="small muted">It runs the AI on this computer. Install it, open it once, then reload this page.</span>`;
     $("#welcome-check", box).innerHTML = `<ul class="setup-check">${rows.map(([name, h, what]) => `<li>
@@ -1120,6 +1164,7 @@ async function mountWelcome(box) {
         : `<p class="small muted">You can capture right away: anything not ready yet is done later (use <em>Re-run AI organizer</em> on an entry).
            See the README's setup section, or <a href="#/settings">Settings</a>.</p>`}
       <p class="small muted">Next: put NEXUS on your phone (README → "NEXUS on your phone"), and set a passcode in Settings.</p>`;
+    mountOllamaInstall($("[data-ollama-install]", box), () => { box.dataset.shown = ""; mountWelcome(box); });
     $("[data-pull]", box)?.addEventListener("click", async (ev) => {
       ev.target.disabled = true;
       try {

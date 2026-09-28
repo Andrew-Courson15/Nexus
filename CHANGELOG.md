@@ -2,6 +2,11 @@
 
 The version is in `app/__init__.py` and shown in **Settings → This device**.
 
+## 0.15.2 (unreleased)
+
+- **Install Ollama for me**: the setup check downloads and installs Ollama (the AI) with one click,
+  with progress, on Windows and Mac. No more finding it on a website.
+
 ## 0.15.1 (2026-09-28)
 
 - **Restore from a backup file**, in Settings → Backups (on the computer NEXUS runs on). It's also

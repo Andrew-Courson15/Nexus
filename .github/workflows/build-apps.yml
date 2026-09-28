@@ -171,6 +171,15 @@ jobs:
           for i in $(seq 1 90); do curl -fsS -m 2 http://127.0.0.1:8000/api/ping && break; sleep 1; done
           curl -fsS http://127.0.0.1:8000/api/ping || { echo "The updated NEXUS didn't open"; exit 1; }
           pkill -f "Apps/NEXUS.app/Contents/MacOS/NEXUS --no-browser" || true
+      - name: Install Ollama the way "Install Ollama for me" does (download from ollama.com, into Applications)
+        timeout-minutes: 20
+        env: { NEXUS_DATA_DIR: "${{ runner.temp }}/ollama-setup" }
+        run: |
+          python -c "
+          from app.services import ollama_setup as o
+          o._install(o._download(o.DOWNLOADS['darwin']))
+          print('installed:', o.installed())"
+          ls -d /Applications/Ollama.app "$HOME/Applications/Ollama.app" 2>/dev/null
       - uses: actions/upload-artifact@v4
         with:
           name: NEXUS-mac-${{ steps.v.outputs.version }}
