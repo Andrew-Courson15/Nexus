@@ -12,9 +12,10 @@ from fastapi.templating import Jinja2Templates
 
 from app import __version__
 from app.config import BASE_DIR, get_settings
-from app.database import init_db
+from app.database import engine, init_db
 from app.routes import (art, backups, characters, entries, graph, lock, offline, organize, projects, search, share,
                         system, uploads)
+from app.services.backup import apply_pending_restore
 from app.services.backup import runner as backup_runner
 from app.services.processing import processing_queue
 
@@ -23,6 +24,8 @@ APP_DIR = Path(__file__).resolve().parent
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
+    if apply_pending_restore():  # a backup chosen in Settings → Backups, restored before the database opens
+        engine.dispose()
     init_db()
     processing_queue.start()
     processing_queue.recover()  # finish work interrupted by the last shutdown

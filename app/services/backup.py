@@ -10,7 +10,8 @@ Backups are written to NEXUS_BACKUP_DIR (default data/backups). Put that on anot
 in a synced cloud folder so a failing disk can't take the backups with it. An automatic backup
 runs every NEXUS_BACKUP_EVERY_DAYS days, and only the newest NEXUS_BACKUP_KEEP are kept.
 
-Restore with:  python -m app.services.backup restore <file.zip>   (while NEXUS is closed)
+Restore from Settings → Backups → "Restore from a backup file" (it happens when NEXUS next starts), or
+with:  python -m app.services.backup restore <file.zip>   (while NEXUS is closed)
 """
 from __future__ import annotations
 
@@ -105,7 +106,7 @@ def create_backup(automatic: bool = False) -> Path:
                 zf.writestr("backup.json", json.dumps({
                     "app": "NEXUS", "format": 1, "created_at": datetime.now(timezone.utc).isoformat(),
                     "automatic": automatic, "original_files": counts["files"], "original_bytes": counts["bytes"],
-                    "restore": "python -m app.services.backup restore <this file>  (with NEXUS closed)",
+                    "restore": "Settings → Backups → Restore from a backup file, or: python -m app.services.backup restore <this file>",
                 }, indent=2))
             partial.replace(dest)  # a half-written backup never looks like a real one
         except BaseException:
@@ -189,35 +190,150 @@ class BackupRunner:
 runner = BackupRunner()
 
 
-# -- restore (command line, with NEXUS closed) ---------------------------------
+# -- restore ---------------------------------------------------------------
+# From the command line with NEXUS closed, or from Settings: the file is checked and put aside
+# ("staged"), and restored the next time NEXUS starts, before the database is opened.
+SQLITE_MAGIC = b"SQLite format 3\x00"
+
+
+def check_backup(zip_path: Path) -> dict:
+    """Is this a NEXUS backup that can be restored? Returns what backup.json says about it."""
+    try:
+        with zipfile.ZipFile(zip_path) as zf:
+            names = zf.namelist()
+            if "nexus.db" not in names or "backup.json" not in names:
+                raise BackupError("That isn't a NEXUS backup (it needs nexus.db and backup.json inside).")
+            for n in names:
+                if n.startswith(("/", "\\")) or ".." in Path(n).parts or re.match(r"^[A-Za-z]:", n):
+                    raise BackupError("The backup contains unsafe paths; refusing to restore it.")
+                top = n.split("/", 1)[0]
+                if n not in ("nexus.db", "backup.json") and top not in ORIGINAL_DIRS:
+                    raise BackupError(f"The backup contains something unexpected ({n}); refusing to restore it.")
+            with zf.open("nexus.db") as f:
+                if f.read(len(SQLITE_MAGIC)) != SQLITE_MAGIC:
+                    raise BackupError("The database in that backup is damaged.")
+            try:
+                info = json.loads(zf.read("backup.json"))
+            except ValueError as exc:
+                raise BackupError("That backup's description (backup.json) is damaged.") from exc
+    except zipfile.BadZipFile as exc:
+        raise BackupError("That file isn't a zip, or it's incomplete.") from exc
+    if not isinstance(info, dict) or info.get("app") != "NEXUS":
+        raise BackupError("That isn't a NEXUS backup.")
+    return {"created_at": info.get("created_at"), "original_files": info.get("original_files"),
+            "original_bytes": info.get("original_bytes"), "size_bytes": zip_path.stat().st_size}
+
+
 def restore(zip_path: Path) -> Path:
     """Replace the current data with a backup. The current data is moved aside, never deleted.
+    If anything goes wrong, the current data is put back as it was.
 
     Returns the folder the previous data was moved to.
     """
     s = get_settings()
-    with zipfile.ZipFile(zip_path) as zf:
-        names = zf.namelist()
-        if "nexus.db" not in names or "backup.json" not in names:
-            raise BackupError(f"{zip_path.name} isn't a NEXUS backup.")
-        for n in names:
-            if n.startswith("/") or ".." in Path(n).parts:
-                raise BackupError("The backup contains unsafe paths; refusing to restore it.")
-        db = _db_path()
-        aside = s.data_dir.parent / f"{s.data_dir.name}-before-restore-{datetime.now():%Y%m%d-%H%M%S}"
-        aside.mkdir(parents=True)
+    check_backup(zip_path)
+    db = _db_path()
+    aside = s.data_dir.parent / f"{s.data_dir.name}-before-restore-{datetime.now():%Y%m%d-%H%M%S}"
+    aside.mkdir(parents=True)
+    moved: list[tuple[Path, Path]] = []
+    try:
         for item in [db, db.with_name(db.name + "-wal"), db.with_name(db.name + "-shm"),
                      *(s.data_dir / d for d in (*ORIGINAL_DIRS, "previews"))]:
             if item.exists():
                 shutil.move(str(item), str(aside / item.name))
-        for n in names:
-            if n == "backup.json" or n.endswith("/"):
-                continue
-            target = db if n == "nexus.db" else s.data_dir / n
-            target.parent.mkdir(parents=True, exist_ok=True)
-            with zf.open(n) as src, open(target, "wb") as out:
-                shutil.copyfileobj(src, out)
+                moved.append((item, aside / item.name))
+        with zipfile.ZipFile(zip_path) as zf:
+            for n in zf.namelist():
+                if n == "backup.json" or n.endswith("/"):
+                    continue
+                target = db if n == "nexus.db" else s.data_dir / n
+                target.parent.mkdir(parents=True, exist_ok=True)
+                with zf.open(n) as src, open(target, "wb") as out:
+                    shutil.copyfileobj(src, out)
+    except BaseException:
+        log.exception("Restore failed; putting the previous data back")
+        for extracted in [db, *(s.data_dir / d for d in ORIGINAL_DIRS)]:
+            if extracted.is_dir():
+                shutil.rmtree(extracted, ignore_errors=True)
+            elif extracted.exists():
+                extracted.unlink()
+        for original, kept in reversed(moved):
+            shutil.move(str(kept), str(original))
+        shutil.rmtree(aside, ignore_errors=True)
+        raise
     return aside
+
+
+def _pending_path() -> Path:
+    return get_settings().data_dir / "restore-pending.zip"
+
+
+def _result_path() -> Path:
+    return get_settings().data_dir / "restore-result.json"
+
+
+def stage_restore(upload, filename: str = "") -> dict:
+    """Keep an uploaded backup to restore the next time NEXUS starts. `upload` is a readable file."""
+    pending = _pending_path()
+    pending.parent.mkdir(parents=True, exist_ok=True)
+    partial = pending.with_suffix(".zip.partial")
+    try:
+        with open(partial, "wb") as out:
+            shutil.copyfileobj(upload, out, 1024 * 1024)
+        info = check_backup(partial)
+    except BaseException:
+        partial.unlink(missing_ok=True)
+        raise
+    partial.replace(pending)
+    info["filename"] = filename
+    pending.with_suffix(".json").write_text(json.dumps(info))
+    return info
+
+
+def pending_restore() -> dict | None:
+    pending = _pending_path()
+    if not pending.is_file():
+        return None
+    try:
+        return json.loads(pending.with_suffix(".json").read_text())
+    except (OSError, ValueError):
+        return {"size_bytes": pending.stat().st_size}
+
+
+def cancel_restore() -> None:
+    _pending_path().unlink(missing_ok=True)
+    _pending_path().with_suffix(".json").unlink(missing_ok=True)
+
+
+def last_restore() -> dict | None:
+    """What happened the last time a staged backup was restored (shown once in Settings)."""
+    try:
+        return json.loads(_result_path().read_text())
+    except (OSError, ValueError):
+        return None
+
+
+def forget_last_restore() -> None:
+    _result_path().unlink(missing_ok=True)
+
+
+def apply_pending_restore() -> dict | None:
+    """At startup, before the database is opened: restore a staged backup, if there is one."""
+    pending = _pending_path()
+    if not pending.is_file():
+        return None
+    info = pending_restore() or {}
+    result = {"at": datetime.now(timezone.utc).isoformat(), "backup_created_at": info.get("created_at"),
+              "filename": info.get("filename")}
+    try:
+        aside = restore(pending)
+        result.update(ok=True, previous_data=str(aside))
+        log.info("Restored a backup; the previous data is in %s", aside)
+    except Exception as exc:
+        result.update(ok=False, error=str(exc))
+    cancel_restore()
+    _result_path().write_text(json.dumps(result))
+    return result
 
 
 def _nexus_running() -> bool:
@@ -243,7 +359,11 @@ def main(argv: list[str]) -> int:
         if not path.is_file():
             print(f"No such file: {path}")
             return 1
-        aside = restore(path)
+        try:
+            aside = restore(path)
+        except BackupError as exc:
+            print(exc)
+            return 1
         print(f"Restored {path.name}.\nYour previous data was moved to: {aside}\nStart NEXUS as usual.")
         return 0
     print("Usage:\n  python -m app.services.backup create\n  python -m app.services.backup restore <backup.zip>")

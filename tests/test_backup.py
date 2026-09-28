@@ -109,3 +109,98 @@ def test_restore_refuses_files_that_are_not_backups(tmp_path):
         zf.writestr("hello.txt", "hi")
     with pytest.raises(backup.BackupError):
         backup.restore(bad)
+
+
+def _own_data(tmp_path, monkeypatch):
+    data = tmp_path / "data"
+    (data / "images").mkdir(parents=True)
+    monkeypatch.setenv("NEXUS_DATA_DIR", str(data))
+    monkeypatch.delenv("NEXUS_DATABASE_URL", raising=False)
+    get_settings.cache_clear()
+    con = sqlite3.connect(data / "nexus.db")
+    con.execute("CREATE TABLE t (v TEXT)")
+    con.execute("INSERT INTO t VALUES ('before')")
+    con.commit()
+    con.close()
+    (data / "images" / "a.png").write_bytes(b"original picture")
+    return data
+
+
+def test_a_failed_restore_puts_everything_back(tmp_path, monkeypatch):
+    try:
+        data = _own_data(tmp_path, monkeypatch)
+        zipped = backup.create_backup()
+        (data / "images" / "b.png").write_bytes(b"new picture")
+
+        def broken(*_a, **_k):
+            raise OSError("disk full")
+        monkeypatch.setattr(backup.shutil, "copyfileobj", broken)
+        with pytest.raises(OSError):
+            backup.restore(zipped)
+        assert (data / "images" / "b.png").read_bytes() == b"new picture"
+        assert (data / "nexus.db").exists()
+        assert not list(tmp_path.glob("data-before-restore-*"))
+    finally:
+        monkeypatch.undo()
+        get_settings.cache_clear()
+
+
+def test_a_staged_backup_is_restored_when_nexus_starts(tmp_path, monkeypatch):
+    try:
+        data = _own_data(tmp_path, monkeypatch)
+        zipped = backup.create_backup()
+        con = sqlite3.connect(data / "nexus.db")
+        con.execute("UPDATE t SET v = 'after'")
+        con.commit()
+        con.close()
+        with open(zipped, "rb") as f:
+            info = backup.stage_restore(f, "old-nexus.zip")
+        assert info["filename"] == "old-nexus.zip" and backup.pending_restore()["filename"] == "old-nexus.zip"
+
+        result = backup.apply_pending_restore()
+        assert result["ok"] and backup.pending_restore() is None
+        con = sqlite3.connect(data / "nexus.db")
+        assert con.execute("SELECT v FROM t").fetchone()[0] == "before"
+        con.close()
+        assert backup.last_restore()["previous_data"] == result["previous_data"]
+        assert backup.apply_pending_restore() is None  # only once
+    finally:
+        monkeypatch.undo()
+        get_settings.cache_clear()
+
+
+def test_restore_from_a_file_in_settings(client, monkeypatch):
+    from app.services import lock
+
+    monkeypatch.setattr(lock, "LOOPBACK", lock.LOOPBACK | {"testclient"})
+    monkeypatch.setattr(lock, "_LOCAL_NAMES", lock._LOCAL_NAMES | {"testserver"})
+    backup.create_backup()
+    path = get_settings().backups_dir / backup.list_backups()[0]["name"]
+    try:
+        r = client.post("/api/backups/restore", files={"file": ("mine.zip", path.read_bytes(), "application/zip")})
+        assert r.status_code == 200 and r.json()["restore_pending"]["filename"] == "mine.zip"
+        assert client.get("/api/backups").json()["restore_pending"]["filename"] == "mine.zip"
+        assert client.delete("/api/backups/restore").json() == {"restore_pending": None}
+        assert client.get("/api/backups").json()["restore_pending"] is None
+
+        r = client.post("/api/backups/restore", files={"file": ("x.zip", b"not a zip", "application/zip")})
+        assert r.status_code == 400 and "zip" in r.json()["detail"]
+        assert backup.pending_restore() is None
+
+        phone = {"host": "localhost", "x-forwarded-for": "100.64.0.7"}
+        r = client.post("/api/backups/restore", files={"file": ("mine.zip", path.read_bytes(), "application/zip")},
+                        headers=phone)
+        assert r.status_code == 403 and backup.pending_restore() is None
+    finally:
+        backup.cancel_restore()
+
+
+def test_backups_with_unexpected_or_unsafe_contents_are_refused(tmp_path):
+    for extra in ("../evil.txt", "C:/evil.txt", "notes/other.txt"):
+        bad = tmp_path / "bad.zip"
+        with zipfile.ZipFile(bad, "w") as zf:
+            zf.writestr("nexus.db", backup.SQLITE_MAGIC + b"rest")
+            zf.writestr("backup.json", json.dumps({"app": "NEXUS"}))
+            zf.writestr(extra, "x")
+        with pytest.raises(backup.BackupError):
+            backup.check_backup(bad)

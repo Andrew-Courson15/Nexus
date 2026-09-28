@@ -2,6 +2,16 @@
 
 The version is in `app/__init__.py` and shown in **Settings → This device**.
 
+## 0.15.1 (2026-09-28)
+
+- **Restore from a backup file**, in Settings → Backups (on the computer NEXUS runs on). It's also
+  how to move your archive from a NEXUS folder into the downloadable app. The backup is checked
+  first and restored the next time NEXUS starts; your current data is moved aside, never deleted,
+  and put back as it was if anything goes wrong.
+- iPhone app: pull down to refresh.
+- Windows installer: "also install Ollama" now installs it quietly.
+- Characters, Rediscover and the phone's copy load faster on big archives.
+
 ## 0.15.0 (2026-09-28)
 
 - **Downloadable apps, built and tested on real machines.** Every change builds NEXUS for Windows

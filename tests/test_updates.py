@@ -23,7 +23,7 @@ def repos(tmp_path, monkeypatch):
     _git(work, "commit", "-m", "First")
     _git(work, "push", "origin", "HEAD:main")
     _git(tmp_path, "clone", str(origin), str(other))
-    (other / "app" / "__init__.py").write_text('__version__ = "0.15.0"\n')
+    (other / "app" / "__init__.py").write_text('__version__ = "9.9.0"\n')
     _git(other, "commit", "-am", "Timeline for comics")
     _git(other, "push", "origin", "HEAD:main")
     monkeypatch.setattr(updates, "BASE_DIR", work)
@@ -34,7 +34,7 @@ def repos(tmp_path, monkeypatch):
 
 def test_check_finds_the_newer_version(client, repos):
     info = client.get("/api/update").json()
-    assert info["can_update"] and info["behind"] == 1 and info["latest_version"] == "0.15.0"
+    assert info["can_update"] and info["behind"] == 1 and info["latest_version"] == "9.9.0"
     assert info["changes"] == ["Timeline for comics"] and info["branch"] == "main"
 
 
@@ -84,10 +84,10 @@ def test_packaged_app_checks_the_releases_page(monkeypatch):
         def json(self):
             return self._data
 
-    monkeypatch.setattr(httpx, "get", lambda *a, **k: Reply(200, {"tag_name": "v0.15.0", "html_url": "https://example/rel",
+    monkeypatch.setattr(httpx, "get", lambda *a, **k: Reply(200, {"tag_name": "v9.9.0", "html_url": "https://example/rel",
                                                                    "body": "- Timeline\n- Characters"}))
     info = updates.check_release("0.14.1")
-    assert info["behind"] == 1 and info["latest_version"] == "0.15.0" and info["download_url"] == "https://example/rel"
+    assert info["behind"] == 1 and info["latest_version"] == "9.9.0" and info["download_url"] == "https://example/rel"
     assert info["changes"] == ["Timeline", "Characters"] and info["can_update"] is False
     monkeypatch.setattr(httpx, "get", lambda *a, **k: Reply(200, {"tag_name": "v0.14.1"}))
     assert updates.check_release("0.14.1")["behind"] == 0

@@ -1846,7 +1846,9 @@ async function mountBackups(box) {
     <p class="small muted">A zip with a Markdown file for every entry and project (your words, notes and the AI's layers in
       separate, labeled sections) plus every original file. It opens in any notes app, without NEXUS.</p>
     ${b.folder_is_inside_data ? `<p class="small notice">Tip: backups are on the same drive as NEXUS. Set <code>NEXUS_BACKUP_DIR</code>
-      in <code>.env</code> to another drive, a USB stick or a OneDrive/iCloud folder, so one broken disk can't take both.</p>` : ""}`;
+      in <code>.env</code> to another drive, a USB stick or a OneDrive/iCloud folder, so one broken disk can't take both.</p>` : ""}
+    ${restorePanel(b)}`;
+  mountRestore(box, b);
   $("[data-act=backup-now]", box)?.addEventListener("click", async () => {
     try {
       await api("/api/backups", { method: "POST" });
@@ -1855,6 +1857,59 @@ async function mountBackups(box) {
     mountBackups(box);
   });
   if (b.running) setTimeout(() => box.isConnected && mountBackups(box), 3000);
+}
+
+const ON_THIS_COMPUTER = !IN_APP && ["localhost", "127.0.0.1", "[::1]"].includes(location.hostname);
+
+/** Backups → restore from a file (also how an archive moves into the downloadable app). */
+function restorePanel(b) {
+  const last = b.last_restore, pending = b.restore_pending;
+  let html = "";
+  if (last) {
+    html += last.ok
+      ? `<p class="small notice">Backup restored${last.backup_created_at ? ` (made ${esc(fmtDateTime(last.backup_created_at))})` : ""}.
+          Your data from before is kept in <code>${esc(last.previous_data)}</code>.
+          <button class="btn small ghost" data-act="restore-ok">OK</button></p>`
+      : `<p class="small notice" style="color:var(--danger)">The backup couldn't be restored: ${esc(last.error)}. Nothing was changed.
+          <button class="btn small ghost" data-act="restore-ok">OK</button></p>`;
+  }
+  if (!ON_THIS_COMPUTER) return html;
+  if (pending) {
+    return html + `<div class="notice small" style="margin-top:12px"><strong>Ready to restore</strong>
+      ${pending.filename ? `<code>${esc(pending.filename)}</code>` : "a backup"}${pending.created_at ? `, made ${esc(fmtDateTime(pending.created_at))}` : ""}.
+      It's restored the next time NEXUS starts: quit NEXUS (its icon by the clock → <strong>Quit NEXUS</strong>, or close its window) and start it again.
+      Your current data is moved aside, not deleted.
+      <button class="btn small ghost" data-act="restore-cancel">Cancel</button></div>`;
+  }
+  return html + `<h4 style="margin-top:16px">Restore from a backup file</h4>
+    <p class="small muted">Replaces this archive with a backup zip, for example to move your ideas from another computer or
+      from an older NEXUS folder into this app. Your current data is moved aside, never deleted.</p>
+    <label class="btn small ghost">Choose a backup (.zip)… <input type="file" accept=".zip,application/zip" data-act="restore-file" hidden></label>`;
+}
+
+function mountRestore(box, b) {
+  $("[data-act=restore-ok]", box)?.addEventListener("click", async () => {
+    try { await api("/api/backups/last-restore", { method: "DELETE" }); } catch (err) { toast(err.message, true); }
+    mountBackups(box);
+  });
+  $("[data-act=restore-cancel]", box)?.addEventListener("click", async () => {
+    try { await api("/api/backups/restore", { method: "DELETE" }); toast("Restore cancelled."); } catch (err) { toast(err.message, true); }
+    mountBackups(box);
+  });
+  $("[data-act=restore-file]", box)?.addEventListener("change", async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    if (!confirm(`Restore “${file.name}”?\n\nWhen NEXUS next starts, this archive is replaced by the one in the backup. `
+      + "Your current data is moved to a folder next to it, not deleted.")) { e.target.value = ""; return; }
+    const fd = new FormData();
+    fd.append("file", file);
+    toast("Checking the backup…");
+    try {
+      await api("/api/backups/restore", { method: "POST", body: fd, timeout: 600000 });
+      toast("Backup checked. Quit NEXUS and open it again to restore it.");
+    } catch (err) { toast(err.message, true); }
+    mountBackups(box);
+  });
 }
 
 /* ------------------------------------------------------- connections map */
