@@ -32,8 +32,9 @@ curl -fsS "$BASE/api/uploads/does-not-exist" -o /dev/null -w '%{http_code}\n' | 
 [ -f "$NEXUS_HOME/data/nexus.db" ] || fail "no database in NEXUS_HOME"
 echo "Captured: $ENTRY"
 echo "Search, page and service worker work."
-if [ -n "${NEXUS_VOICE_CHECK:-}" ]; then  # voice notes: the speech engine and its libraries made it into the app
+if [ -n "${NEXUS_VOICE_CHECK:-}" ]; then  # voice notes, iPhone photos, PDFs: their libraries made it into the app
   python3 packaging/voice_check.py "$BASE" || fail "voice notes don't work in the built app"
+  python3 packaging/media_check.py "$BASE" || fail "iPhone photos or PDFs don't work in the built app"
 fi
 
 # Back up, change something, choose the backup to restore, restart from the page: the backup is back.

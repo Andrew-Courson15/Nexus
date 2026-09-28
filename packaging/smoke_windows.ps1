@@ -27,9 +27,11 @@ try {
     $sw = Invoke-WebRequest "$base/sw.js" -UseBasicParsing
     $new = Invoke-RestMethod "$base/api/whats-new"
     Write-Host "Captured entry $($entry.id), search works, page and service worker load, what's new has $($new.items.Count) items."
-    if ($env:NEXUS_VOICE_CHECK) {  # voice notes: the speech engine and its libraries made it into the app
+    if ($env:NEXUS_VOICE_CHECK) {  # voice notes, iPhone photos, PDFs: their libraries made it into the app
         python packaging/voice_check.py $base
         if ($LASTEXITCODE -ne 0) { Show-Log; throw "Voice notes don't work in the built app" }
+        python packaging/media_check.py $base
+        if ($LASTEXITCODE -ne 0) { Show-Log; throw "iPhone photos or PDFs don't work in the built app" }
     }
     if (-not (Test-Path (Join-Path $env:NEXUS_HOME "data\nexus.db"))) { throw "No database in NEXUS_HOME" }
 
