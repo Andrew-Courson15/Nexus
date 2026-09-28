@@ -8,6 +8,11 @@ The version is in `app/__init__.py` and shown in **Settings → This device**.
   how to move your archive from a NEXUS folder into the downloadable app. The backup is checked
   first and restored the next time NEXUS starts; your current data is moved aside, never deleted,
   and put back as it was if anything goes wrong.
+- **Moving into the downloadable app is one click**: when it opens with an empty archive and finds
+  one in a NEXUS folder (like `C:\Users\you\nexus`), it offers **Bring my archive here**. If the
+  folder's NEXUS is still running, the app says so instead of quietly opening the old one. If the
+  old one started at sign-in, the app does from then on.
+- **Restart NEXUS now** (downloadable app), right from the page, for example after choosing a backup.
 - iPhone app: pull down to refresh.
 - Windows installer: "also install Ollama" now installs it quietly.
 - Characters, Rediscover and the phone's copy load faster on big archives.

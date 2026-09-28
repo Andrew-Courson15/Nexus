@@ -204,3 +204,53 @@ def test_backups_with_unexpected_or_unsafe_contents_are_refused(tmp_path):
             zf.writestr(extra, "x")
         with pytest.raises(backup.BackupError):
             backup.check_backup(bad)
+
+
+def test_the_app_finds_an_archive_in_a_nexus_folder_and_brings_it(client, tmp_path, monkeypatch):
+    from app.services import lock
+
+    monkeypatch.setattr(lock, "LOOPBACK", lock.LOOPBACK | {"testclient"})
+    monkeypatch.setattr(lock, "_LOCAL_NAMES", lock._LOCAL_NAMES | {"testserver"})
+    old = tmp_path / "nexus" / "data"
+    (old / "images").mkdir(parents=True)
+    con = sqlite3.connect(old / "nexus.db")
+    con.execute("CREATE TABLE creative_entries (id INTEGER PRIMARY KEY, original_text TEXT)")
+    con.executemany("INSERT INTO creative_entries (original_text) VALUES (?)", [("one",), ("two",)])
+    con.commit()
+    con.close()
+    (old / "images" / "sketch.png").write_bytes(b"a sketch")
+    monkeypatch.setattr(backup, "_candidate_dirs", lambda: [tmp_path / "missing" / "data", old, old])
+
+    assert client.get("/api/backups/found").json() == {"archives": []}  # a NEXUS folder doesn't look
+    monkeypatch.setattr(backup, "LOOK_FOR_OTHER_ARCHIVES", True)
+    found = client.get("/api/backups/found").json()["archives"]
+    assert [(a["folder"], a["entries"]) for a in found] == [(str((tmp_path / "nexus").resolve()), 2)]
+    try:
+        assert client.post("/api/backups/found", json={"folder": "/etc"}).status_code == 400
+        r = client.post("/api/backups/found", json={"folder": found[0]["folder"]})
+        assert r.status_code == 200 and r.json()["restore_pending"]["entries"] == 2
+        with zipfile.ZipFile(get_settings().data_dir / "restore-pending.zip") as zf:
+            assert zf.read("images/sketch.png") == b"a sketch"
+        assert (old / "nexus.db").exists() and (old / "images" / "sketch.png").exists()  # the folder isn't touched
+        assert client.get("/api/backups").json()["can_restart"] is False
+        assert client.post("/api/restart").status_code == 400
+    finally:
+        backup.cancel_restore()
+
+
+def test_restart_from_the_page_uses_the_apps_hook(client, monkeypatch):
+    import time
+
+    from app.services import lifecycle, lock
+
+    monkeypatch.setattr(lock, "LOOPBACK", lock.LOOPBACK | {"testclient"})
+    monkeypatch.setattr(lock, "_LOCAL_NAMES", lock._LOCAL_NAMES | {"testserver"})
+    calls = []
+    monkeypatch.setattr(lifecycle, "restart_hook", lambda: calls.append(1))
+    assert client.post("/api/restart", headers={"x-forwarded-for": "100.64.0.7"}).status_code == 403
+    assert client.post("/api/restart").status_code == 202
+    for _ in range(50):
+        if calls:
+            break
+        time.sleep(0.05)
+    assert calls == [1]

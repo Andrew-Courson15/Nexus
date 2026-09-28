@@ -34,7 +34,20 @@ router = APIRouter(prefix="/api", tags=["system"])
 @router.get("/ping")
 def ping():
     """Tiny, instant reply so the phone app can tell quickly whether NEXUS is reachable (and which version)."""
-    return {"ok": True, "version": __version__}
+    from app.config import FROZEN
+
+    return {"ok": True, "version": __version__, "app": FROZEN}
+
+
+@router.post("/restart", status_code=202)
+def restart(request: Request):
+    """Restart NEXUS (the downloadable app; on the computer NEXUS runs on only)."""
+    from app.services import lifecycle
+
+    _only_here(request, "NEXUS is restarted on the computer it runs on.")
+    if not lifecycle.restart_soon():
+        raise HTTPException(400, "Close NEXUS and open it again.")
+    return {"restarting": True}
 
 
 @router.get("/settings")

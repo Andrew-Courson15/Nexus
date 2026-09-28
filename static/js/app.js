@@ -207,6 +207,7 @@ function unreachable() {
 // Inside the NEXUS iPhone app (ios/): pages come from nexus://localhost and the app itself keeps pictures.
 const IN_APP = !!window.NEXUS_APP;
 const HAS_OFFLINE_COPY = (IN_APP || !["localhost", "127.0.0.1", "[::1]"].includes(location.hostname)) && "indexedDB" in window;
+const ON_THIS_COMPUTER = !IN_APP && ["localhost", "127.0.0.1", "[::1]"].includes(location.hostname);
 const SYNC_EVERY_MS = 5 * 60 * 1000;
 const THUMB_CACHE = "media-thumbs";
 const MAX_OFFLINE_THUMBS = 2000;  // newest first; about 100 KB each
@@ -1090,8 +1091,10 @@ async function mountWelcome(box) {
       <li><strong>Your words are never changed.</strong> ${["user", "ai", "infer", "unknown"].map((k) =>
         `<span class="legend-dot ${k}"></span>${{ user: "your words", ai: "AI interpretation", infer: "AI inference", unknown: "unknown" }[k]}`).join(" ")}</li>
     </ul>
+    <div id="found-archives"></div>
     <h3>Is this computer ready?</h3><div id="welcome-check"><p class="loading">Checking…</p></div>
   </section>`;
+  mountFoundArchives($("#found-archives", box));
   $("[data-act=welcome-done]", box).onclick = () => { store("nexus.welcomeDone", "1"); box.innerHTML = ""; };
   try {
     const st = await getSettings(true);
@@ -1859,8 +1862,6 @@ async function mountBackups(box) {
   if (b.running) setTimeout(() => box.isConnected && mountBackups(box), 3000);
 }
 
-const ON_THIS_COMPUTER = !IN_APP && ["localhost", "127.0.0.1", "[::1]"].includes(location.hostname);
-
 /** Backups → restore from a file (also how an archive moves into the downloadable app). */
 function restorePanel(b) {
   const last = b.last_restore, pending = b.restore_pending;
@@ -1877,17 +1878,71 @@ function restorePanel(b) {
   if (pending) {
     return html + `<div class="notice small" style="margin-top:12px"><strong>Ready to restore</strong>
       ${pending.filename ? `<code>${esc(pending.filename)}</code>` : "a backup"}${pending.created_at ? `, made ${esc(fmtDateTime(pending.created_at))}` : ""}.
-      It's restored the next time NEXUS starts: quit NEXUS (its icon by the clock → <strong>Quit NEXUS</strong>, or close its window) and start it again.
+      It's restored the next time NEXUS starts${b.can_restart ? "" : `: quit NEXUS (its icon by the clock → <strong>Quit NEXUS</strong>, or close its window) and start it again`}.
       Your current data is moved aside, not deleted.
-      <button class="btn small ghost" data-act="restore-cancel">Cancel</button></div>`;
+      <div class="row" style="margin-top:8px">${b.can_restart ? `<button class="btn small primary" data-act="restart">Restart NEXUS now</button>` : ""}
+      <button class="btn small ghost" data-act="restore-cancel">Cancel</button></div></div>`;
   }
-  return html + `<h4 style="margin-top:16px">Restore from a backup file</h4>
+  return html + `<div class="found-archives"></div><h4 style="margin-top:16px">Restore from a backup file</h4>
     <p class="small muted">Replaces this archive with a backup zip, for example to move your ideas from another computer or
       from an older NEXUS folder into this app. Your current data is moved aside, never deleted.</p>
     <label class="btn small ghost">Choose a backup (.zip)… <input type="file" accept=".zip,application/zip" data-act="restore-file" hidden></label>`;
 }
 
+/** The downloadable app, started with an empty archive, finds a NEXUS folder's archive and offers to bring it. */
+async function mountFoundArchives(slot, after) {
+  if (!slot || !ON_THIS_COMPUTER) return;
+  let found = [];
+  try { found = (await api("/api/backups/found", { noCopy: true })).archives; } catch { return; }
+  if (!found.length || !slot.isConnected) return;
+  slot.innerHTML = found.map((a, i) => `<div class="notice small" style="margin:12px 0">
+    <strong>Found your NEXUS archive</strong> in <code>${esc(a.folder)}</code> (${a.entries} idea${a.entries === 1 ? "" : "s"},
+    last changed ${esc(fmtDate(a.modified))}). Bring it into this app? Your ideas, pictures, voice notes and their history
+    are copied; the folder itself isn't changed.
+    <div class="row" style="margin-top:8px"><button class="btn small primary" data-bring="${i}">Bring my archive here</button></div></div>`).join("");
+  slot.querySelectorAll("[data-bring]").forEach((btn) => btn.addEventListener("click", async () => {
+    const a = found[+btn.dataset.bring];
+    btn.disabled = true;
+    btn.textContent = "Copying…";
+    try {
+      await api("/api/backups/found", { method: "POST", json: { folder: a.folder }, timeout: 600000 });
+      const b = await api("/api/backups", { noCopy: true }).catch(() => ({}));
+      slot.innerHTML = `<div class="notice small" style="margin:12px 0"><strong>Almost there.</strong> ${b.can_restart
+        ? "Restart NEXUS and your archive"
+        : "Quit NEXUS (its icon by the clock → <strong>Quit NEXUS</strong>) and open it again: your archive"} from
+        <code>${esc(a.folder)}</code> will be here.
+        ${b.can_restart ? `<div class="row" style="margin-top:8px"><button class="btn small primary" data-act="restart">Restart NEXUS now</button></div>` : ""}</div>`;
+      $("[data-act=restart]", slot)?.addEventListener("click", (e) => restartNexus(e.target));
+      after?.();
+    } catch (err) {
+      toast(err.message, true);
+      btn.disabled = false;
+      btn.textContent = "Bring my archive here";
+    }
+  }));
+}
+
+/** Restart the downloadable app from the page, then reload once it answers again. */
+async function restartNexus(btn) {
+  if (btn) { btn.disabled = true; btn.textContent = "Restarting…"; }
+  try {
+    await api("/api/restart", { method: "POST" });
+  } catch (err) { toast(err.message, true); if (btn) { btn.disabled = false; btn.textContent = "Restart NEXUS now"; } return; }
+  toast("Restarting NEXUS…");
+  await new Promise((r) => setTimeout(r, 2500));
+  for (let i = 0; i < 90; i++) {
+    try {
+      const r = await fetch("/api/ping", { cache: "no-store" });
+      if (r.ok) { location.reload(); return; }
+    } catch { /* still starting */ }
+    await new Promise((r) => setTimeout(r, 1000));
+  }
+  toast("NEXUS didn't come back by itself. Open it again from the Start menu or Applications.", true);
+}
+
 function mountRestore(box, b) {
+  mountFoundArchives($(".found-archives", box), () => mountBackups(box));
+  $("[data-act=restart]", box)?.addEventListener("click", (e) => restartNexus(e.target));
   $("[data-act=restore-ok]", box)?.addEventListener("click", async () => {
     try { await api("/api/backups/last-restore", { method: "DELETE" }); } catch (err) { toast(err.message, true); }
     mountBackups(box);

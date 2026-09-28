@@ -8,7 +8,8 @@ PORT="${NEXUS_PORT:-8000}"
 BASE="http://127.0.0.1:$PORT"
 "$EXE" --no-browser > "$RUNNER_TEMP/nexus-stdout.log" 2>&1 &
 PID=$!
-cleanup() { kill "$PID" 2>/dev/null; sleep 1; kill -9 "$PID" 2>/dev/null; true; }
+# (matches NEXUS started again by the restart below, not this script, whose command line also has the path)
+cleanup() { kill "$PID" 2>/dev/null; pkill -f -- "$EXE --no-browser" 2>/dev/null; sleep 1; kill -9 "$PID" 2>/dev/null; pkill -9 -f -- "$EXE --no-browser" 2>/dev/null; true; }
 trap cleanup EXIT
 fail() {
   echo "FAILED: $*"
@@ -31,3 +32,21 @@ curl -fsS "$BASE/api/uploads/does-not-exist" -o /dev/null -w '%{http_code}\n' | 
 [ -f "$NEXUS_HOME/data/nexus.db" ] || fail "no database in NEXUS_HOME"
 echo "Captured: $ENTRY"
 echo "Search, page and service worker work."
+
+# Back up, change something, choose the backup to restore, restart from the page: the backup is back.
+curl -fsS -X POST "$BASE/api/backups" >/dev/null || fail "backup"
+for i in $(seq 1 60); do
+  B="$(curl -fsS "$BASE/api/backups")"
+  echo "$B" | python3 -c 'import json,sys; b=json.load(sys.stdin); sys.exit(0 if b["backups"] and not b["running"] else 1)' && break
+  sleep 1
+done
+ZIP="$(echo "$B" | python3 -c 'import json,sys,os; b=json.load(sys.stdin); print(os.path.join(b["folder"], b["backups"][0]["name"]))')" || fail "no backup made"
+curl -fsS -X POST "$BASE/api/entries" -H 'Content-Type: application/json' -d '{"original_text": "Made after the backup", "analyze": false}' >/dev/null
+curl -fsS -X POST "$BASE/api/backups/restore" -F "file=@$ZIP" | grep -q restore_pending || fail "restore wasn't accepted"
+curl -fsS "$BASE/api/backups" | grep -q '"can_restart":true' || fail "the app can't restart itself"
+curl -fsS -X POST "$BASE/api/restart" >/dev/null || fail "restart"
+for i in $(seq 1 60); do curl -fsS -m 1 "$BASE/api/ping" >/dev/null 2>&1 || break; sleep 0.3; done
+for i in $(seq 1 90); do curl -fsS -m 2 "$BASE/api/ping" >/dev/null 2>&1 && break; sleep 1; [ "$i" = 90 ] && fail "didn't come back after restarting"; done
+curl -fsS "$BASE/api/backups" | grep -q '"ok":true' || fail "the backup wasn't restored"
+curl -fsS "$BASE/api/entries" | grep -q '"total":1[,}]' || fail "expected only the entry from the backup"
+echo "Restored a backup through Settings and restarted from the page."

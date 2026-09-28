@@ -67,10 +67,12 @@ right-click NEXUS → **Open**.
 Then NEXUS opens in your browser with a short setup check (AI, voice notes, search), each with a
 button to fix what's missing. Your ideas live in your user folder, never next to the app.
 
-**Already using NEXUS from a folder?** Bring your ideas with you: in the old NEXUS, **Settings →
-Backups → Back up now**. Quit it, open the new app, and choose **Settings → Backups → Restore from a
-backup file** with that zip. Quit the app and open it again; your archive is there. (Nothing is
-deleted: whatever was in the new app is moved to a `data-before-restore-…` folder.)
+**Already using NEXUS from a folder** (like `C:\Users\you\nexus` or `~/nexus`)? Close it first
+(the app tells you if it's still open). The app finds your archive there when it opens and offers
+**Bring my archive here**, then **Restart NEXUS now**. Your ideas, pictures and voice notes are
+copied; the folder isn't changed. (From anywhere else, use a backup zip: **Settings → Backups →
+Restore from a backup file**. Nothing is deleted either way: whatever was in the app is moved to a
+`data-before-restore-…` folder.)
 
 ## Install from this folder instead (for developing NEXUS)
 

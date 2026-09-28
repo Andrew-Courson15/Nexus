@@ -23,11 +23,12 @@ import sqlite3
 import sys
 import tempfile
 import threading
+import time
 import zipfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from app.config import get_settings
+from app.config import FROZEN, get_settings
 
 log = logging.getLogger("nexus.backup")
 
@@ -78,11 +79,19 @@ def create_backup(automatic: bool = False) -> Path:
     folder.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     dest = folder / f"nexus-backup-{stamp}{'-auto' if automatic else ''}.zip"
+    _write_zip(dest, _db_path(), s.data_dir, automatic)
+    _prune(folder, s.backup_keep)
+    log.info("Backup written: %s", dest)
+    return dest
+
+
+def _write_zip(dest: Path, db_path: Path, data_dir: Path, automatic: bool = False) -> None:
+    """A backup of the archive whose database is db_path and whose files are in data_dir."""
     partial = dest.with_suffix(".zip.partial")
     counts = {"files": 0, "bytes": 0}
     with tempfile.TemporaryDirectory() as tmp:
         db_copy = Path(tmp) / "nexus.db"
-        src = sqlite3.connect(_db_path())
+        src = sqlite3.connect(db_path)
         try:
             dst = sqlite3.connect(db_copy)
             with dst:
@@ -94,7 +103,7 @@ def create_backup(automatic: bool = False) -> Path:
             with zipfile.ZipFile(partial, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=6) as zf:
                 zf.write(db_copy, "nexus.db")
                 for sub in ORIGINAL_DIRS:
-                    base = s.data_dir / sub
+                    base = data_dir / sub
                     if not base.is_dir():
                         continue
                     for f in sorted(base.rglob("*")):
@@ -112,9 +121,6 @@ def create_backup(automatic: bool = False) -> Path:
         except BaseException:
             partial.unlink(missing_ok=True)
             raise
-    _prune(folder, s.backup_keep)
-    log.info("Backup written: %s", dest)
-    return dest
 
 
 def _prune(folder: Path, keep: int) -> None:
@@ -325,15 +331,77 @@ def apply_pending_restore() -> dict | None:
     info = pending_restore() or {}
     result = {"at": datetime.now(timezone.utc).isoformat(), "backup_created_at": info.get("created_at"),
               "filename": info.get("filename")}
-    try:
-        aside = restore(pending)
-        result.update(ok=True, previous_data=str(aside))
-        log.info("Restored a backup; the previous data is in %s", aside)
-    except Exception as exc:
-        result.update(ok=False, error=str(exc))
+    for attempt in range(10):
+        try:
+            aside = restore(pending)
+            result.update(ok=True, previous_data=str(aside))
+            log.info("Restored a backup; the previous data is in %s", aside)
+            break
+        except PermissionError as exc:  # Windows: the NEXUS that just stopped may still be letting go of the files
+            result.update(ok=False, error=str(exc))
+            time.sleep(1 + attempt)
+        except Exception as exc:
+            result.update(ok=False, error=str(exc))
+            break
     cancel_restore()
     _result_path().write_text(json.dumps(result))
     return result
+
+
+# -- archives from a NEXUS folder, for the downloadable app ------------------
+# Someone who used NEXUS from its folder (like C:\\Users\\you\\nexus) and then installs the app
+# starts with an empty archive. The app looks in the usual places and offers to bring it over.
+LOOK_FOR_OTHER_ARCHIVES = FROZEN  # only the downloadable app looks; a NEXUS folder already has its archive
+FOLDER_NAMES = ("nexus", "Nexus", "NEXUS", "nexus-main", "Nexus-main", "Nexus-claude-nexus-ai-os-rhh5si")
+PLACES = ("", "Desktop", "Documents", "Downloads", "OneDrive/Desktop", "OneDrive/Documents")
+
+
+def _candidate_dirs() -> list[Path]:
+    home = Path.home()
+    return [home / place / name / "data" for place in PLACES for name in FOLDER_NAMES]
+
+
+def found_archives() -> list[dict]:
+    """Other NEXUS archives on this computer (a NEXUS folder's data), with how many ideas each has."""
+    if not LOOK_FOR_OTHER_ARCHIVES:
+        return []
+    own = get_settings().data_dir.resolve()
+    out, seen = [], set()
+    for data in _candidate_dirs():
+        db = data / "nexus.db"
+        try:
+            if not db.is_file():
+                continue
+            real = data.resolve()
+            if real == own or real in seen:
+                continue
+            seen.add(real)
+            con = sqlite3.connect(f"{db.as_uri()}?mode=ro", uri=True)
+            try:
+                count = con.execute("SELECT count(*) FROM creative_entries").fetchone()[0]
+            finally:
+                con.close()
+        except (OSError, sqlite3.Error):
+            continue
+        if count:
+            out.append({"folder": str(real.parent), "entries": count,
+                        "modified": datetime.fromtimestamp(db.stat().st_mtime, timezone.utc).isoformat()})
+    return out
+
+
+def bring_archive(folder: str) -> dict:
+    """Stage one of found_archives() to be restored at the next start. The other copy isn't touched."""
+    match = next((a for a in found_archives() if a["folder"] == folder), None)
+    if not match:
+        raise BackupError("That NEXUS folder wasn't found.")
+    data = Path(folder) / "data"
+    pending = _pending_path()
+    pending.parent.mkdir(parents=True, exist_ok=True)
+    _write_zip(pending, data / "nexus.db", data)
+    info = check_backup(pending)
+    info.update(filename=f"your archive from {folder}", entries=match["entries"])
+    pending.with_suffix(".json").write_text(json.dumps(info))
+    return info
 
 
 def _nexus_running() -> bool:

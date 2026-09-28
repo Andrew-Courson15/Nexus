@@ -33,6 +33,7 @@ async def lifespan(_app: FastAPI):
     yield
     backup_runner.stop()
     processing_queue.stop()
+    engine.dispose()  # let go of the database file (a restart may restore a backup over it)
 
 
 app = FastAPI(title="NEXUS", version=__version__, lifespan=lifespan,

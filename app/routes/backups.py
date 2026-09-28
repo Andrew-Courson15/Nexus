@@ -3,9 +3,10 @@ from __future__ import annotations
 
 from fastapi import APIRouter, File, HTTPException, Request, Response, UploadFile
 from fastapi.responses import FileResponse
+from pydantic import BaseModel
 
 from app.config import get_settings
-from app.services import backup
+from app.services import backup, lifecycle
 
 router = APIRouter(prefix="/api/backups", tags=["backups"])
 
@@ -23,6 +24,7 @@ def list_backups():
         "folder_is_inside_data": s.backups_dir.resolve().is_relative_to(s.data_dir.resolve()),
         "restore_pending": backup.pending_restore(),
         "last_restore": backup.last_restore(),
+        "can_restart": lifecycle.can_restart(),
     }
 
 
@@ -43,6 +45,41 @@ def stage_restore(request: Request, file: UploadFile = File(...)):
     except backup.BackupError as exc:
         raise HTTPException(400, str(exc)) from exc
     return {"restore_pending": info}
+
+
+@router.get("/found")
+def found_archives(request: Request):
+    """NEXUS folders on this computer with an archive (the downloadable app offers to bring one over)."""
+    _only_here(request)
+    return {"archives": backup.found_archives()}
+
+
+class _Bring(BaseModel):
+    folder: str
+
+
+@router.post("/found")
+def bring_archive(body: _Bring, request: Request):
+    """Copy the archive from a NEXUS folder, to be restored the next time NEXUS starts."""
+    _only_here(request)
+    try:
+        info = backup.bring_archive(body.folder)
+    except backup.BackupError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    _take_over_autostart()
+    return {"restore_pending": info}
+
+
+def _take_over_autostart() -> None:
+    """If the folder's NEXUS started at sign-in, this app does from now on (same shortcut / login item)."""
+    from app.config import FROZEN
+    from app.services import autostart
+
+    try:
+        if FROZEN and autostart.supported() and autostart.enabled():
+            autostart.set_enabled(True)
+    except Exception:  # a nicety; the setting is also in Settings → This computer
+        pass
 
 
 @router.delete("/restore")

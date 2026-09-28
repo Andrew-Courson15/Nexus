@@ -30,15 +30,47 @@ def _server():
     return uvicorn.Server(uvicorn.Config(app, host=s.host, port=s.port, log_level="info"))
 
 
-def _already_running(url: str) -> bool:
-    """Is a NEXUS already answering here? (Starting the app twice just opens the running one.)"""
+def _running(url: str) -> dict | None:
+    """What's answering here, if anything: {"version", "app"} (older NEXUS versions don't say "app")."""
+    import json
     import urllib.request
 
     try:
         with urllib.request.urlopen(url + "/api/ping", timeout=1.5) as r:  # noqa: S310 - our own localhost
-            return r.status == 200
+            return json.loads(r.read()) if r.status == 200 else None
     except Exception:
-        return False
+        return None
+
+
+def _ask(message: str) -> bool:
+    """A Try again / Cancel question in a system dialog. True for Try again."""
+    try:
+        if sys.platform == "win32":
+            import ctypes
+
+            return ctypes.windll.user32.MessageBoxW(None, message, "NEXUS", 0x5 | 0x30 | 0x10000) == 4  # RETRYCANCEL
+        if sys.platform == "darwin":
+            script = ('display dialog (system attribute "NEXUS_MSG") with title "NEXUS" '
+                      'buttons {"Cancel", "Try again"} default button "Try again" with icon caution')
+            r = subprocess.run(["osascript", "-e", script], env={**os.environ, "NEXUS_MSG": message},
+                               capture_output=True, timeout=600)
+            return r.returncode == 0
+    except Exception:
+        log.exception("Couldn't show a dialog")
+    print(message)
+    return False
+
+
+def _wait_for_other_nexus(url: str) -> bool:
+    """The NEXUS that runs from a folder (like C:\\Users\\you\\nexus) is using the same address. Ask to
+    close it; True once it's gone."""
+    msg = ("Another NEXUS is already running on this computer: the one from your NEXUS folder.\n\n"
+           "Close it first (its window, or its icon by the clock → Quit NEXUS), then click Try again.\n\n"
+           "Your ideas from it can be brought into this app: it offers when it opens.")
+    while _running(url):
+        if not _ask(msg):
+            return False
+    return True
 
 
 def _open_when_ready(url: str) -> None:
@@ -85,7 +117,23 @@ def _notify(icon, message: str) -> None:
         pass
 
 
+_restart = threading.Event()  # set by "Restart NEXUS now" on the page
+
+
+def _start_again() -> None:
+    """Start a new NEXUS once this one has stopped (so the new one can take the address)."""
+    args = [sys.executable, "--no-browser"] if FROZEN else [sys.executable, str(BASE_DIR / "tray.py"), "--no-browser"]
+    subprocess.Popen(args, cwd=os.path.dirname(sys.executable) if FROZEN else str(BASE_DIR), close_fds=True,
+                     creationflags=getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0))
+
+
 def main() -> None:
+    _run()
+    if _restart.is_set():
+        _start_again()
+
+
+def _run() -> None:
     s = get_settings()
     s.data_dir.mkdir(parents=True, exist_ok=True)
     if sys.stdout is None or sys.stderr is None:  # started without a console (pythonw)
@@ -93,14 +141,25 @@ def main() -> None:
         sys.stdout = sys.stdout or out
         sys.stderr = sys.stderr or out
     url = f"http://localhost:{s.port}"
-    if FROZEN and _already_running(url):  # double-clicked again: just show the running NEXUS
-        webbrowser.open(url)
-        return
+    if FROZEN:
+        running = _running(url)
+        if running and running.get("app"):  # double-clicked again: just show the running NEXUS
+            webbrowser.open(url)
+            return
+        if running and not _wait_for_other_nexus(url):  # the NEXUS from a folder is still open
+            return
     server = _server()
     if FROZEN and "--no-browser" not in sys.argv:  # the packaged app opens itself once it's ready
         threading.Thread(target=_open_when_ready, args=(url,), name="nexus-open", daemon=True).start()
+    from app.services import lifecycle
+
+    def restart_without_tray():
+        _restart.set()
+        server.should_exit = True
+
     tray = _load_tray()
     if tray is None:
+        lifecycle.restart_hook = restart_without_tray
         server.run()
         return
     pystray, image = tray
@@ -133,7 +192,14 @@ def main() -> None:
         icon.title = "NEXUS is stopping…"
         server.should_exit = True  # finishes the current requests, then stops cleanly
         thread.join(timeout=20)
-        icon.stop()
+        try:
+            icon.stop()
+        except Exception:  # the icon never showed (see the end of this function)
+            pass
+
+    def restart():  # from the page (e.g. after choosing a backup to restore); main() starts the new NEXUS
+        _restart.set()
+        quit_nexus(icon, None)
 
     icon = pystray.Icon("NEXUS", image, "NEXUS is running", menu=pystray.Menu(
         pystray.MenuItem("Open NEXUS", open_nexus, default=True),
@@ -151,6 +217,7 @@ def main() -> None:
         icon.stop()
 
     threading.Thread(target=watch, name="nexus-tray-watch", daemon=True).start()
+    lifecycle.restart_hook = restart
     intro = s.data_dir / ".tray-intro-shown"
     if not intro.exists():  # the first time: say where NEXUS lives now
 
@@ -169,7 +236,9 @@ def main() -> None:
         icon.run()
     except Exception:  # the icon couldn't be shown after all: keep NEXUS running without it
         log.exception("The tray icon couldn't be shown; NEXUS keeps running without it")
+        lifecycle.restart_hook = restart_without_tray
         thread.join()
+    thread.join(timeout=30)  # stopped (Quit or Restart): let the server finish before a new one starts
 
 
 if __name__ == "__main__":
