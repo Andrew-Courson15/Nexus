@@ -11,6 +11,10 @@ The version is in `app/__init__.py` and shown in **Settings → This device**.
 - First run offers **Start NEXUS with Windows** / **Open NEXUS at login** in one click, so the
   phone can reach NEXUS whenever the computer is on.
 - Help explains restoring and moving an archive, and how the downloadable app updates.
+- **Fixed:** after moving an archive into the app, Settings kept offering **Bring my archive here**
+  (the old folder is still there), and using it again would have replaced newer ideas. It's now
+  offered only while the app's archive is empty.
+- README: step-by-step install for Windows, Mac and iPhone.
 
 ## 0.15.2 (2026-09-28)
 
