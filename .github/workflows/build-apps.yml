@@ -82,6 +82,7 @@ jobs:
           $setup = "dist\NEXUS-Setup-${{ steps.v.outputs.version }}.exe"
           # WaitForExit, not -Wait: -Wait also waits for the Ollama app the installer starts (it keeps running).
           $p = Start-Process $setup -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/TASKS=ollama" -PassThru
+          $null = $p.Handle  # otherwise ExitCode can come back empty
           if (-not $p.WaitForExit(1500000)) { throw "The installer didn't finish within 25 minutes" }
           if ($p.ExitCode -ne 0) { throw "Installer exit code $($p.ExitCode)" }
           $ollama = @("$env:LOCALAPPDATA\Programs\Ollama\ollama.exe", "$env:ProgramFiles\Ollama\ollama.exe") | Where-Object { Test-Path $_ } | Select-Object -First 1
