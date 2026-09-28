@@ -121,8 +121,10 @@ _restart = threading.Event()  # set by "Restart NEXUS now" on the page
 
 
 def _start_again() -> None:
-    """Start a new NEXUS once this one has stopped (so the new one can take the address)."""
-    args = [sys.executable, "--no-browser"] if FROZEN else [sys.executable, str(BASE_DIR / "tray.py"), "--no-browser"]
+    """Start a new NEXUS once this one has stopped (so the new one can take the address). It waits
+    for this process to be completely gone before it opens the database (see _wait_for_exit)."""
+    after = ["--after", str(os.getpid())]
+    args = [sys.executable, "--no-browser", *after] if FROZEN else [sys.executable, str(BASE_DIR / "tray.py"), "--no-browser", *after]
     subprocess.Popen(args, cwd=os.path.dirname(sys.executable) if FROZEN else str(BASE_DIR), close_fds=True,
                      creationflags=getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0))
 
@@ -137,9 +139,44 @@ def main() -> None:
                              creationflags=getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0))
         else:
             _start_again()
+        for stream in (sys.stdout, sys.stderr):
+            try:
+                stream.flush()
+            except Exception:
+                pass
+        os._exit(0)  # everything is stopped; don't wait on leftover background threads
+
+
+def _wait_for_exit(pid: int, timeout: float = 30) -> None:
+    """Wait until the NEXUS that restarted us has exited, so it no longer has the database open
+    (a backup may be restored over it at startup)."""
+    import time
+
+    deadline = time.time() + timeout
+    if sys.platform == "win32":
+        import ctypes
+
+        handle = ctypes.windll.kernel32.OpenProcess(0x00100000, False, pid)  # SYNCHRONIZE
+        if handle:
+            ctypes.windll.kernel32.WaitForSingleObject(handle, int(timeout * 1000))
+            ctypes.windll.kernel32.CloseHandle(handle)
+        return
+    while time.time() < deadline:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return
+        except PermissionError:
+            pass
+        time.sleep(0.2)
 
 
 def _run() -> None:
+    if "--after" in sys.argv:  # started by "Restart NEXUS now": let the old NEXUS finish exiting first
+        try:
+            _wait_for_exit(int(sys.argv[sys.argv.index("--after") + 1]))
+        except (IndexError, ValueError):
+            pass
     s = get_settings()
     s.data_dir.mkdir(parents=True, exist_ok=True)
     if sys.stdout is None or sys.stderr is None:  # started without a console (pythonw)
