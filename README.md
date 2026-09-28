@@ -59,8 +59,10 @@ Privacy in plain words: [PRIVACY.md](PRIVACY.md).
 - **Mac:** download the **.dmg**, open it and drag NEXUS to Applications.
 - **iPhone:** the NEXUS app, or NEXUS added to the home screen from Safari: see [IOS.md](IOS.md).
 
-The downloads are on the **Releases** page once a version is published, and for every change on
-the **Actions** tab (Build apps → a green run → Artifacts). They aren't signed yet, so the first
+**Download: [the latest release](https://github.com/Andrew-Courson15/Nexus/releases/latest)**
+(`NEXUS-Setup-….exe` for Windows, `NEXUS-….dmg` for a Mac). Once installed, NEXUS updates itself:
+**Settings → Updates → Update now**. Test builds of every change are on the **Actions** tab
+(Build apps → a green run → Artifacts, with a GitHub login). The apps aren't signed yet, so the first
 time Windows says it protected your PC (**More info → Run anyway**), and a Mac asks you to
 right-click NEXUS → **Open**.
 
