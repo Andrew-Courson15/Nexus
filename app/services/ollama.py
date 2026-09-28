@@ -709,8 +709,9 @@ class OllamaProvider(AIProvider):
         missing = [m for m in {self.model, self.vision_model} if not present(m)]
         if missing:
             return {"ok": False, "model": self.model, "installed": installed,
-                    "detail": "Ollama is running, but these models aren't installed: " + ", ".join(missing)
-                              + ". Run: " + " && ".join(f"ollama pull {m}" for m in missing)}
+                    "detail": "Ollama is running, but these models aren't downloaded yet: " + ", ".join(missing)
+                              + ". Download them in Settings → Preferences (or run: "
+                              + " && ".join(f"ollama pull {m}" for m in missing) + ")."}
         vision = self._supports_vision(self.vision_model)
         return {"ok": True, "model": self.model, "vision_model": self.vision_model, "installed": installed,
                 "vision": vision,

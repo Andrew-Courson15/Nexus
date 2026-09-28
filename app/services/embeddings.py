@@ -125,8 +125,8 @@ class OllamaEmbeddingProvider(EmbeddingProvider):
             return {"ok": False, "detail": f"Ollama is not reachable at {self.base_url}. Search uses words only."}
         base = self.model.split(":")[0]
         if not any(m == self.model or m.split(":")[0] == base for m in installed):
-            return {"ok": False, "detail": f"Embedding model not installed yet. Run: ollama pull {self.model} "
-                                           "(about 0.3 GB). Until then search uses words only."}
+            return {"ok": False, "detail": f"The search model isn't downloaded yet (about 0.3 GB): Settings → Preferences, "
+                                           f"or run: ollama pull {self.model}. Until then search uses words only."}
         return {"ok": True, "detail": f"Search by meaning is on ({self.model})."}
 
 

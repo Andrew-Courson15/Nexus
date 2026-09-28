@@ -1147,12 +1147,17 @@ async function mountWelcome(box) {
       ["Search by meaning", st.search.health, "Finds ideas by what they're about."],
     ];
     const ai = st.ai_provider.health || {}, ollama = st.ai_provider.name?.startsWith("ollama");
-    const missing = ollama && !ai.ok && Array.isArray(ai.installed)
-      ? [...new Set([st.ai_provider.health.model, ai.vision_model].filter(Boolean))].filter((m) => !ai.installed.some((i) => i === m || i === `${m}:latest`))
+    // Everything Ollama still needs to download: the AI model, the one that reads pictures, and search's model.
+    const have = (m) => (ai.installed || []).some((i) => i === m || i === `${m}:latest` || i.split(":")[0] === m);
+    const missing = ollama && Array.isArray(ai.installed)
+      ? [...new Set([ai.model, ai.vision_model, !st.search.health?.ok && st.search.embedding_model].filter(Boolean))].filter((m) => !have(m))
       : [];
-    const aiHelp = ai.ok || !ollama ? ""
-      : Array.isArray(ai.installed) ? (missing.length ? `<button type="button" class="btn small" data-pull="${esc(missing[0])}">Download the AI model (${esc(missing[0])})</button>
-          <span class="small muted">A few GB, once. Progress shows in Settings → Preferences.</span>` : "")
+    const aiHelp = !ollama ? ""
+      : Array.isArray(ai.installed) ? (missing.length ? `<button type="button" class="btn small primary" data-pull-all>Download ${
+          missing.length === 1 ? "the AI model" : `the ${missing.length} AI models`}</button>
+          <span class="small muted">${esc(missing.join(", "))}: a few GB, once. You can keep using NEXUS meanwhile.</span>
+          <div data-pull-progress class="small"></div>` : "")
+      : ai.ok ? ""
       : ON_THIS_COMPUTER ? `<span data-ollama-install></span>`
       : `<a class="btn small" href="https://ollama.com/download" target="_blank" rel="noopener">Get Ollama (free)</a>
           <span class="small muted">It runs the AI on this computer. Install it, open it once, then reload this page.</span>`;
@@ -1162,16 +1167,31 @@ async function mountWelcome(box) {
       ${name === "AI model" && aiHelp ? `<div class="row">${aiHelp}</div>` : ""}</li>`).join("")}</ul>
       ${rows.every(([, h]) => h?.ok) ? `<p class="small">All set. Capture your first idea above.</p>`
         : `<p class="small muted">You can capture right away: anything not ready yet is done later (use <em>Re-run AI organizer</em> on an entry).
-           See the README's setup section, or <a href="#/settings">Settings</a>.</p>`}
-      <p class="small muted">Next: put NEXUS on your phone (README → "NEXUS on your phone"), and set a passcode in Settings.</p>`;
+           Everything here is also in <a href="#/settings">Settings</a>, and <a href="#/help">Help</a> explains each part.</p>`}
+      <p class="small muted">Next: put NEXUS on your phone (<a href="#/settings">Settings → Your phone</a>: a few steps and a QR code),
+        and set a passcode in Settings so only you can open it there.</p>`;
     mountOllamaInstall($("[data-ollama-install]", box), () => { box.dataset.shown = ""; mountWelcome(box); });
-    $("[data-pull]", box)?.addEventListener("click", async (ev) => {
+    const progress = async () => {
+      const slot = $("[data-pull-progress]", box);
+      if (!slot?.isConnected) return;
+      let list = [];
+      try { list = (await api("/api/models/pulls", { noCopy: true })).filter((p) => missing.includes(p.name)); } catch { /* try again */ }
+      slot.innerHTML = list.map((p) => {
+        const pct = p.total ? Math.round((p.completed / p.total) * 100) : null;
+        return `<div><strong>${esc(p.name)}</strong> ${p.state === "downloading"
+          ? `<progress max="100" ${pct === null ? "" : `value="${pct}"`}></progress> ${pct === null ? esc(p.status) : pct + "%"}`
+          : p.state === "done" ? "✓ downloaded" : `<span style="color:var(--danger)">failed: ${esc(p.error || "")}</span>`}</div>`;
+      }).join("");
+      if (list.some((p) => p.state === "downloading")) setTimeout(progress, 1500);
+      else if (list.length && list.every((p) => p.state === "done")) { box.dataset.shown = ""; mountWelcome(box); }
+    };
+    $("[data-pull-all]", box)?.addEventListener("click", async (ev) => {
       ev.target.disabled = true;
+      ev.target.textContent = "Downloading…";
       try {
-        await api("/api/models/pull", { method: "POST", json: { name: ev.target.dataset.pull } });
-        toast("Downloading the AI model in the background. Progress: Settings → Preferences.");
-        ev.target.textContent = "Downloading…";
+        for (const name of missing) await api("/api/models/pull", { method: "POST", json: { name } });
       } catch (err) { toast(err.message, true); ev.target.disabled = false; }
+      progress();
     });
   } catch {
     $("#welcome-check", box).innerHTML = `<p class="small muted">Couldn't check right now.</p>`;
