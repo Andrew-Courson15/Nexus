@@ -169,7 +169,7 @@ jobs:
           hdiutil create -volname "NEXUS $V" -srcfolder "$STAGE" -ov -format UDZO "dist/NEXUS-$V.dmg"
           ditto -c -k --keepParent dist/NEXUS.app "dist/NEXUS-$V-mac.zip"
       - name: Update from the .dmg the way the app does (swap NEXUS.app, open it again)
-        env: { NEXUS_HOME: "${{ runner.temp }}/nexus-update" }
+        env: { NEXUS_HOME: "${{ runner.temp }}/nexus-update", NEXUS_DATA_DIR: "${{ runner.temp }}/nexus-update/data" }
         run: |
           APPS="$RUNNER_TEMP/Apps"; mkdir -p "$APPS" "$NEXUS_HOME/data"; ditto dist/NEXUS.app "$APPS/NEXUS.app"
           touch "$APPS/NEXUS.app/Contents/old-copy-marker"
@@ -192,7 +192,7 @@ jobs:
           from app.services import ollama_setup as o
           o._install(o._download(o.DOWNLOADS['darwin']))
           print('installed:', o.installed())"
-          ls -d /Applications/Ollama.app "$HOME/Applications/Ollama.app" 2>/dev/null
+          ls -d /Applications/Ollama.app 2>/dev/null || ls -d "$HOME/Applications/Ollama.app"
       - uses: actions/upload-artifact@v4
         with:
           name: NEXUS-mac-${{ steps.v.outputs.version }}

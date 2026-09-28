@@ -34,7 +34,7 @@ class Stream:
 
 
 def test_unsupported_here_and_only_on_this_computer(client, monkeypatch):
-    monkeypatch.setattr(ollama_setup.sys, "platform", "linux")
+    monkeypatch.setattr(ollama_setup, "supported", lambda: False)
     st = client.get("/api/ollama/install").json()
     assert st["supported"] is False and st["state"] == "idle"
     assert client.post("/api/ollama/install").status_code == 400
@@ -42,8 +42,15 @@ def test_unsupported_here_and_only_on_this_computer(client, monkeypatch):
     assert client.post("/api/ollama/install", headers=phone).status_code == 403
 
 
+def _pretend_supported(monkeypatch):
+    """As on Windows, without changing the platform for everything else in this process."""
+    monkeypatch.setattr(ollama_setup, "supported", lambda: True)
+    monkeypatch.setattr(ollama_setup, "installed", lambda: False)
+    monkeypatch.setitem(ollama_setup.DOWNLOADS, ollama_setup.sys.platform, "https://ollama.com/download/OllamaSetup.exe")
+
+
 def test_downloads_installs_and_reports_progress(client, monkeypatch):
-    monkeypatch.setattr(ollama_setup.sys, "platform", "win32")
+    _pretend_supported(monkeypatch)
     monkeypatch.setattr(httpx, "stream", lambda *a, **k: Stream(b"MZ" + b"x" * 100))
     installed = []
     monkeypatch.setattr(ollama_setup, "_install", lambda f: installed.append(f.read_bytes()[:2]))
@@ -63,7 +70,7 @@ def test_refuses_a_download_from_elsewhere(monkeypatch):
 
 
 def test_a_failed_install_is_shown(monkeypatch):
-    monkeypatch.setattr(ollama_setup.sys, "platform", "win32")
+    _pretend_supported(monkeypatch)
     monkeypatch.setattr(ollama_setup, "_download", lambda url: (_ for _ in ()).throw(ollama_setup.OllamaSetupError("offline")))
     ollama_setup._run()
     assert ollama_setup.status()["state"] == "error" and ollama_setup.status()["error"] == "offline"
