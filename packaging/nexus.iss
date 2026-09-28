@@ -25,7 +25,8 @@ UninstallDisplayName=NEXUS
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
-CloseApplications=yes
+; NEXUS has no window for Windows to close: PrepareToInstall (below) stops it instead.
+CloseApplications=no
 RestartApplications=no
 
 [Tasks]
@@ -62,6 +63,34 @@ var
 function Relaunch: Boolean;
 begin
   Result := ExpandConstant('{param:RELAUNCH|0}') = '1';
+end;
+
+function NexusRunning: Boolean;
+var
+  Code: Integer;
+begin
+  Result := Exec(ExpandConstant('{cmd}'), '/C tasklist /FI "IMAGENAME eq NEXUS.exe" /NH | find /I "NEXUS.exe"', '',
+    SW_HIDE, ewWaitUntilTerminated, Code) and (Code = 0);
+end;
+
+{ NEXUS runs without a window (its icon is by the clock), so Windows can't ask it to close. For an update
+  started from inside NEXUS (/RELAUNCH=1) it's already stopping: give it time. Then make sure it's stopped. }
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+var
+  I, Code: Integer;
+begin
+  Result := '';
+  if Relaunch then
+    for I := 1 to 30 do
+    begin
+      if not NexusRunning then Break;
+      Sleep(1000);
+    end;
+  if NexusRunning then
+  begin
+    Exec(ExpandConstant('{sys}\taskkill.exe'), '/IM NEXUS.exe /F', '', SW_HIDE, ewWaitUntilTerminated, Code);
+    Sleep(1500);
+  end;
 end;
 
 function OllamaInstalled: Boolean;
