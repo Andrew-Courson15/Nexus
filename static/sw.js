@@ -42,6 +42,8 @@ async function page(req) {
   const cache = await caches.open(CACHE);
   try {
     const res = await withTimeout(fetch(req), PAGE_TIMEOUT_MS);
+    // PC on but NEXUS off: Tailscale answers with an empty 502. That counts as unreachable too.
+    if (res.status >= 500) throw new Error(`NEXUS answered ${res.status}`);
     if (res.ok) cache.put("/", res.clone());
     cache.delete(OFFLINE_MARK);
     return res;
@@ -64,7 +66,9 @@ async function file(req) {
     return saved;
   }
   try {
-    return await withTimeout(refresh, FILE_TIMEOUT_MS);
+    const res = await withTimeout(refresh, FILE_TIMEOUT_MS);
+    if (res.status >= 500) throw new Error("unreachable");
+    return res;
   } catch {
     return (await caches.match(req, { ignoreSearch: true })) || Response.error();
   }
@@ -85,7 +89,9 @@ async function thumb(req) {
 
 async function preview(req, id) {
   try {
-    return await withTimeout(fetch(req), FILE_TIMEOUT_MS * 2);
+    const res = await withTimeout(fetch(req), FILE_TIMEOUT_MS * 2);
+    if (res.status >= 500) throw new Error("unreachable");
+    return res;
   } catch {
     const cache = await caches.open(THUMBS);
     for (const key of await cache.keys()) {

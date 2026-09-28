@@ -2,6 +2,11 @@
 
 The version is in `app/__init__.py` and shown in **Settings → This device**.
 
+## 0.14.1 (2026-09-28)
+
+- **Fixed:** with the computer on but NEXUS not running, the phone showed a blank white screen
+  instead of its saved copy.
+
 ## 0.14.0 (2026-09-27)
 
 - **A downloadable app, first step**: `scripts/build_app_windows.ps1` / `scripts/build_app_mac.sh` build
