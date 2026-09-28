@@ -4,6 +4,7 @@
 # 2. computer off: the app still opens, showing the copy saved on the phone.
 # Screenshots of both go to $OUT.
 set -euo pipefail
+set -x  # show each step in the build log
 cd "$(dirname "$0")/.."
 APP="ios/build/Debug-iphonesimulator/NEXUS.app"
 BUNDLE="local.nexus.app"

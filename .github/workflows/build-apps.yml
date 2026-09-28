@@ -143,13 +143,17 @@ jobs:
           xcodebuild -project NEXUS.xcodeproj -target NEXUS -sdk iphonesimulator -configuration Debug \
             SYMROOT="$PWD/build" CODE_SIGNING_ALLOWED=NO build | tail -60
       - name: Run it in the simulator (computer on, then off)
+        timeout-minutes: 15
         env: { OUT: "${{ runner.temp }}/ios-test" }
         run: bash ios/ci_simulator_test.sh
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: NEXUS-iphone-simulator-test
-          path: ${{ runner.temp }}/ios-test/*.png
+          path: |
+            ${{ runner.temp }}/ios-test/*.png
+            ${{ runner.temp }}/ios-test/*.log
+            ${{ runner.temp }}/ios-test/*.txt
           retention-days: 30
 
   # Pushing a version tag (git tag v0.14.1 && git push origin v0.14.1) publishes the installers on a
