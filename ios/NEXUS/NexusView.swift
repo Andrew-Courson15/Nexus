@@ -156,7 +156,9 @@ struct NexusView: UIViewRepresentable {
 
         static let selfTestScript = """
         (async () => {
-          const report = { offlineCopy: typeof HAS_OFFLINE_COPY !== 'undefined' && HAS_OFFLINE_COPY };
+          const report = { offlineCopy: typeof HAS_OFFLINE_COPY !== 'undefined' && HAS_OFFLINE_COPY,
+            secure: window.isSecureContext, mic: !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia),
+            recorder: typeof MediaRecorder !== 'undefined', cacheApi: 'caches' in window, idb: 'indexedDB' in window };
           try {
             const r = await fetch('/api/entries', { method: 'POST', headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ original_text: 'iOS self-test: typed capture', analyze: false }) });

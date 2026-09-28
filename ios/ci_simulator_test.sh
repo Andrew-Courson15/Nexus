@@ -39,7 +39,7 @@ xcrun simctl launch "$DEVICE" "$BUNDLE" "${ARGS[@]}"
 sleep 30
 xcrun simctl io "$DEVICE" screenshot "$OUT/1-computer-on.png"
 ENTRIES="$(curl -fsS 'http://127.0.0.1:8000/api/entries?limit=50')"
-echo "$ENTRIES" | python -c 'import json,sys; [print(" -", e["title"], "|", (e.get("excerpt") or "")[:90]) for e in json.load(sys.stdin)["items"]]'
+echo "$ENTRIES" | python -c 'import json,sys; [print(" -", e["title"], "|", (e.get("excerpt") or "")[:220]) for e in json.load(sys.stdin)["items"]]'
 grep -q "offline/snapshot" "$OUT/server.log" || { echo "FAILED: the app never saved its copy"; tail -40 "$OUT/server.log"; exit 1; }
 echo "$ENTRIES" | grep -q "iOS self-test: typed capture" || { echo "FAILED: typed capture didn't arrive"; exit 1; }
 echo "$ENTRIES" | grep -q "ios-selftest.txt" || { echo "FAILED: the file upload didn't arrive"; exit 1; }

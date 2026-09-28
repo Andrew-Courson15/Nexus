@@ -2,6 +2,17 @@
 
 The version is in `app/__init__.py` and shown in **Settings → This device**.
 
+## 0.15.0 (2026-09-28)
+
+- **Downloadable apps, built and tested on real machines.** Every change builds NEXUS for Windows
+  (installer: `NEXUS-Setup-….exe`) and Mac (`.dmg`) on GitHub's Windows and Mac computers, starts
+  each one and checks it works; on Windows the installer is also installed, run and uninstalled.
+  Version tags publish them on a Releases page.
+- **NEXUS for iPhone** (`ios/`, see IOS.md): an app that keeps NEXUS and your pictures on the phone,
+  so it always opens, even with the computer off. Scan the QR code to connect. Built and run in the
+  iPhone simulator on every change (computer on, then off).
+- The downloadable app's **Check for updates** offers the newest version from the Releases page.
+
 ## 0.14.1 (2026-09-28)
 
 - **Fixed:** with the computer on but NEXUS not running, the phone showed a blank white screen
