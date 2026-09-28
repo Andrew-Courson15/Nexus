@@ -51,9 +51,23 @@ release still needs.
 ---
 
 Privacy in plain words: [PRIVACY.md](PRIVACY.md).
-On an iPhone: [IOS.md](IOS.md).
 
-## Easiest install (double-click)
+## Get NEXUS
+
+- **Windows:** download **NEXUS-Setup.exe** and double-click it. No admin rights needed; it can
+  also install Ollama (the AI) for you.
+- **Mac:** download the **.dmg**, open it and drag NEXUS to Applications.
+- **iPhone:** the NEXUS app, or NEXUS added to the home screen from Safari: see [IOS.md](IOS.md).
+
+The downloads are on the **Releases** page once a version is published, and for every change on
+the **Actions** tab (Build apps → a green run → Artifacts). They aren't signed yet, so the first
+time Windows says it protected your PC (**More info → Run anyway**), and a Mac asks you to
+right-click NEXUS → **Open**.
+
+Then NEXUS opens in your browser with a short setup check (AI, voice notes, search), each with a
+button to fix what's missing. Your ideas live in your user folder, never next to the app.
+
+## Install from this folder instead (for developing NEXUS)
 
 1. Get the NEXUS folder: **Code → Download ZIP** on GitHub, then unzip it. On Windows, put it in
    your user folder. On a Mac, put it in your home folder.
