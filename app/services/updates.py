@@ -47,9 +47,7 @@ def check() -> dict:
     from app import __version__
 
     if FROZEN:
-        return {"can_update": False, "current_version": __version__,
-                "reason": "This is the downloadable NEXUS app. To update it, download the newest version and install "
-                          "it over this one; your ideas and settings stay where they are."}
+        return check_release(__version__)
     if not (BASE_DIR / ".git").exists():
         return {"can_update": False, "current_version": __version__,
                 "reason": "This copy wasn't installed with git, so it can't update itself."}
@@ -68,6 +66,37 @@ def check() -> dict:
     return {"can_update": behind > 0 and not dirty, "current_version": __version__, "latest_version": latest,
             "behind": behind, "changes": [c.split("\n")[0][:200] for c in changes], "branch": branch,
             "reason": reason}
+
+
+RELEASES_API = "https://api.github.com/repos/Andrew-Courson15/Nexus/releases/latest"
+
+
+def _newer(a: str, b: str) -> bool:
+    """Is version a newer than b? ("0.15.0" > "0.14.1")"""
+    def parts(v: str) -> tuple:
+        return tuple(int(x) if x.isdigit() else 0 for x in re.split(r"[.\-+]", v.lstrip("v"))[:3])
+    return parts(a) > parts(b)
+
+
+def check_release(current: str) -> dict:
+    """The downloadable app: is there a newer release to download? (Asks the NEXUS Releases page.)"""
+    import httpx
+
+    base = {"can_update": False, "current_version": current, "packaged": True}
+    try:
+        r = httpx.get(RELEASES_API, timeout=10, headers={"Accept": "application/vnd.github+json"})
+        if r.status_code == 404:
+            return {**base, "behind": 0, "reason": None}
+        r.raise_for_status()
+        data = r.json()
+    except Exception:
+        return {**base, "reason": "Couldn't check for a newer version. Is the internet connection working?"}
+    latest = str(data.get("tag_name") or "").lstrip("v")
+    if not latest or not _newer(latest, current):
+        return {**base, "behind": 0, "latest_version": latest or current, "reason": None}
+    notes = [line.strip("-* ").strip() for line in str(data.get("body") or "").splitlines() if line.strip()][:8]
+    return {**base, "behind": 1, "latest_version": latest, "changes": notes, "download_url": data.get("html_url"),
+            "reason": "Download the new version and install it over this one; your ideas and settings stay where they are."}
 
 
 def log_path() -> Path:

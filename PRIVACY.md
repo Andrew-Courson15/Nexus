@@ -22,8 +22,9 @@ there are no accounts, and nothing is sent anywhere unless you choose to.**
 - **Your phone** reaches NEXUS through **Tailscale**, a private encrypted network that only your
   own devices can join. NEXUS is never exposed to the public internet. Tailscale sees which of
   your devices connect, not what's in your archive.
-- **Checking for updates** (only when you press the button, from the source-folder version) asks
-  the NEXUS code repository whether there's a newer version.
+- **Checking for updates** (only when you press the button) asks the NEXUS code repository, or
+  its Releases page for the downloadable app, whether there's a newer version. Nothing about you
+  or your archive is sent.
 - **Nothing else.** No analytics, no tracking, no crash reports sent automatically. The problem
   report in Settings is only shown to you; you decide whether to copy it anywhere.
 

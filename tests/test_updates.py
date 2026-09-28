@@ -68,3 +68,29 @@ def test_not_a_git_copy(client, tmp_path, monkeypatch):
     monkeypatch.setattr(lock, "_LOCAL_NAMES", lock._LOCAL_NAMES | {"testserver"})
     info = client.get("/api/update").json()
     assert not info["can_update"] and "wasn't installed with git" in info["reason"]
+
+
+def test_packaged_app_checks_the_releases_page(monkeypatch):
+    import httpx
+
+    class Reply:
+        def __init__(self, status, data=None):
+            self.status_code, self._data = status, data or {}
+
+        def raise_for_status(self):
+            if self.status_code >= 400:
+                raise httpx.HTTPStatusError("x", request=None, response=None)
+
+        def json(self):
+            return self._data
+
+    monkeypatch.setattr(httpx, "get", lambda *a, **k: Reply(200, {"tag_name": "v0.15.0", "html_url": "https://example/rel",
+                                                                   "body": "- Timeline\n- Characters"}))
+    info = updates.check_release("0.14.1")
+    assert info["behind"] == 1 and info["latest_version"] == "0.15.0" and info["download_url"] == "https://example/rel"
+    assert info["changes"] == ["Timeline", "Characters"] and info["can_update"] is False
+    monkeypatch.setattr(httpx, "get", lambda *a, **k: Reply(200, {"tag_name": "v0.14.1"}))
+    assert updates.check_release("0.14.1")["behind"] == 0
+    monkeypatch.setattr(httpx, "get", lambda *a, **k: Reply(404))
+    assert updates.check_release("0.14.1")["behind"] == 0
+    assert updates._newer("0.14.10", "0.14.9") and not updates._newer("0.14.1", "0.14.1")

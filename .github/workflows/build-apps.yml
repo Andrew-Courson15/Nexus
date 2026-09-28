@@ -8,6 +8,7 @@ name: Build apps
 on:
   push:
     branches: ["**"]
+    tags: ["v*"]
     paths: ["app/**", "static/**", "packaging/**", "ios/**", "tray.py", "run.py", "requirements*.txt", "CHANGELOG.md",
             ".github/workflows/build-apps.yml", "tests/**"]
   workflow_dispatch:
@@ -24,7 +25,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: { python-version: "3.12", cache: pip }
-      - run: pip install -r requirements.txt "ruff==0.15.8"  # newer ruff versions enable more rules by default
+      - run: pip install -r requirements.txt -r requirements-local.txt "ruff==0.15.8"  # newer ruff versions enable more rules by default
       - run: ruff check app tests tray.py run.py
       - run: python -m pytest -q
 
@@ -150,3 +151,29 @@ jobs:
           name: NEXUS-iphone-simulator-test
           path: ${{ runner.temp }}/ios-test/*.png
           retention-days: 30
+
+  # Pushing a version tag (git tag v0.14.1 && git push origin v0.14.1) publishes the installers on a
+  # GitHub Release page: one stable place to download NEXUS.
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [tests, windows, mac, ios]
+    runs-on: ubuntu-latest
+    permissions: { contents: write }
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { path: dist, pattern: "NEXUS-*", merge-multiple: true }
+      - uses: softprops/action-gh-release@v2
+        with:
+          name: NEXUS ${{ github.ref_name }}
+          files: |
+            dist/NEXUS-Setup-*.exe
+            dist/NEXUS-*.dmg
+            dist/NEXUS-*-windows.zip
+            dist/NEXUS-*-mac.zip
+          body: |
+            **Windows:** download `NEXUS-Setup-….exe` and double-click it (no admin needed). Windows may say it
+            protected your PC (the app isn't signed yet): More info → Run anyway.
+            **Mac:** download the `.dmg`, open it and drag NEXUS to Applications. The first time, right-click NEXUS →
+            Open (or System Settings → Privacy & Security → Open Anyway).
+            **AI:** install Ollama from https://ollama.com; NEXUS's setup check downloads the model.
+            **iPhone:** see IOS.md.

@@ -51,6 +51,7 @@ release still needs.
 ---
 
 Privacy in plain words: [PRIVACY.md](PRIVACY.md).
+On an iPhone: [IOS.md](IOS.md).
 
 ## Easiest install (double-click)
 
@@ -270,7 +271,23 @@ A desktop with an NVIDIA RTX 3060 generates text faster than a laptop. To let th
 
 Ollama has **no password**, so only do this on your own home network, never on public Wi-Fi.
 
-### Build the downloadable app (for other people)
+### Download the ready-made apps (built automatically)
+
+Every push builds NEXUS on real Windows and Mac machines and checks that it starts and works
+(and, on Windows, that the installer installs and uninstalls cleanly). To get them: GitHub →
+**Actions** → **Build apps** → the newest green run → **Artifacts**:
+- `NEXUS-windows-<version>`: **NEXUS-Setup-<version>.exe** (installer: double-click, no admin
+  needed) and a zip of the app folder.
+- `NEXUS-mac-<version>`: **NEXUS-<version>.dmg** (drag NEXUS to Applications). It isn't signed yet,
+  so the first time right-click NEXUS → **Open** (or System Settings → Privacy & Security →
+  **Open Anyway**).
+- The iPhone app: see [IOS.md](IOS.md).
+
+The apps keep your ideas in your user folder (`%LOCALAPPDATA%\NEXUS`, or
+`~/Library/Application Support/NEXUS`), separate from a NEXUS you run from this folder. The AI
+still needs Ollama (the home screen's setup check links to it).
+
+### Build the downloadable app yourself
 
 `scripts\build_app_windows.ps1` (on Windows) or `./scripts/build_app_mac.sh` (on a Mac) builds
 NEXUS as a standalone app in `dist/`, zipped, that runs without Python or Git: unzip and

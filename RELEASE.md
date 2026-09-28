@@ -40,14 +40,15 @@ can make; the rest is engineering.
 - **Real installers.** Started in 0.14: `scripts/build_app_windows.ps1` and `scripts/build_app_mac.sh`
   build a standalone app with PyInstaller (`packaging/nexus.spec`) that runs without Python or Git.
   Unzip and double-click; data goes to the per-user app folder (`%LOCALAPPDATA%\NEXUS`,
-  `~/Library/Application Support/NEXUS`). Tested as a Linux build here (starts in about a second;
-  pictures, PDFs, search and the phone QR work); the Windows and Mac builds still need a first
-  run on real machines. About 150 MB, or about 490 MB with voice-note transcription included.
+  `~/Library/Application Support/NEXUS`). Built and checked on every push on real Windows and Mac machines
+  (GitHub Actions: the app starts, captures and searches; on Windows the installer installs,
+  runs and uninstalls, keeping the archive). About 150 MB, or about 490 MB with voice-note transcription included.
   The first-run check links to Ollama and downloads the AI model in one click. On Windows the build
   script also makes `NEXUS-Setup-<version>.exe` when Inno Setup is installed (`packaging/nexus.iss`:
   per-user install, no admin prompt, Start menu, optional desktop icon and start at sign-in; the
   uninstaller keeps your ideas). The Mac build
-  makes a `.dmg` too. Still to do: first runs on real machines, and signing.
+  makes a `.dmg` too. Still to do: signing (Windows code-signing certificate; Apple Developer ID +
+  notarization), so people aren't warned away when they open it.
 - **Previously:** setup needed Python, Git and a terminal.
   - A Windows installer (`.exe`/`.msi`) and a Mac app (`.dmg`) would bundle Python and NEXUS,
     install or guide Ollama, and start NEXUS at login.
@@ -73,6 +74,12 @@ can make; the rest is engineering.
   into a user guide (website) and a developer guide.
 - **Legal pages.** `PRIVACY.md` (0.14) says what's stored where and what NEXUS connects to. Still
   to do: terms of use, and a license (your decision, above).
+
+## iPhone
+
+- `ios/` is a native iPhone app (see IOS.md), built and run in the simulator on every push. For
+  the App Store it needs an Apple Developer account, an app record, a hosted privacy policy, and
+  a demo NEXUS for App Review.
 
 ## Nice next features
 
