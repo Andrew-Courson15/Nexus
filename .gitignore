@@ -1,0 +1,25 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+.env
+.pytest_cache/
+# User data: never commit personal material
+data/*.db
+data/*.db-*
+data/uploads/*
+data/audio/*
+data/images/*
+data/exports/*
+data/*.log
+data/*.pid
+data/*.json
+data/*.tmp
+data/install_id
+data/backups/
+data/previews/
+data-before-restore-*/
+!data/*/.gitkeep
+build/
+dist/
+packaging/NEXUS.icns

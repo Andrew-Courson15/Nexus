@@ -1,0 +1,350 @@
+# Builds the downloadable NEXUS apps on real Windows and Mac machines, checks that each one starts
+# and answers, and keeps the results as downloads (Actions → this run → Artifacts).
+#   Windows: NEXUS-Setup-<version>.exe (installer) and NEXUS-<version>-windows.zip
+#   Mac:     NEXUS-<version>.dmg and NEXUS-<version>-mac.zip
+# Also runs the test suite on Linux.
+# The Windows, Mac and iPhone builds use the most build minutes, so they run only when asked for: a
+# commit message with [build] (or [release]), a version tag, or Actions → Build apps → Run workflow.
+# The Linux tests run on every push.
+name: Build apps
+
+on:
+  push:
+    branches: ["**"]
+    tags: ["v*"]
+    paths: ["app/**", "static/**", "packaging/**", "ios/**", "tray.py", "run.py", "requirements*.txt", "CHANGELOG.md",
+            ".github/workflows/build-apps.yml", "tests/**"]
+  workflow_dispatch:
+
+concurrency:
+  group: build-apps-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12", cache: pip }
+      - run: pip install -r requirements.txt -r requirements-local.txt "ruff==0.15.8"  # newer ruff versions enable more rules by default
+      - run: ruff check app tests tray.py run.py
+      - run: python -m pytest -q
+      - name: The apps' update check against the real Releases page (finds the installer)
+        env: { NEXUS_DATA_DIR: "${{ runner.temp }}/update-check", GITHUB_TOKEN: "${{ github.token }}" }
+        run: |
+          python - <<'PY'
+          from app.services import updates
+          info = updates.check_release("0.0.1", "win32")  # as the Windows app sees it
+          print(info)
+          assert info["can_update"] and info["installer_url"].endswith(".exe"), info
+          # (The download itself needs a public repository; while it's private, GitHub asks for a login.)
+          PY
+
+  windows:
+    if: github.event_name != 'push' || startsWith(github.ref, 'refs/tags/') || contains(github.event.head_commit.message, '[build]') || contains(github.event.head_commit.message, '[release]')
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12", cache: pip }
+      - name: Install NEXUS and the build tool
+        run: pip install -r requirements.txt -r requirements-local.txt pyinstaller pystray
+      - name: Build the app (PyInstaller)
+        run: pyinstaller packaging/nexus.spec --noconfirm --clean
+      - name: Version
+        id: v
+        shell: pwsh
+        run: |
+          $v = (Select-String -Path app/__init__.py -Pattern '__version__ = "([^"]+)"').Matches[0].Groups[1].Value
+          "version=$v" >> $env:GITHUB_OUTPUT
+      - name: Smoke test the built app (and a voice note)
+        shell: pwsh
+        env: { NEXUS_HOME: "${{ runner.temp }}\\nexus-smoke", NEXUS_PORT: "8765", NEXUS_AI_PROVIDER: local, NEXUS_EMBEDDING_PROVIDER: none,
+               NEXUS_WHISPER_MODEL: tiny, NEXUS_VOICE_CHECK: "1" }
+        run: ./packaging/smoke_windows.ps1 -Exe "dist\NEXUS\NEXUS.exe"
+      - name: Make the installer (Inno Setup)
+        shell: pwsh
+        run: |
+          $iscc = @("${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe", "$env:ProgramFiles\Inno Setup 6\ISCC.exe") | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $iscc) { choco install innosetup -y --no-progress | Out-Null; $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" }
+          & $iscc "/DAppVersion=${{ steps.v.outputs.version }}" packaging\nexus.iss
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+      - name: Install silently, start the installed app, uninstall (your ideas are kept)
+        shell: pwsh
+        env: { NEXUS_HOME: "${{ runner.temp }}\\nexus-installed", NEXUS_PORT: "8766", NEXUS_AI_PROVIDER: local, NEXUS_EMBEDDING_PROVIDER: none }
+        run: |
+          $setup = "dist\NEXUS-Setup-${{ steps.v.outputs.version }}.exe"
+          $p = Start-Process $setup -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/TASKS=" -PassThru -Wait
+          if ($p.ExitCode -ne 0) { throw "Installer exit code $($p.ExitCode)" }
+          $exe = "$env:LOCALAPPDATA\Programs\NEXUS\NEXUS.exe"
+          if (-not (Test-Path $exe)) { throw "Not installed at $exe" }
+          if (-not (Test-Path "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\NEXUS.lnk")) { throw "No Start menu entry" }
+          ./packaging/smoke_windows.ps1 -Exe $exe
+          # An update from inside NEXUS: the installer runs over a running NEXUS the way the app starts it
+          # (app/services/updates.py installer_command), closes it, and opens it again.
+          $running = Start-Process $exe -ArgumentList "--no-browser" -PassThru
+          for ($i = 0; $i -lt 90; $i++) { try { Invoke-RestMethod "http://127.0.0.1:8766/api/ping" -TimeoutSec 2 | Out-Null; break } catch { Start-Sleep -Seconds 1 } }
+          $before = (Invoke-RestMethod "http://127.0.0.1:8766/api/entries").total
+          $u = Start-Process $setup -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/CLOSEAPPLICATIONS", "/RELAUNCH=1", "/LOG=$env:RUNNER_TEMP\update.log" -PassThru
+          $null = $u.Handle
+          if (-not $u.WaitForExit(600000)) { throw "The update installer didn't finish" }
+          if ($u.ExitCode -ne 0) { Get-Content "$env:RUNNER_TEMP\update.log" -Tail 40; throw "Update installer exit code $($u.ExitCode)" }
+          $back = $false
+          for ($i = 0; $i -lt 90; $i++) { try { Invoke-RestMethod "http://127.0.0.1:8766/api/ping" -TimeoutSec 2 | Out-Null; $back = $true; break } catch { Start-Sleep -Seconds 1 } }
+          if (-not $back) { Get-Content "$env:RUNNER_TEMP\update.log" -Tail 60; throw "NEXUS didn't open again after the update" }
+          $after = (Invoke-RestMethod "http://127.0.0.1:8766/api/entries").total
+          if ($after -ne $before) { throw "The update changed the archive ($before entries before, $after after)" }
+          Write-Host "Updated over a running NEXUS; it opened again with the same $after entries."
+          Get-Process NEXUS -ErrorAction SilentlyContinue | Stop-Process -Force
+          Start-Sleep -Seconds 2
+          # Moving in (what someone with a NEXUS folder does): the app finds the archive in C:\Users\<you>\nexus,
+          # brings it over with its phone address, and restarts with it.
+          $old = "$env:USERPROFILE\nexus"
+          New-Item -ItemType Directory -Force "$old\data" | Out-Null
+          foreach ($f in "nexus.db", "nexus.db-wal", "nexus.db-shm") {
+            if (Test-Path "$env:RUNNER_TEMP\nexus-smoke\data\$f") { Copy-Item "$env:RUNNER_TEMP\nexus-smoke\data\$f" "$old\data\$f" }
+          }
+          Set-Content "$old\.env" "NEXUS_ALLOWED_HOSTS=localhost,gaming-pc.tail1234.ts.net"
+          $keepHome = $env:NEXUS_HOME
+          $env:NEXUS_HOME = "$env:RUNNER_TEMP\nexus-movein"  # a fresh, empty app (it only offers to bring an archive then)
+          Start-Process $exe -ArgumentList "--no-browser" | Out-Null
+          for ($i = 0; $i -lt 90; $i++) { try { Invoke-RestMethod "http://127.0.0.1:8766/api/ping" -TimeoutSec 2 | Out-Null; break } catch { Start-Sleep -Seconds 1 } }
+          $found = @((Invoke-RestMethod "http://127.0.0.1:8766/api/backups/found").archives)
+          if (-not $found.Count) { throw "The app didn't find the archive in $old" }
+          $want = $found[0].entries
+          $body = @{ folder = $found[0].folder } | ConvertTo-Json
+          Invoke-RestMethod "http://127.0.0.1:8766/api/backups/found" -Method Post -ContentType "application/json" -Body $body | Out-Null
+          Invoke-RestMethod "http://127.0.0.1:8766/api/restart" -Method Post | Out-Null
+          for ($i = 0; $i -lt 30; $i++) { try { Invoke-RestMethod "http://127.0.0.1:8766/api/ping" -TimeoutSec 1 | Out-Null; Start-Sleep -Milliseconds 300 } catch { break } }
+          $back = $false
+          for ($i = 0; $i -lt 90; $i++) { try { Invoke-RestMethod "http://127.0.0.1:8766/api/ping" -TimeoutSec 2 | Out-Null; $back = $true; break } catch { Start-Sleep -Seconds 1 } }
+          if (-not $back) { throw "NEXUS didn't come back after bringing the archive" }
+          $last = (Invoke-RestMethod "http://127.0.0.1:8766/api/backups").last_restore
+          $total = (Invoke-RestMethod "http://127.0.0.1:8766/api/entries").total
+          if (-not $last.ok -or $total -ne $want) { throw "Moving in failed: $($last | ConvertTo-Json); $total entries, expected $want" }
+          $phone = Get-Content "$env:NEXUS_HOME\data\phone.json" -Raw
+          if ($phone -notmatch "gaming-pc.tail1234.ts.net") { throw "The phone address didn't come along: $phone" }
+          Write-Host "Brought $total entries and the phone address from $old into the app."
+          Get-Process NEXUS -ErrorAction SilentlyContinue | Stop-Process -Force
+          Start-Sleep -Seconds 2
+          $env:NEXUS_HOME = $keepHome
+          $un = "$env:LOCALAPPDATA\Programs\NEXUS\unins000.exe"
+          Start-Process $un -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART" -Wait
+          # The uninstaller hands over to a copy of itself, so wait for the files to go.
+          for ($i = 0; $i -lt 60 -and (Test-Path $exe); $i++) { Start-Sleep -Seconds 1 }
+          if (Test-Path $exe) { throw "Uninstall left NEXUS.exe behind" }
+          if (-not (Test-Path "$env:NEXUS_HOME\data\nexus.db")) { throw "Uninstall removed the archive" }
+          Write-Host "Installed, started, answered, uninstalled; the archive was kept."
+      - name: Install again with "also install Ollama" ticked (downloads and installs it)
+        shell: pwsh
+        timeout-minutes: 30
+        run: |
+          $setup = "dist\NEXUS-Setup-${{ steps.v.outputs.version }}.exe"
+          # WaitForExit, not -Wait: -Wait also waits for the Ollama app the installer starts (it keeps running).
+          $p = Start-Process $setup -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/TASKS=ollama" -PassThru
+          $null = $p.Handle  # otherwise ExitCode can come back empty
+          if (-not $p.WaitForExit(1500000)) { throw "The installer didn't finish within 25 minutes" }
+          if ($p.ExitCode -ne 0) { throw "Installer exit code $($p.ExitCode)" }
+          $ollama = @("$env:LOCALAPPDATA\Programs\Ollama\ollama.exe", "$env:ProgramFiles\Ollama\ollama.exe") | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $ollama) { throw "Ollama wasn't installed" }
+          & $ollama --version
+          Write-Host "NEXUS and Ollama installed together."
+      - name: Zip the app folder
+        shell: pwsh
+        run: Compress-Archive -Path dist\NEXUS -DestinationPath "dist\NEXUS-${{ steps.v.outputs.version }}-windows.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: NEXUS-windows-${{ steps.v.outputs.version }}
+          path: |
+            dist/NEXUS-Setup-*.exe
+            dist/NEXUS-*-windows.zip
+          retention-days: 30
+
+  mac:
+    if: github.event_name != 'push' || startsWith(github.ref, 'refs/tags/') || contains(github.event.head_commit.message, '[build]') || contains(github.event.head_commit.message, '[release]')
+    runs-on: macos-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12", cache: pip }
+      - name: Install NEXUS and the build tool
+        run: pip install -r requirements.txt -r requirements-local.txt pyinstaller pystray
+      - name: App icon
+        run: |
+          ICONSET="$RUNNER_TEMP/NEXUS.iconset"; mkdir -p "$ICONSET"
+          for size in 16 32 128 256 512; do
+            sips -z $size $size static/icons/mac-icon-1024.png --out "$ICONSET/icon_${size}x${size}.png" >/dev/null
+            sips -z $((size*2)) $((size*2)) static/icons/mac-icon-1024.png --out "$ICONSET/icon_${size}x${size}@2x.png" >/dev/null
+          done
+          iconutil -c icns "$ICONSET" -o packaging/NEXUS.icns
+      - name: Build the app (PyInstaller)
+        run: pyinstaller packaging/nexus.spec --noconfirm --clean
+      - name: Version
+        id: v
+        run: echo "version=$(sed -n 's/^__version__ = "\(.*\)"/\1/p' app/__init__.py)" >> "$GITHUB_OUTPUT"
+      - name: Smoke test the built app
+        env: { NEXUS_HOME: "${{ runner.temp }}/nexus-smoke", NEXUS_PORT: "8765", NEXUS_AI_PROVIDER: local, NEXUS_EMBEDDING_PROVIDER: none,
+               NEXUS_WHISPER_MODEL: tiny, NEXUS_VOICE_CHECK: "1" }
+        run: bash packaging/smoke_mac.sh dist/NEXUS.app/Contents/MacOS/NEXUS
+      - name: Open NEXUS.app the way a double-click does
+        run: |
+          open -n dist/NEXUS.app --args --no-browser
+          for i in $(seq 1 90); do curl -fsS -m 2 http://127.0.0.1:8000/api/ping && break; sleep 1; done
+          curl -fsS http://127.0.0.1:8000/api/ping || { echo "NEXUS.app didn't answer"; tail -50 "$HOME/Library/Application Support/NEXUS/data/nexus.log" 2>/dev/null; exit 1; }
+          ls "$HOME/Library/Application Support/NEXUS/data/nexus.db"
+          pkill -f "NEXUS.app/Contents/MacOS/NEXUS" || true
+      - name: Move in from a NEXUS folder (~/nexus) the way you would, then restart from the page
+        run: |
+          B=http://127.0.0.1:8000
+          mkdir -p ~/nexus/data
+          for f in nexus.db nexus.db-wal nexus.db-shm; do
+            [ -f "$RUNNER_TEMP/nexus-smoke/data/$f" ] && cp "$RUNNER_TEMP/nexus-smoke/data/$f" ~/nexus/data/
+          done
+          echo "NEXUS_ALLOWED_HOSTS=localhost,macbook.tail1234.ts.net" > ~/nexus/.env
+          sleep 2
+          open -n dist/NEXUS.app --args --no-browser
+          for i in $(seq 1 90); do curl -fsS -m 2 $B/api/ping >/dev/null 2>&1 && break; sleep 1; done
+          FOUND="$(curl -fsS $B/api/backups/found)"; echo "$FOUND"
+          FOLDER="$(echo "$FOUND" | python3 -c 'import json,sys; print(json.load(sys.stdin)["archives"][0]["folder"])')"
+          WANT="$(echo "$FOUND" | python3 -c 'import json,sys; print(json.load(sys.stdin)["archives"][0]["entries"])')"
+          curl -fsS -X POST $B/api/backups/found -H 'Content-Type: application/json' -d "{\"folder\": \"$FOLDER\"}" >/dev/null
+          curl -fsS -X POST $B/api/restart >/dev/null
+          for i in $(seq 1 60); do curl -fsS -m 1 $B/api/ping >/dev/null 2>&1 || break; sleep 0.3; done
+          for i in $(seq 1 90); do curl -fsS -m 2 $B/api/ping >/dev/null 2>&1 && break; sleep 1; done
+          curl -fsS $B/api/backups | grep -q '"ok":true' || { echo "not restored"; tail -60 "$HOME/Library/Application Support/NEXUS/data/nexus.log"; exit 1; }
+          curl -fsS $B/api/entries | grep -q "\"total\":$WANT[,}]" || { echo "expected $WANT entries"; exit 1; }
+          grep -q macbook.tail1234.ts.net "$HOME/Library/Application Support/NEXUS/data/phone.json" || { echo "phone address missing"; exit 1; }
+          echo "Brought $WANT entries and the phone address from ~/nexus into NEXUS.app."
+          pkill -f "NEXUS.app/Contents/MacOS/NEXUS" || true
+      - name: Make the .dmg and .zip
+        run: |
+          V="${{ steps.v.outputs.version }}"
+          STAGE="$RUNNER_TEMP/dmg"; mkdir -p "$STAGE"; cp -R dist/NEXUS.app "$STAGE/"; ln -s /Applications "$STAGE/Applications"
+          hdiutil create -volname "NEXUS $V" -srcfolder "$STAGE" -ov -format UDZO "dist/NEXUS-$V.dmg"
+          ditto -c -k --keepParent dist/NEXUS.app "dist/NEXUS-$V-mac.zip"
+      - name: Update from the .dmg the way the app does (swap NEXUS.app, open it again)
+        env: { NEXUS_HOME: "${{ runner.temp }}/nexus-update", NEXUS_DATA_DIR: "${{ runner.temp }}/nexus-update/data" }
+        run: |
+          APPS="$RUNNER_TEMP/Apps"; mkdir -p "$APPS" "$NEXUS_HOME/data"; ditto dist/NEXUS.app "$APPS/NEXUS.app"
+          touch "$APPS/NEXUS.app/Contents/old-copy-marker"
+          python -c "
+          import subprocess, sys; from pathlib import Path
+          from app.services import updates
+          subprocess.run(updates.mac_install_command(Path('dist/NEXUS-${{ steps.v.outputs.version }}.dmg'), Path('$APPS/NEXUS.app')), check=True)"
+          cat "$NEXUS_HOME/data/update.log" || true
+          [ ! -e "$APPS/NEXUS.app/Contents/old-copy-marker" ] || { echo "The app wasn't replaced"; exit 1; }
+          [ ! -e "$APPS/NEXUS.app.old" ] && [ ! -e "$APPS/NEXUS.app.new" ] || { echo "Leftovers"; ls "$APPS"; exit 1; }
+          # opened by macOS (like a double-click), so it uses the usual address and data folder
+          for i in $(seq 1 90); do curl -fsS -m 2 http://127.0.0.1:8000/api/ping && break; sleep 1; done
+          curl -fsS http://127.0.0.1:8000/api/ping || { echo "The updated NEXUS didn't open"; exit 1; }
+          pkill -f "Apps/NEXUS.app/Contents/MacOS/NEXUS --no-browser" || true
+      - name: Install Ollama the way "Install Ollama for me" does (download from ollama.com, into Applications)
+        timeout-minutes: 20
+        env: { NEXUS_DATA_DIR: "${{ runner.temp }}/ollama-setup" }
+        run: |
+          python -c "
+          from app.services import ollama_setup as o
+          o._install(o._download(o.DOWNLOADS['darwin']))
+          print('installed:', o.installed())"
+          ls -d /Applications/Ollama.app 2>/dev/null || ls -d "$HOME/Applications/Ollama.app"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: NEXUS-mac-${{ steps.v.outputs.version }}
+          path: |
+            dist/NEXUS-*.dmg
+            dist/NEXUS-*-mac.zip
+          retention-days: 30
+
+  ios:
+    if: github.event_name != 'push' || startsWith(github.ref, 'refs/tags/') || contains(github.event.head_commit.message, '[build]') || contains(github.event.head_commit.message, '[release]')
+    runs-on: macos-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12", cache: pip }
+      - name: Install NEXUS (the simulator test talks to a real one)
+        run: pip install -r requirements.txt
+      - name: Make the Xcode project (XcodeGen)
+        run: brew install xcodegen && cd ios && xcodegen
+      - name: Build the iPhone app for the simulator
+        run: |
+          set -o pipefail
+          cd ios
+          xcodebuild -project NEXUS.xcodeproj -target NEXUS -sdk iphonesimulator -configuration Debug \
+            SYMROOT="$PWD/build" CODE_SIGNING_ALLOWED=NO build | tail -60
+      - name: Apple's privacy manifest is in the app
+        run: plutil -lint ios/build/Debug-iphonesimulator/NEXUS.app/PrivacyInfo.xcprivacy
+      - name: Run it in the simulator (computer on, then off)
+        timeout-minutes: 15
+        env: { OUT: "${{ runner.temp }}/ios-test" }
+        run: bash ios/ci_simulator_test.sh
+      - name: App Store screenshots (largest iPhone, made-up demo archive)
+        timeout-minutes: 15
+        env: { OUT: "${{ runner.temp }}/app-store-screenshots" }
+        run: bash ios/ci_app_store_screenshots.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: NEXUS-iphone-app-store-screenshots
+          path: ${{ runner.temp }}/app-store-screenshots/*.png
+          retention-days: 30
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: NEXUS-iphone-simulator-test
+          path: |
+            ${{ runner.temp }}/ios-test/*.png
+            ${{ runner.temp }}/ios-test/*.log
+            ${{ runner.temp }}/ios-test/*.txt
+          retention-days: 30
+
+  # Publishes the installers on a GitHub Release page (one stable place to download NEXUS, and what the
+  # apps' "Update now" installs): push a version tag (git tag v0.15.1 && git push origin v0.15.1), or push
+  # a commit whose message contains [release]. The release is named after app/__init__.py's version.
+  release:
+    if: startsWith(github.ref, 'refs/tags/v') || contains(github.event.head_commit.message, '[release]')
+    needs: [tests, windows, mac, ios]
+    runs-on: ubuntu-latest
+    permissions: { contents: write }
+    steps:
+      - uses: actions/checkout@v4
+      - name: Version
+        id: v
+        run: echo "version=$(sed -n 's/^__version__ = "\(.*\)"/\1/p' app/__init__.py)" >> "$GITHUB_OUTPUT"
+      - name: What's new in this version (from CHANGELOG.md)
+        run: |
+          python3 - "${{ steps.v.outputs.version }}" > "$RUNNER_TEMP/notes.md" <<'PY'
+          import re, sys
+          text = open("CHANGELOG.md", encoding="utf-8").read()
+          m = re.search(r"^## " + re.escape(sys.argv[1]) + r"\b.*?\n(.*?)(?=^## |\Z)", text, re.S | re.M)
+          print(m.group(1).strip() if m else "")
+          PY
+          cat >> "$RUNNER_TEMP/notes.md" <<'EOF'
+
+          ---
+          **Windows:** download `NEXUS-Setup-….exe` and double-click it (no admin needed). Windows may say it
+          protected your PC (the app isn't signed yet): More info → Run anyway.
+          **Mac:** download the `.dmg`, open it and drag NEXUS to Applications. The first time, right-click NEXUS →
+          Open (or System Settings → Privacy & Security → Open Anyway).
+          **Already using NEXUS from a folder?** Close it, open the app, and choose **Bring my archive here**.
+          **AI:** the Windows installer can install Ollama; on a Mac get it from https://ollama.com.
+          **iPhone:** see IOS.md.
+          EOF
+      - uses: actions/download-artifact@v4
+        with: { path: dist, pattern: "NEXUS-*", merge-multiple: true }
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.v.outputs.version }}
+          target_commitish: ${{ github.sha }}
+          name: NEXUS ${{ steps.v.outputs.version }}
+          body_path: ${{ runner.temp }}/notes.md
+          make_latest: "true"
+          files: |
+            dist/NEXUS-Setup-*.exe
+            dist/NEXUS-*.dmg
+            dist/NEXUS-*-windows.zip
+            dist/NEXUS-*-mac.zip

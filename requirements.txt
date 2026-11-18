@@ -1,0 +1,16 @@
+fastapi>=0.110
+uvicorn>=0.29
+SQLAlchemy>=2.0
+pydantic>=2.6
+python-multipart>=0.0.9
+python-dotenv>=1.0
+Jinja2>=3.1
+httpx>=0.27          # talks to the local Ollama server
+Pillow>=10.3         # picture previews: TIFF, PSD, TGA, WebP, BMP, WMF ...
+pillow-heif>=0.16    # iPhone photos (HEIC)
+pymupdf>=1.24        # PDF, Illustrator (.ai) and SVG previews
+qrcode>=7.4          # QR code of the phone address (Settings)
+pystray>=0.19; sys_platform == "win32"   # NEXUS icon in the Windows system tray (Open / Quit)
+
+# Development / tests
+pytest>=8.0

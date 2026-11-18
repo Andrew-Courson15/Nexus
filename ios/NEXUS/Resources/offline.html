@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>NEXUS</title>
+<style>
+  body { margin: 0; padding: 48px 24px; font: 17px/1.5 -apple-system, system-ui, sans-serif; background: #0f1114; color: #ebe7df; }
+  @media (prefers-color-scheme: light) { body { background: #f6f4ef; color: #1f1d1a; } }
+  h1 { font-size: 24px; } button { font: inherit; padding: 10px 16px; border-radius: 10px; border: 1px solid #8a8f99; background: none; color: inherit; margin: 6px 6px 0 0; }
+</style></head>
+<body>
+  <h1>NEXUS isn't reachable yet</h1>
+  <p>This app needs to open NEXUS once while your computer is on, so it can save a copy for when the computer is off.</p>
+  <p>Check that the computer is on with NEXUS running, and that Tailscale is on here and on the computer.</p>
+  <button onclick="location.reload()">Try again</button>
+  <button onclick="window.webkit.messageHandlers.nexus.postMessage({action: 'changeServer'})">Change the address</button>
+</body></html>

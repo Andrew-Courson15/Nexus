@@ -1,0 +1,3 @@
+# Local speech-to-text (Whisper) — runs on your own computer.
+# The speech model downloads once on first use (~0.5 GB for "small"), then works offline.
+faster-whisper>=1.1
