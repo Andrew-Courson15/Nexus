@@ -81,7 +81,7 @@ friends as collaborators); if it's public, anyone can download.
 ideas aren't touched):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Andrew-Courson15/Nexus/refs/heads/claude/nexus-ai-os-rhh5si/scripts/get_nexus_mac.sh | bash
+curl -fsSL https://raw.githubusercontent.com/Andrew-Courson15/Nexus/claude/nexus-ai-os-rhh5si/scripts/get_nexus_mac.sh | bash
 ```
 
 ### iPhone

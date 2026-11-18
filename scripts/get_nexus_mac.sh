@@ -1,7 +1,7 @@
 #!/bin/bash
 # Install or update the NEXUS app on a Mac from the latest release, in one Terminal command:
 #
-#   curl -fsSL https://raw.githubusercontent.com/Andrew-Courson15/Nexus/refs/heads/claude/nexus-ai-os-rhh5si/scripts/get_nexus_mac.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/Andrew-Courson15/Nexus/claude/nexus-ai-os-rhh5si/scripts/get_nexus_mac.sh | bash
 #
 # It downloads the newest NEXUS-<version>.dmg, quits a running NEXUS app, puts the new NEXUS.app in
 # Applications and opens it. Because Terminal downloads it (not a browser), the Mac doesn't block it
