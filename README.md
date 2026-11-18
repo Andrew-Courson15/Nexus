@@ -77,6 +77,13 @@ friends as collaborators); if it's public, anyone can download.
    NEXUS, backs up, sets **Open at login**, and quits.
 4. The setup check offers **Install Ollama for me** (the AI) and downloads the AI models.
 
+**Or in one Terminal command** (installs, or updates, without the "can't be opened" warning; your
+ideas aren't touched):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Andrew-Courson15/Nexus/refs/heads/claude/nexus-ai-os-rhh5si/scripts/get_nexus_mac.sh | bash
+```
+
 ### iPhone
 
 - **Now, no Mac needed:** open your NEXUS address in Safari and **Share → Add to Home Screen**
